@@ -1,0 +1,251 @@
+import 'dart:typed_data';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'helpers.dart';
+
+class AppServices {
+  static final auth = FirebaseAuth.instance;
+  static final db = FirebaseFirestore.instance;
+  static final storage = FirebaseStorage.instance;
+
+  static DocumentReference<Map<String, dynamic>> userRef(String uid) =>
+      db.collection('users').doc(uid);
+
+  static Future<Map<String, dynamic>?> currentProfile() async {
+    final uid = auth.currentUser?.uid;
+    if (uid == null) return null;
+    return (await userRef(uid).get()).data();
+  }
+
+  static Future<void> registerTraveler({
+    required String email,
+    required String password,
+    required String fullName,
+    required List<String> interests,
+    required String budgetPreference,
+    required String travelPace,
+  }) async {
+    final result = await auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    await result.user!.updateDisplayName(fullName.trim());
+    await result.user!.sendEmailVerification();
+    await userRef(result.user!.uid).set({
+      'uid': result.user!.uid,
+      'email': email.trim().toLowerCase(),
+      'displayName': fullName.trim(),
+      'role': 'traveler',
+      'status': 'active',
+      'emailVerified': false,
+      'travelInterests': interests,
+      'budgetPreference': budgetPreference,
+      'travelPace': travelPace,
+      'points': 500,
+      'localImpactScore': 0,
+      'rank': 'Bronze',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> registerVendor({
+    required String email,
+    required String password,
+    required String businessName,
+    required String ownerName,
+    required String category,
+    required String contactNumber,
+    required String shopLocation,
+    required String businessHours,
+    required String description,
+    Uint8List? verificationBytes,
+    String? verificationExtension,
+  }) async {
+    final result = await auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    await result.user!.updateDisplayName(businessName.trim());
+    await result.user!.sendEmailVerification();
+    String? verificationUrl;
+    if (verificationBytes != null) {
+      final ref = storage.ref(
+        'vendor_verification/${result.user!.uid}/document.${verificationExtension ?? 'jpg'}',
+      );
+      await ref.putData(verificationBytes);
+      verificationUrl = await ref.getDownloadURL();
+    }
+    await userRef(result.user!.uid).set({
+      'uid': result.user!.uid,
+      'email': email.trim().toLowerCase(),
+      'displayName': businessName.trim(),
+      'businessName': businessName.trim(),
+      'ownerName': ownerName.trim(),
+      'businessCategory': category,
+      'contactNumber': contactNumber.trim(),
+      'shopLocation': shopLocation.trim(),
+      'businessHours': businessHours.trim(),
+      'businessDescription': description.trim(),
+      'verificationDocumentUrl': verificationUrl,
+      'role': 'vendor',
+      'status': 'active',
+      'vendorStatus': 'pending',
+      'emailVerified': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<String> uploadImage({
+    required String folder,
+    required String uid,
+    required Uint8List bytes,
+    required String extension,
+  }) async {
+    final normalizedExtension = extension.toLowerCase();
+    final contentType = switch (normalizedExtension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' || 'heif' => 'image/heic',
+      _ => 'image/jpeg',
+    };
+    final ref = storage.ref(
+      '$folder/$uid/${DateTime.now().millisecondsSinceEpoch}.$normalizedExtension',
+    );
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    return ref.getDownloadURL();
+  }
+
+  static Future<void> reauthenticate(String password) async {
+    final user = auth.currentUser;
+    if (user == null || user.email == null) {
+      throw Exception('No signed-in email account was found.');
+    }
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: password,
+    );
+    await user.reauthenticateWithCredential(credential);
+  }
+
+  static Future<void> deactivateOwnAccount({
+    bool deletionRequested = false,
+  }) async {
+    final user = auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No signed-in user was found.');
+    }
+
+    await userRef(user.uid).update({
+      'status': 'inactive',
+      'deletionRequested': deletionRequested,
+      if (deletionRequested)
+        'deletionRequestedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await auth.signOut();
+  }
+
+  static Future<void> notify({
+    required String userId,
+    required String title,
+    required String message,
+    String type = 'general',
+    String? referenceId,
+  }) async {
+    await db.collection('notifications').add({
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'type': type,
+      'referenceId': referenceId,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> claimVoucher({
+    required String voucherId,
+    required Map<String, dynamic> voucher,
+  }) async {
+    final uid = auth.currentUser!.uid;
+    final voucherRef = db.collection('vouchers').doc(voucherId);
+    final claimRef = db.collection('claimed_vouchers').doc('${uid}_$voucherId');
+    await db.runTransaction((tx) async {
+      final userSnap = await tx.get(userRef(uid));
+      final voucherSnap = await tx.get(voucherRef);
+      final existingClaim = await tx.get(claimRef);
+      final user = userSnap.data() ?? {};
+      final currentVoucher = voucherSnap.data() ?? voucher;
+      final points = (user['points'] ?? 0) as num;
+      final cost = (currentVoucher['pointCost'] ?? 0) as num;
+      final inventory = (currentVoucher['inventoryRemaining'] ?? 0) as num;
+      if (points < cost) throw Exception('Insufficient points.');
+      if (inventory <= 0) throw Exception('This reward is fully claimed.');
+      if (existingClaim.exists) throw Exception('You already claimed this voucher.');
+      final token = randomToken();
+      tx.update(userRef(uid), {
+        'points': FieldValue.increment(-cost),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      tx.update(voucherRef, {
+        'inventoryRemaining': FieldValue.increment(-1),
+        'claimCount': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      tx.set(claimRef, {
+        'userId': uid,
+        'voucherId': voucherId,
+        'vendorId': currentVoucher['vendorId'],
+        'title': currentVoucher['title'],
+        'pointCost': cost,
+        'token': token,
+        'status': 'claimed',
+        'claimedAt': FieldValue.serverTimestamp(),
+        'expiresAt': currentVoucher['expiresAt'],
+      });
+    });
+  }
+
+  static Future<String> redeemClaim(String rawQr, String vendorId) async {
+    final parts = rawQr.split('|');
+    if (parts.length != 2) throw Exception('Unrecognized QR code.');
+    final claimRef = db.collection('claimed_vouchers').doc(parts[0]);
+    final redemptionRef = db.collection('redemptions').doc();
+    String travelerId = '';
+    await db.runTransaction((tx) async {
+      final claimSnap = await tx.get(claimRef);
+      if (!claimSnap.exists) throw Exception('Voucher claim was not found.');
+      final claim = claimSnap.data()!;
+      if (claim['token'] != parts[1]) throw Exception('Invalid voucher token.');
+      if (claim['vendorId'] != vendorId) throw Exception('This voucher belongs to another vendor.');
+      if (claim['status'] != 'claimed') throw Exception('Voucher is already redeemed or unavailable.');
+      final expiry = asDate(claim['expiresAt']);
+      if (expiry != null && expiry.isBefore(DateTime.now())) throw Exception('Voucher has expired.');
+      travelerId = claim['userId'] as String;
+      tx.update(claimRef, {
+        'status': 'redeemed',
+        'redeemedAt': FieldValue.serverTimestamp(),
+      });
+      tx.set(redemptionRef, {
+        'claimId': claimRef.id,
+        'voucherId': claim['voucherId'],
+        'vendorId': vendorId,
+        'travelerId': claim['userId'],
+        'redeemedAt': FieldValue.serverTimestamp(),
+      });
+    });
+    await notify(
+      userId: travelerId,
+      title: 'Redemption successful',
+      message: 'Your voucher was successfully redeemed.',
+      type: 'voucher',
+      referenceId: claimRef.id,
+    );
+    return claimRef.id;
+  }
+}

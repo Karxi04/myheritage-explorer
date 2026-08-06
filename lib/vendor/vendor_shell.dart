@@ -1,0 +1,66 @@
+
+import 'package:flutter/material.dart';
+import '../core/explorer_ui.dart';
+import 'vendor_pages.dart';
+
+class VendorShell extends StatefulWidget {
+  const VendorShell({
+    super.key,
+    required this.profile,
+  });
+
+  final Map<String, dynamic> profile;
+
+  @override
+  State<VendorShell> createState() => _VendorShellState();
+}
+
+class _VendorShellState extends State<VendorShell> {
+  int index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      VendorDashboardPage(profile: widget.profile),
+      const VendorVouchersPage(),
+      const VendorAnalyticsPage(),
+      const VendorQrScannerPage(),
+      VendorProfilePage(profile: widget.profile),
+    ];
+
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+      body: IndexedStack(index: index, children: pages),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index,
+        onDestinationSelected: (value) => setState(() => index = value),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.confirmation_number_outlined),
+            selectedIcon: Icon(Icons.confirmation_number),
+            label: 'Vouchers',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.analytics_outlined),
+            selectedIcon: Icon(Icons.analytics),
+            label: 'Analytics',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.qr_code_scanner),
+            label: 'Scan',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}

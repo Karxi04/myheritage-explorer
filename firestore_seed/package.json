@@ -1,0 +1,14 @@
+{
+  "name": "myheritage-penang-review-image-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Seeds Penang review data, curated place photos and repairs itinerary preview images.",
+  "scripts": {
+    "seed-more-reviews": "node seed_more_penang_reviews_and_images.js",
+    "repair-itinerary-images": "node repair_itinerary_images.js",
+    "setup-review-images": "npm run seed-more-reviews && npm run repair-itinerary-images"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0"
+  }
+}

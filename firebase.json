@@ -1,0 +1,43 @@
+﻿{
+    "flutter":  {
+                    "platforms":  {
+                                      "android":  {
+                                                      "default":  {
+                                                                      "projectId":  "myheritage-4fe2f",
+                                                                      "appId":  "1:83101076806:android:29f95de6243c444260a947",
+                                                                      "fileOutput":  "android/app/google-services.json"
+                                                                  }
+                                                  },
+                                      "dart":  {
+                                                   "lib/firebase_options.dart":  {
+                                                                                     "projectId":  "myheritage-4fe2f",
+                                                                                     "configurations":  {
+                                                                                                            "android":  "1:83101076806:android:29f95de6243c444260a947",
+                                                                                                            "web":  "1:83101076806:web:5665c75a161dc8c860a947"
+                                                                                                        }
+                                                                                 }
+                                               }
+                                  }
+                },
+    "functions":  {
+                      "source":  "functions"
+                  },
+    "hosting":  {
+                    "public":  "build/web",
+                    "ignore":  [
+                                   "firebase.json",
+                                   "**/.*",
+                                   "**/node_modules/**"
+                               ],
+                    "rewrites":  [
+                                     {
+                                         "source":  "/share/**",
+                                         "destination":  "/share/index.html"
+                                     },
+                                     {
+                                         "source":  "**",
+                                         "destination":  "/index.html"
+                                     }
+                                 ]
+                }
+}
