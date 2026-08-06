@@ -1,18 +1,28 @@
-
 part of '../traveler_pages.dart';
 
 class RewardsPage extends StatelessWidget {
   const RewardsPage({super.key});
 
+  String _claimLabel({
+    required int points,
+    required int cost,
+  }) {
+    if (cost <= 0) return 'Voucher unavailable';
+    if (points < cost) {
+      return 'Need ${cost - points} more points';
+    }
+    return 'Claim for $cost points';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final uid = AppServices.auth.currentUser!.uid;
+
     return Scaffold(
-      backgroundColor: ExplorerColors.background,
       appBar: AppBar(
         title: const Text('Rewards'),
         actions: [
           IconButton(
-            tooltip: 'Nearby rewards',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -20,258 +30,205 @@ class RewardsPage extends StatelessWidget {
               ),
             ),
             icon: const Icon(Icons.near_me_outlined),
+            tooltip: 'Nearby rewards',
           ),
           IconButton(
-            tooltip: 'Voucher wallet',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => const VoucherWalletPage(),
               ),
             ),
-            icon: const Icon(Icons.account_balance_wallet_outlined),
+            icon:
+                const Icon(Icons.account_balance_wallet_outlined),
+            tooltip: 'Voucher wallet',
           ),
         ],
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: AppServices.userRef(
-          AppServices.auth.currentUser!.uid,
-        ).snapshots(),
-        builder: (context, userSnapshot) {
-          final points = userSnapshot.data?.data()?['points'] ?? 0;
-          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      body: StreamBuilder<
+          DocumentSnapshot<Map<String, dynamic>>>(
+        stream: AppServices.travelerRef(uid).snapshots(),
+        builder: (context, travelerSnapshot) {
+          if (!travelerSnapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          final traveler =
+              travelerSnapshot.data?.data() ??
+                  const <String, dynamic>{};
+          final points =
+              (traveler['points'] as num?)?.toInt() ?? 0;
+
+          return StreamBuilder<
+              QuerySnapshot<Map<String, dynamic>>>(
             stream: AppServices.db
                 .collection('vouchers')
                 .where('status', isEqualTo: 'active')
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
+            builder: (context, voucherSnapshot) {
+              if (!voucherSnapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
               }
 
-              final docs = snapshot.data!.docs.where((doc) {
-                final expiry = asDate(doc.data()['expiresAt']);
+              final docs = voucherSnapshot.data!.docs.where((doc) {
+                final voucher = doc.data();
+                final expiry = asDate(voucher['expiresAt']);
                 final inventory =
-                    (doc.data()['inventoryRemaining'] ?? 0) as num;
-                return (expiry == null || expiry.isAfter(DateTime.now())) &&
-                    inventory > 0;
+                    (voucher['inventoryRemaining'] as num?)
+                            ?.toInt() ??
+                        0;
+                final cost =
+                    (voucher['pointCost'] as num?)?.toInt() ??
+                        0;
+                final vendorId =
+                    '${voucher['vendorId'] ?? ''}'.trim();
+
+                return (expiry == null ||
+                        expiry.isAfter(DateTime.now())) &&
+                    inventory > 0 &&
+                    cost > 0 &&
+                    vendorId.isNotEmpty;
               }).toList();
 
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
-                children: [
-                  ExplorerCard(
-                    backgroundColor: ExplorerColors.navy,
-                    borderColor: ExplorerColors.navy,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 54,
-                          height: 54,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.workspace_premium_outlined,
-                            color: ExplorerColors.gold,
-                            size: 28,
+              if (docs.isEmpty) {
+                return emptyState(
+                  'No rewards available at the moment',
+                );
+              }
+
+              return ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: docs.length + 1,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Card(
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.stars_rounded),
+                        ),
+                        title: const Text(
+                          'Your reward points',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'AVAILABLE POINTS',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: .6,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                '$points pts',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 25,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
+                        subtitle: const Text(
+                          'Complete approved cultural tasks to earn more points.',
                         ),
-                        OutlinedButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const VoucherWalletPage(),
-                            ),
+                        trailing: Text(
+                          '$points pts',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
                           ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(90, 42),
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white),
-                          ),
-                          child: const Text('Wallet'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const ExplorerSectionTitle(
-                    'Available Rewards',
-                    subtitle:
-                        'Redeem points for benefits from verified local vendors.',
-                  ),
-                  const SizedBox(height: 10),
-                  if (docs.isEmpty)
-                    const ExplorerEmptyState(
-                      title: 'No rewards available',
-                      subtitle:
-                          'New vendor rewards will appear here when published.',
-                      icon: Icons.card_giftcard_outlined,
-                    )
-                  else
-                    ...docs.map(
-                      (doc) => Padding(
-                        padding: const EdgeInsets.only(bottom: 11),
-                        child: _voucherCard(
-                          context,
-                          doc.id,
-                          doc.data(),
-                          points,
                         ),
                       ),
+                    );
+                  }
+
+                  final doc = docs[index - 1];
+                  final voucher = doc.data();
+                  final cost =
+                      (voucher['pointCost'] as num?)?.toInt() ??
+                          0;
+                  final canClaim = cost > 0 && points >= cost;
+
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${voucher['title'] ?? ''}',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              Chip(label: Text('$cost pts')),
+                            ],
+                          ),
+                          Text(
+                            'Vendor: '
+                            '${voucher['vendorName'] ?? 'Registered vendor'}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${voucher['description'] ?? ''}',
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Remaining: '
+                            '${voucher['inventoryRemaining'] ?? 0} • '
+                            'Expires: '
+                            '${asDate(voucher['expiresAt']) == null ? '-' : DateFormat.yMMMd().format(asDate(voucher['expiresAt'])!)}',
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: canClaim
+                                  ? () async {
+                                      try {
+                                        await AppServices
+                                            .claimVoucher(
+                                          voucherId: doc.id,
+                                          voucher: voucher,
+                                        );
+                                        if (context.mounted) {
+                                          showMessage(
+                                            context,
+                                            'Voucher claimed successfully.',
+                                          );
+                                        }
+                                      } catch (error) {
+                                        if (context.mounted) {
+                                          showMessage(
+                                            context,
+                                            error
+                                                .toString()
+                                                .replaceFirst(
+                                                  'Exception: ',
+                                                  '',
+                                                ),
+                                            error: true,
+                                          );
+                                        }
+                                      }
+                                    }
+                                  : null,
+                              child: Text(
+                                _claimLabel(
+                                  points: points,
+                                  cost: cost,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                ],
+                  );
+                },
               );
             },
           );
         },
-      ),
-    );
-  }
-
-  Widget _voucherCard(
-    BuildContext context,
-    String voucherId,
-    Map<String, dynamic> voucher,
-    dynamic userPoints,
-  ) {
-    final cost = (voucher['pointCost'] ?? 0) as num;
-    final canClaim = (userPoints as num) >= cost;
-    final expiry = asDate(voucher['expiresAt']);
-
-    return ExplorerCard(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 110,
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              color: ExplorerColors.goldSoft,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(14),
-              ),
-            ),
-            child: const Icon(
-              Icons.local_activity_outlined,
-              color: ExplorerColors.goldDark,
-              size: 48,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const ExplorerStatusBadge(
-                      label: 'ACTIVE REWARD',
-                      tone: ExplorerStatusTone.success,
-                    ),
-                    const Spacer(),
-                    Text(
-                      '$cost pts',
-                      style: const TextStyle(
-                        color: ExplorerColors.goldDark,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '${voucher['title'] ?? 'Heritage Reward'}',
-                  style: const TextStyle(
-                    color: ExplorerColors.navy,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '${voucher['description'] ?? ''}',
-                  style: const TextStyle(
-                    color: ExplorerColors.muted,
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Remaining: ${voucher['inventoryRemaining'] ?? 0}'
-                  '${expiry == null ? '' : ' • Expires ${DateFormat.yMMMd().format(expiry)}'}',
-                  style: const TextStyle(
-                    color: ExplorerColors.muted,
-                    fontSize: 10,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                ElevatedButton(
-                  onPressed: !canClaim
-                      ? null
-                      : () async {
-                          try {
-                            await AppServices.claimVoucher(
-                              voucherId: voucherId,
-                              voucher: voucher,
-                            );
-                            if (context.mounted) {
-                              showMessage(
-                                context,
-                                'Voucher claimed successfully.',
-                              );
-                            }
-                          } catch (e) {
-                            if (context.mounted) {
-                              showMessage(
-                                context,
-                                e
-                                    .toString()
-                                    .replaceFirst('Exception: ', ''),
-                                error: true,
-                              );
-                            }
-                          }
-                        },
-                  child: Text(
-                    canClaim
-                        ? 'Claim Reward'
-                        : 'Need ${(cost - (userPoints as num)).ceil()} More Points',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

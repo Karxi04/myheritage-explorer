@@ -1,4 +1,4 @@
-part of '../traveler_pages.dart';
+﻿part of '../traveler_pages.dart';
 
 class GeoapifyPlannerResult {
   const GeoapifyPlannerResult({
@@ -106,13 +106,6 @@ class GeoapifyPlanner {
     required String budgetLevel,
     required String travelPace,
   }) async {
-    if (!GeoapifyConfig.isConfigured) {
-      throw Exception(
-        'Geoapify API key is missing. Open '
-        'lib/core/geoapify_config.dart and paste your API key.',
-      );
-    }
-
     final normalizedArea = _normalisePenangArea(area);
     if (normalizedArea.isEmpty) {
       throw Exception('Enter an area before generating the itinerary.');
@@ -121,105 +114,59 @@ class GeoapifyPlanner {
       throw Exception('Select at least one travel interest.');
     }
 
-    final externalInterests = interests
-        .where((interest) => interest != 'Local Business')
-        .where(_interestCategories.containsKey)
-        .toList();
-
-    final cacheInterests = externalInterests
-        .map((interest) => interest.toLowerCase())
-        .toList()
-      ..sort();
-    final cacheKey = [
-      normalizedArea.toLowerCase(),
-      ...cacheInterests,
-    ].join('|');
-
     _GeoapifyArea? locatedArea;
-    var geoapifyPlaces = <Map<String, dynamic>>[];
-    if (externalInterests.isNotEmpty) {
-      final searchRadius = _radiusForHours(availableHours);
-      final timedCacheKey = '$cacheKey|radius:$searchRadius';
-      final cached = _placesCache[timedCacheKey];
-      if (cached != null &&
-          DateTime.now().difference(cached.createdAt) <
-              const Duration(minutes: 30)) {
-        geoapifyPlaces = cached.places
-            .map((place) => Map<String, dynamic>.from(place))
-            .toList();
+    if (GeoapifyConfig.isConfigured) {
+      try {
         locatedArea = await _geocodeArea(normalizedArea);
-      } else {
-        locatedArea = await _geocodeArea(normalizedArea);
-        geoapifyPlaces = await _searchPlaces(
-          area: normalizedArea,
-          locatedArea: locatedArea,
-          interests: externalInterests,
-          radiusMeters: searchRadius,
-        );
-        _placesCache[timedCacheKey] = _GeoapifyCachedPlaces(
-          createdAt: DateTime.now(),
-          places: geoapifyPlaces,
-        );
+      } catch (_) {
+        // Vendor coordinates still allow itinerary generation.
       }
     }
 
-    if (externalInterests.isNotEmpty &&
-        locatedArea != null &&
-        geoapifyPlaces.length < 24) {
-      final expanded = await _searchPlaces(
-        area: normalizedArea,
-        locatedArea: locatedArea,
-        interests: externalInterests,
-        radiusMeters: max(_radiusForHours(availableHours), 25000).round(),
-        usePlaceBoundary: false,
-        limitPerInterest: 45,
-      );
-      geoapifyPlaces = _deduplicate([
-        ...geoapifyPlaces,
-        ...expanded,
-      ]);
-    }
-
-    final firestorePlaces = await _loadFirestorePlaces(
-      area: normalizedArea,
-      interests: interests,
-    );
-    final verifiedVendors = interests.contains('Local Business')
-        ? await _loadVerifiedVendors(normalizedArea)
-        : <Map<String, dynamic>>[];
+    final vendors = await _loadVerifiedVendors(normalizedArea);
     final culturalTasks = await _loadActiveCulturalTasks();
     final reviewStats = await _loadReviewStats();
-    final placeContent = await _loadPlaceContent();
+    final voucherMap = await _loadActiveVendorVouchers();
 
-    final candidates = _deduplicate([
-      ...firestorePlaces,
-      ...verifiedVendors,
-      ...geoapifyPlaces,
-    ]).map((rawPlace) {
-      final place = _mergePlaceContent(
-        rawPlace,
-        placeContent[_normalize('${rawPlace['name'] ?? ''}')],
-      );
-      final placeId = '${place['placeId'] ?? ''}';
-      final reviewNameKey = reviewKeyFor(place);
+    final candidates = vendors.map((vendor) {
+      final vendorId = '${vendor['vendorId'] ?? ''}';
+      final placeId = '${vendor['placeId'] ?? ''}';
       final stats = reviewStats[placeId] ??
-          reviewStats['name:$reviewNameKey'] ??
+          reviewStats['vendor:$vendorId'] ??
           const <String, dynamic>{};
-      final task = _matchCulturalTask(place, culturalTasks);
-      return {
-        ...place,
-        'score': stats['averageRating'] ?? place['score'] ?? 0,
+      final task = _matchCulturalTask(vendor, culturalTasks);
+      final vouchers = voucherMap[vendorId] ?? const <Map<String, dynamic>>[];
+      final matchedInterest = _bestVendorInterest(vendor, interests);
+      final vendorLocation = _coordinateMap(vendor['location']);
+      final distanceMeters = locatedArea == null || vendorLocation == null
+          ? 0.0
+          : _haversineKm(
+                locatedArea.latitude,
+                locatedArea.longitude,
+                vendorLocation['latitude']!,
+                vendorLocation['longitude']!,
+              ) *
+              1000;
+      return <String, dynamic>{
+        ...vendor,
+        'distanceMeters': distanceMeters,
+        'category': matchedInterest,
+        'matchedInterest': matchedInterest,
+        'score': stats['averageRating'] ?? 0,
         'inAppAverageRating': stats['averageRating'] ?? 0,
         'inAppReviewCount': stats['validCount'] ?? 0,
         'flaggedReviewCount': stats['flaggedCount'] ?? 0,
         'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
+        'activeVouchers': vouchers.take(3).toList(),
+        'activeVoucherCount': vouchers.length,
         if (task != null) 'culturalTask': task,
       };
-    }).where((place) {
-      return _budgetAllowed(
-        userBudget: budgetLevel,
-        placeBudget: '${place['budgetLevel'] ?? 'Low'}',
-      );
+    }).where((vendor) {
+      return _vendorMatchesInterests(vendor, interests) &&
+          _budgetAllowed(
+            userBudget: budgetLevel,
+            placeBudget: '${vendor['budgetLevel'] ?? 'Medium'}',
+          );
     }).toList();
 
     if (candidates.isEmpty) {
@@ -243,13 +190,10 @@ class GeoapifyPlanner {
             },
     );
 
-    // Enrich only the final selected stops. This keeps API usage controlled
-    // while giving the itinerary better descriptions, opening hours, cuisine,
-    // contact details and exact place images when Geoapify has them.
     final enriched = await Future.wait(
       built.places.map((place) async {
         try {
-          return await loadPlaceDetails(place);
+          return await ItineraryImageResolver.resolveStop(place);
         } catch (_) {
           return place;
         }
@@ -271,194 +215,78 @@ class GeoapifyPlanner {
     List<String> excludedPlaceIds = const <String>[],
     int limit = _addPlaceSearchLimit,
   }) async {
-    if (!GeoapifyConfig.isConfigured) {
-      throw Exception('Geoapify API key is missing.');
-    }
-
     final normalisedArea = _normalisePenangArea(area);
-    if (normalisedArea.isEmpty) {
-      throw Exception('The itinerary does not contain a valid area.');
-    }
-
-    final locatedArea = await _geocodeArea(normalisedArea);
-    final selectedInterests = interests
-        .where(_interestCategories.containsKey)
-        .toSet()
-        .toList();
-    final effectiveInterests = selectedInterests.isEmpty
-        ? _interestCategories.keys.toList()
-        : selectedInterests;
-    final queryText = query.trim();
-
-    var geoapifyPlaces = <Map<String, dynamic>>[];
-
-    if (queryText.isEmpty) {
-      geoapifyPlaces = await _searchPlaces(
-        area: normalisedArea,
-        locatedArea: locatedArea,
-        interests: effectiveInterests,
-        radiusMeters: 30000,
-        usePlaceBoundary: true,
-        limitPerInterest: 55,
-      );
-    } else {
-      // Use multiple providers for a typed query. Address autocomplete works
-      // well with partial words, while forward geocoding and Places name
-      // search provide exact attractions, restaurants and businesses.
-      for (final variant in _searchQueryVariants(queryText)) {
-        try {
-          geoapifyPlaces.addAll(
-            await _searchAutocompletePenangPlaces(
-              query: variant,
-              area: normalisedArea,
-              locatedArea: locatedArea,
-              selectedInterests: effectiveInterests,
-            ),
-          );
-        } catch (_) {
-          // Forward geocoding and Places search remain available.
-        }
-
-        try {
-          geoapifyPlaces.addAll(
-            await _searchNamedPenangPlaces(
-              query: variant,
-              area: normalisedArea,
-              locatedArea: locatedArea,
-              selectedInterests: effectiveInterests,
-            ),
-          );
-        } catch (_) {
-          // Autocomplete and Places search remain available.
-        }
-      }
-
-      geoapifyPlaces.addAll(
-        await _searchPlaces(
-          area: normalisedArea,
-          locatedArea: locatedArea,
-          interests: effectiveInterests,
-          radiusMeters: 30000,
-          usePlaceBoundary: false,
-          name: queryText,
-          limitPerInterest: 70,
-        ),
-      );
-
-      // A partial word might not be accepted by the Places name parameter.
-      // In that case, retrieve a controlled Penang candidate set and perform
-      // prefix/fuzzy matching locally.
-      if (geoapifyPlaces.length < 15) {
-        final broadCandidates = await _searchPlaces(
-          area: normalisedArea,
-          locatedArea: locatedArea,
-          interests: _interestCategories.keys.toList(),
-          radiusMeters: 30000,
-          usePlaceBoundary: false,
-          limitPerInterest: 35,
-        );
-        geoapifyPlaces.addAll(
-          broadCandidates.where((place) {
-            final searchable = _normalize(
-              '${place['name'] ?? ''} ${place['formattedAddress'] ?? ''} '
-              '${place['category'] ?? ''} '
-              '${(place['tags'] as List?)?.join(' ') ?? ''}',
-            );
-            return _matchesSearchQuery(queryText, searchable);
-          }),
-        );
-      }
-
-      geoapifyPlaces = _deduplicate(geoapifyPlaces);
-    }
-
-    if (queryText.isEmpty && geoapifyPlaces.length < 30) {
-      final missingInterests = _interestCategories.keys
-          .where((interest) => !effectiveInterests.contains(interest))
-          .toList();
-      if (missingInterests.isNotEmpty) {
-        final alternatives = await _searchPlaces(
-          area: normalisedArea,
-          locatedArea: locatedArea,
-          interests: missingInterests,
-          radiusMeters: 30000,
-          usePlaceBoundary: false,
-          limitPerInterest: 35,
-        );
-        geoapifyPlaces = _deduplicate([
-          ...geoapifyPlaces,
-          ...alternatives,
-        ]);
-      }
-    }
-
-    final firestorePlaces = await _loadFirestorePlaces(
-      area: normalisedArea,
-      interests: <String>[...effectiveInterests, 'Local Business'],
-    );
-    final verifiedVendors = await _loadVerifiedVendors(normalisedArea);
+    final vendors = await _loadVerifiedVendors(normalisedArea);
     final culturalTasks = await _loadActiveCulturalTasks();
     final reviewStats = await _loadReviewStats();
-    final placeContent = await _loadPlaceContent();
+    final voucherMap = await _loadActiveVendorVouchers();
     final excluded = excludedPlaceIds.toSet();
-    final queryKey = _normalize(queryText);
+    final queryKey = _normalize(query);
 
-    final candidates = _deduplicate([
-      ...firestorePlaces,
-      ...verifiedVendors,
-      ...geoapifyPlaces,
-    ]).map((rawPlace) {
-      final place = _mergePlaceContent(
-        rawPlace,
-        placeContent[_normalize('${rawPlace['name'] ?? ''}')],
-      );
-      final placeId = '${place['placeId'] ?? ''}';
-      final reviewNameKey = reviewKeyFor(place);
+    final candidates = vendors.map((vendor) {
+      final vendorId = '${vendor['vendorId'] ?? ''}';
+      final placeId = '${vendor['placeId'] ?? ''}';
       final stats = reviewStats[placeId] ??
-          reviewStats['name:$reviewNameKey'] ??
+          reviewStats['vendor:$vendorId'] ??
           const <String, dynamic>{};
-      final task = _matchCulturalTask(place, culturalTasks);
+      final task = _matchCulturalTask(vendor, culturalTasks);
+      final vouchers = voucherMap[vendorId] ?? const <Map<String, dynamic>>[];
+      final matchedInterest = _bestVendorInterest(vendor, interests);
       final enriched = <String, dynamic>{
-        ...place,
-        'score': stats['averageRating'] ?? place['score'] ?? 0,
+        ...vendor,
+        'category': matchedInterest,
+        'matchedInterest': matchedInterest,
+        'score': stats['averageRating'] ?? 0,
         'inAppAverageRating': stats['averageRating'] ?? 0,
         'inAppReviewCount': stats['validCount'] ?? 0,
         'flaggedReviewCount': stats['flaggedCount'] ?? 0,
         'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
+        'activeVouchers': vouchers.take(3).toList(),
+        'activeVoucherCount': vouchers.length,
         if (task != null) 'culturalTask': task,
       };
       enriched['suggestionReason'] = _suggestionReason(enriched);
       return enriched;
-    }).where((place) {
-      final placeId = '${place['placeId'] ?? ''}';
+    }).where((vendor) {
+      final placeId = '${vendor['placeId'] ?? ''}';
       if (placeId.isEmpty || excluded.contains(placeId)) return false;
-      if (queryKey.isEmpty) return true;
-
+      if (queryKey.isEmpty) {
+        return interests.isEmpty || _vendorMatchesInterests(vendor, interests);
+      }
       final searchable = _normalize(
-        '${place['name'] ?? ''} ${place['formattedAddress'] ?? ''} '
-        '${place['category'] ?? ''} '
-        '${(place['tags'] as List?)?.join(' ') ?? ''}',
+        '${vendor['name'] ?? ''} ${vendor['formattedAddress'] ?? ''} '
+        '${vendor['businessCategory'] ?? ''} '
+        '${(vendor['tags'] as List?)?.join(' ') ?? ''}',
       );
-      return _matchesSearchQuery(queryText, searchable);
+      return _matchesSearchQuery(query, searchable);
     }).toList();
 
     candidates.sort((first, second) {
       final firstScore = _addPlaceRank(
         first,
         queryKey: queryKey,
-        selectedInterests: effectiveInterests,
+        selectedInterests: interests,
         budgetLevel: budgetLevel,
       );
       final secondScore = _addPlaceRank(
         second,
         queryKey: queryKey,
-        selectedInterests: effectiveInterests,
+        selectedInterests: interests,
         budgetLevel: budgetLevel,
       );
       return secondScore.compareTo(firstScore);
     });
 
-    return candidates.take(limit).toList();
+    final selected = candidates.take(limit).toList();
+    return Future.wait(
+      selected.map((vendor) async {
+        try {
+          return await ItineraryImageResolver.resolveStop(vendor);
+        } catch (_) {
+          return vendor;
+        }
+      }),
+    );
   }
 
   static List<String> _searchQueryVariants(String query) {
@@ -1334,18 +1162,16 @@ class GeoapifyPlanner {
     String area,
   ) async {
     final snapshot = await AppServices.db
-        .collection('users')
-        .where('role', isEqualTo: 'vendor')
+        .collection('vendors')
         .get();
-    final areaKey = _normalize(area);
 
     return snapshot.docs.where((doc) {
       final data = doc.data();
-      final location = _normalize('${data['shopLocation'] ?? ''}');
+      final address = '${data['shopLocation'] ?? ''}';
       return data['status'] == 'active' &&
           data['vendorStatus'] == 'verified' &&
-          location.isNotEmpty &&
-          (location.contains(areaKey) || areaKey.contains(location));
+          (_isPenangAddress(address) ||
+              '${data['state'] ?? ''}'.toLowerCase() == 'penang');
     }).map((doc) {
       final data = doc.data();
       final rawLocation = data['location'];
@@ -1357,44 +1183,173 @@ class GeoapifyPlanner {
         };
       } else if (rawLocation is Map) {
         location = Map<String, dynamic>.from(rawLocation);
+      } else if (data['latitude'] is num && data['longitude'] is num) {
+        location = {
+          'latitude': (data['latitude'] as num).toDouble(),
+          'longitude': (data['longitude'] as num).toDouble(),
+        };
       }
-      return {
+
+      final plannerCategories = _vendorCategories(data);
+      final category = plannerCategories.firstWhere(
+        (item) => item != 'Local Business',
+        orElse: () => 'Local Business',
+      );
+      final duration = switch (category) {
+        'Food' => 60,
+        'Nature' => 90,
+        'Heritage' || 'Culture' || 'Art' => 75,
+        _ => 45,
+      };
+
+      final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
+      final mapPreview = location == null
+          ? ''
+          : ItineraryImageResolver.staticMapPreview(
+              latitude: location['latitude']!,
+              longitude: location['longitude']!,
+            );
+
+      return <String, dynamic>{
         'placeId': 'vendor_${doc.id}',
-        'geoapifyPlaceId': data['geoapifyPlaceId'],
         'vendorId': doc.id,
-        'source': 'verified_vendor',
+        'source': 'registered_vendor',
         'name':
             '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
+        'businessCategory': '${data['businessCategory'] ?? ''}',
+        'plannerCategories': plannerCategories,
         'description': '${data['businessDescription'] ?? ''}',
         'formattedAddress': '${data['shopLocation'] ?? area}',
         'area': '${data['shopLocation'] ?? area}',
-        'category': 'Local Business',
-        'tags': ['Local Business', '${data['businessCategory'] ?? ''}'],
-        'durationMinutes': 45,
+        'category': category,
+        'tags': plannerCategories,
+        'durationMinutes': duration,
         'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
         'score': (data['score'] as num?)?.toDouble() ?? 0,
-        'imageUrl': '${data['imageUrl'] ?? ''}',
-        'imageType': '${data['imageUrl'] ?? ''}'.trim().isEmpty
-            ? 'none'
-            : 'place_photo',
+        'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
+        'fallbackImageUrl': mapPreview,
+        'mapPreviewUrl': mapPreview,
+        'imageCandidates': [
+          if (imageUrl.isNotEmpty) imageUrl,
+          if (mapPreview.isNotEmpty) mapPreview,
+        ],
+        'imageType': imageUrl.isNotEmpty
+            ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
+            : 'map_preview',
         'dataCompletenessScore': _dataCompletenessScore(
           address: '${data['shopLocation'] ?? area}',
           website: '${data['website'] ?? ''}',
           phone: '${data['contactNumber'] ?? ''}',
           openingHours: '${data['businessHours'] ?? ''}',
-          imageType: '${data['imageUrl'] ?? ''}'.trim().isEmpty
-              ? 'none'
-              : 'place_photo',
+          imageType: imageUrl.isNotEmpty
+              ? 'place_photo'
+              : mapPreview.isNotEmpty
+                  ? 'map_preview'
+                  : 'none',
         ),
-        'matchedInterest': 'Local Business',
+        'matchedInterest': category,
         'phone': '${data['contactNumber'] ?? ''}',
+        'website': '${data['website'] ?? ''}',
         'openingHours': '${data['businessHours'] ?? ''}',
         'location': location,
         'mapUrl': '${data['mapUrl'] ?? ''}',
-        'trustLabel':
-            '${data['trustLabel'] ?? 'Insufficient Data'}',
+        'trustLabel': '${data['trustLabel'] ?? 'Insufficient Data'}',
       };
     }).toList();
+  }
+
+  static List<String> _vendorCategories(Map<String, dynamic> data) {
+    final categories = <String>{'Local Business'};
+    categories.addAll(
+      List<String>.from(
+        data['plannerCategories'] ?? const <String>[],
+      ).where((item) => item.trim().isNotEmpty),
+    );
+    final value = '${data['businessCategory'] ?? ''}'.toLowerCase();
+    if (value.contains('food') ||
+        value.contains('cafe') ||
+        value.contains('restaurant')) {
+      categories.add('Food');
+    }
+    if (value.contains('heritage')) {
+      categories.addAll(['Heritage', 'Culture']);
+    }
+    if (value.contains('craft') ||
+        value.contains('workshop') ||
+        value.contains('culture')) {
+      categories.add('Culture');
+    }
+    if (value.contains('nature') || value.contains('eco')) {
+      categories.add('Nature');
+    }
+    if (value.contains('art')) {
+      categories.addAll(['Art', 'Culture']);
+    }
+    return categories.toList();
+  }
+
+  static bool _vendorMatchesInterests(
+    Map<String, dynamic> vendor,
+    List<String> interests,
+  ) {
+    if (interests.isEmpty || interests.contains('Local Business')) return true;
+    final values = <String>{
+      '${vendor['category'] ?? ''}',
+      '${vendor['matchedInterest'] ?? ''}',
+      ...List<String>.from(
+        vendor['plannerCategories'] ??
+            vendor['tags'] ??
+            const <String>[],
+      ),
+    };
+    return interests.any(values.contains);
+  }
+
+  static String _bestVendorInterest(
+    Map<String, dynamic> vendor,
+    List<String> interests,
+  ) {
+    final values = <String>{
+      ...List<String>.from(
+        vendor['plannerCategories'] ??
+            vendor['tags'] ??
+            const <String>[],
+      ),
+      '${vendor['category'] ?? ''}',
+    };
+    for (final interest in interests) {
+      if (interest != 'Local Business' && values.contains(interest)) {
+        return interest;
+      }
+    }
+    return values.firstWhere(
+      (value) => value.isNotEmpty && value != 'Local Business',
+      orElse: () => 'Local Business',
+    );
+  }
+
+  static Future<Map<String, List<Map<String, dynamic>>>>
+      _loadActiveVendorVouchers() async {
+    final snapshot = await AppServices.db
+        .collection('vouchers')
+        .where('status', isEqualTo: 'active')
+        .get();
+    final now = DateTime.now();
+    final result = <String, List<Map<String, dynamic>>>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final vendorId = '${data['vendorId'] ?? ''}'.trim();
+      final expiry = asDate(data['expiresAt']);
+      final inventory = (data['inventoryRemaining'] as num?)?.round() ?? 0;
+      if (vendorId.isEmpty || inventory <= 0) continue;
+      if (expiry != null && expiry.isBefore(now)) continue;
+      result.putIfAbsent(vendorId, () => []).add({
+        'id': doc.id,
+        ...data,
+      });
+    }
+    return result;
   }
 
   static Future<List<Map<String, dynamic>>> _loadActiveCulturalTasks() async {
@@ -1520,6 +1475,9 @@ class GeoapifyPlanner {
       final placeId = '${data['placeId'] ?? ''}'.trim();
       if (placeId.isNotEmpty) keys.add(placeId);
 
+      final vendorId = '${data['vendorId'] ?? ''}'.trim();
+      if (vendorId.isNotEmpty) keys.add('vendor:$vendorId');
+
       final placeNameKey = _normalize(
         '${data['placeNameKey'] ?? data['placeName'] ?? ''}',
       );
@@ -1574,10 +1532,14 @@ class GeoapifyPlanner {
     List<Map<String, dynamic>> tasks,
   ) {
     final placeId = '${place['placeId'] ?? ''}';
+    final vendorId = '${place['vendorId'] ?? ''}';
     final geoapifyPlaceId = '${place['geoapifyPlaceId'] ?? ''}';
     final nameKey = _normalize('${place['name'] ?? ''}');
 
     for (final task in tasks) {
+      if ('${task['vendorId'] ?? ''}' == vendorId && vendorId.isNotEmpty) {
+        return _taskView(task);
+      }
       if ('${task['placeId'] ?? ''}' == placeId && placeId.isNotEmpty) {
         return _taskView(task);
       }
@@ -1602,6 +1564,11 @@ class GeoapifyPlanner {
       'description': '${task['description'] ?? ''}',
       'rewardPoints': (task['rewardPoints'] as num?)?.round() ?? 0,
       'locationName': '${task['locationName'] ?? ''}',
+      'vendorId': '${task['vendorId'] ?? ''}',
+      'placeId': '${task['placeId'] ?? ''}',
+      'requiredPhotoCategory': '${task['requiredPhotoCategory'] ?? ''}',
+      'mapUrl': '${task['mapUrl'] ?? ''}',
+      'location': task['location'],
     };
   }
 
@@ -1927,13 +1894,19 @@ class GeoapifyPlanner {
     final completeness =
         (place['dataCompletenessScore'] as num?)?.toDouble() ?? 0;
     final source = '${place['source'] ?? ''}';
-    final sourceBonus = source == 'verified_vendor'
-        ? 0.42
-        : source == 'firestore'
-            ? 0.34
-            : 0.16;
+    final sourceBonus = source == 'registered_vendor'
+        ? 0.52
+        : source == 'verified_vendor'
+            ? 0.42
+            : source == 'firestore'
+                ? 0.34
+                : 0.16;
     final taskBonus =
         place['culturalTask'] == null ? 0.0 : 0.32;
+    final voucherBonus =
+        ((place['activeVoucherCount'] as num?)?.round() ?? 0) > 0
+            ? 0.14
+            : 0.0;
     final distanceBonus = distanceMeters <= 0
         ? 0.0
         : max(0.0, 1.0 - distanceMeters / 7000) * 0.18;
@@ -1954,6 +1927,7 @@ class GeoapifyPlanner {
         min(reviewCount / 10, 1.0) * 0.18 +
         sourceBonus +
         taskBonus +
+        voucherBonus +
         distanceBonus +
         min(completeness, 1.0) * 0.20 +
         imageBonus +
@@ -2179,7 +2153,7 @@ class GeoapifyPlanner {
     if (reasons.isEmpty) {
       return 'Selected because it fits your trip preferences.';
     }
-    return reasons.take(3).join(' • ');
+    return reasons.take(3).join(' - ');
   }
 
   static int _defaultDuration(String category) {
@@ -2806,14 +2780,14 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
 
       final uid = AppServices.auth.currentUser?.uid;
       if (uid != null) {
-        await AppServices.userRef(uid).set({
+        await AppServices.travelerRef(uid).set({
           'lastPlannerPreferences': {
             'area': area.text.trim(),
             'availableHours': availableHours,
             'interests': selectedInterests.toList(),
             'budgetLevel': budgetLevel,
             'travelPace': pace,
-            'placeSource': 'Geoapify and Firestore',
+            'placeSource': 'Registered MyHeritage vendors in Penang',
           },
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -2822,8 +2796,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       if (generated.places.isEmpty && mounted) {
         showMessage(
           context,
-          'No suitable itinerary found. Try a more specific area or '
-          'increase the available time.',
+          'No registered vendor matches the selected interests and budget. Try another Penang area or interest.',
           error: true,
         );
       }
@@ -2831,7 +2804,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       if (mounted) {
         showMessage(
           context,
-          'The Geoapify request took too long. Please try again.',
+          'The map-area lookup took too long. Please try again.',
           error: true,
         );
       }
@@ -2877,6 +2850,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           return <String, dynamic>{
             'placeId': data['placeId'],
             'geoapifyPlaceId': data['geoapifyPlaceId'],
+            'vendorId': data['vendorId'],
             'mapUrl': data['mapUrl'],
             'source': data['source'],
             'sequence': entry.key + 1,
@@ -2914,10 +2888,13 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             'inAppReviewCount': data['inAppReviewCount'],
             'trustLabel': data['trustLabel'],
             'location': data['location'],
+            'culturalTask': task,
             'culturalTaskId':
                 task?['id'] ?? data['activeCulturalTaskId'],
             'culturalTaskTitle': task?['title'],
             'culturalTaskRewardPoints': task?['rewardPoints'],
+            'activeVouchers': data['activeVouchers'],
+            'activeVoucherCount': data['activeVoucherCount'],
           };
         }),
       );
@@ -2931,7 +2908,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         'budgetLevel': budgetLevel,
         'interests': selectedInterests.toList(),
         'travelPace': pace,
-        'placeSource': 'Geoapify, Wikimedia and Firestore',
+        'placeSource': 'Registered MyHeritage vendors in Penang',
         'totalEstimatedMinutes': totalEstimatedMinutes,
         'remainingMinutes': remainingMinutes,
         'stops': resolvedStops,
@@ -3176,7 +3153,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             const SizedBox(height: 7),
             Text(
               '${(totalEstimatedMinutes / 60).toStringAsFixed(1)} hours '
-              'planned • $remainingMinutes minutes remaining',
+              'planned - $remainingMinutes minutes remaining',
               style: const TextStyle(
                 color: ExplorerColors.muted,
                 fontSize: 11,
@@ -3198,8 +3175,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             const ExplorerCard(
               child: ExplorerEmptyState(
                 title: 'Generate your itinerary',
-                subtitle: 'Select your preferences and generate places using '
-                    'Geoapify and Firestore.',
+                subtitle: 'Select your preferences to generate an itinerary using verified Penang vendors registered in MyHeritage.',
                 icon: Icons.route_outlined,
               ),
             )
@@ -3217,7 +3193,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           const SizedBox(height: 6),
           const Center(
             child: Text(
-              'Powered by Geoapify | © OpenStreetMap contributors',
+              'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: ExplorerColors.muted,
@@ -3322,7 +3298,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                     height: 1.4,
                   ),
                 ),
-                if ('${data['suggestionReason'] ?? ''}'
+                if (cleanDisplayText(data['suggestionReason'])
                     .trim()
                     .isNotEmpty) ...[
                   const SizedBox(height: 9),
@@ -3337,7 +3313,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       const SizedBox(width: 5),
                       Expanded(
                         child: Text(
-                          '${data['suggestionReason']}',
+                          cleanDisplayText(data['suggestionReason']),
                           style: const TextStyle(
                             color: ExplorerColors.navy,
                             fontSize: 10,
@@ -3409,7 +3385,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                               const SizedBox(height: 2),
                               Text(
                                 '${task['description'] ?? ''}'
-                                '${task['rewardPoints'] == null ? '' : ' • ${task['rewardPoints']} points'}',
+                                '${task['rewardPoints'] == null ? '' : ' - ${task['rewardPoints']} points'}',
                                 style: const TextStyle(
                                   color: ExplorerColors.muted,
                                   fontSize: 10,
@@ -3464,3 +3440,4 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     );
   }
 }
+

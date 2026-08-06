@@ -1,0 +1,93 @@
+part of '../auth_gate.dart';
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: AppServices.auth.userChanges(),
+      builder: (context, authSnapshot) {
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final user = authSnapshot.data;
+        if (user == null) return const RoleSelectPage();
+
+        return StreamBuilder<AccountProfile?>(
+          stream: AppServices.accountProfileStream(user.uid),
+          builder: (context, profileSnapshot) {
+            if (profileSnapshot.connectionState ==
+                    ConnectionState.waiting &&
+                !profileSnapshot.hasData) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (profileSnapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      '${profileSnapshot.error}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final account = profileSnapshot.data;
+            if (account == null) {
+              return MissingProfilePage(uid: user.uid);
+            }
+
+            final role = account.role;
+            final profile = account.data;
+
+            if (profile['status'] != 'active') {
+              return const AccountDisabledPage();
+            }
+
+            if (!user.emailVerified && role != 'admin') {
+              return EmailVerificationPage(user: user);
+            }
+
+            if (role == 'admin') {
+              if (!kIsWeb) {
+                return const PlatformRestrictionPage(
+                  title: 'Admin website only',
+                  message:
+                      'Open the Flutter Web version to access the administrator portal.',
+                );
+              }
+              return AdminShell(profile: profile);
+            }
+
+            if (kIsWeb) {
+              return const PlatformRestrictionPage(
+                title: 'Mobile application only',
+                message:
+                    'Traveler and vendor accounts must use the Android or iOS mobile application.',
+              );
+            }
+
+            if (role == 'vendor') {
+              if (profile['vendorStatus'] != 'verified') {
+                return VendorPendingPage(profile: profile);
+              }
+              return VendorShell(profile: profile);
+            }
+
+            return TravelerShell(profile: profile);
+          },
+        );
+      },
+    );
+  }
+}

@@ -640,7 +640,7 @@ class _SavedItineraryStopCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${stop['category'] ?? 'Place'} • $visitMinutes minutes',
+                        '${stop['category'] ?? 'Place'} - $visitMinutes minutes',
                         style: const TextStyle(
                           color: ExplorerColors.goldDark,
                           fontSize: 10,

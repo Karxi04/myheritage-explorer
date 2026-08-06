@@ -1,0 +1,1061 @@
+{
+  "createdAt": "2026-08-06T11:33:42.409Z",
+  "users": [
+    {
+      "id": "U28bVCO2xjhzOROgFM173N5Uo233",
+      "data": {
+        "emailVerified": true,
+        "uid": "U28bVCO2xjhzOROgFM173N5Uo233",
+        "role": "admin",
+        "displayName": "System Administrator",
+        "name": "System Administrator",
+        "fullName": "System Administrator",
+        "email": "admin@myheritage.com",
+        "status": "active",
+        "updatedAt": {
+          "__type": "Timestamp",
+          "value": "2026-08-05T11:23:37.354Z"
+        }
+      }
+    },
+    {
+      "id": "oMaM8igQFzRic6GUmcOmqNIF2Aq2",
+      "data": {
+        "role": "traveler",
+        "localImpactScore": 0,
+        "displayName": "Jia Xi",
+        "travelPace": "Balanced",
+        "points": 500,
+        "uid": "oMaM8igQFzRic6GUmcOmqNIF2Aq2",
+        "rank": "Bronze",
+        "email": "changjiaxi04@gmail.com",
+        "budgetPreference": "Medium",
+        "status": "active",
+        "createdAt": {
+          "__type": "Timestamp",
+          "value": "2026-08-04T01:14:21.968Z"
+        },
+        "emailVerified": true,
+        "travelInterests": [
+          "Heritage"
+        ],
+        "lastPlannerPreferences": {
+          "placeSource": "Geoapify and Firestore",
+          "budgetLevel": "Medium",
+          "travelPace": "Balanced",
+          "area": "George Town, Penang",
+          "availableHours": 4,
+          "interests": [
+            "Food"
+          ]
+        },
+        "updatedAt": {
+          "__type": "Timestamp",
+          "value": "2026-08-06T07:08:20.698Z"
+        }
+      }
+    },
+    {
+      "id": "zfmowQqCSOXcqozr8ThfKLaSgfD2",
+      "data": {
+        "role": "traveler",
+        "localImpactScore": 0,
+        "displayName": "Kar Xi",
+        "travelPace": "Balanced",
+        "uid": "zfmowQqCSOXcqozr8ThfKLaSgfD2",
+        "rank": "Bronze",
+        "travelInterests": [
+          "Traditional Food"
+        ],
+        "email": "changkarxi@gmail.com",
+        "budgetPreference": "Medium",
+        "status": "active",
+        "createdAt": {
+          "__type": "Timestamp",
+          "value": "2026-08-06T02:05:31.086Z"
+        },
+        "emailVerified": true,
+        "lastPlannerPreferences": {
+          "area": "George Town, Penang",
+          "placeSource": "Registered MyHeritage vendors in Penang",
+          "budgetLevel": "Medium",
+          "availableHours": 4,
+          "interests": [
+            "Traditional Food",
+            "Food"
+          ],
+          "travelPace": "Balanced"
+        },
+        "updatedAt": {
+          "__type": "Timestamp",
+          "value": "2026-08-06T11:04:57.428Z"
+        },
+        "points": 400
+      }
+    }
+  ],
+  "admins": [],
+  "travelers": [],
+  "vendors": [
+    {
+      "id": "05SsV91wUBe8YtQ0EfG1BB66sZV2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.297922,
+        "longitude": 100.260347
+      }
+    },
+    {
+      "id": "0My71TTyFdgg9d3IKFM9Fe2sVhB3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.461449,
+        "longitude": 100.214313
+      }
+    },
+    {
+      "id": "0WOoUimPOVTKJ4axt83wvvOv4JD3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.44066,
+        "longitude": 100.305786
+      }
+    },
+    {
+      "id": "0xcPkLKiAfWxjdeto6JmgbasVTF3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.462439,
+        "longitude": 100.245308
+      }
+    },
+    {
+      "id": "16AA6tkC54a7rG1YDAvUgzZDFfV2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.160835,
+        "longitude": 100.4848
+      }
+    },
+    {
+      "id": "1Q3fRhga54NqjcDpFRPK2juBSCj2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.332134,
+        "longitude": 100.289543
+      }
+    },
+    {
+      "id": "2Eu50Wsm9hSo9SbuVsNmRQ37fo62",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.389667,
+        "longitude": 100.312142
+      }
+    },
+    {
+      "id": "2KvB0FCRLhPeR8M7fjQ0uXlwwBI2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.458977,
+        "longitude": 100.305351
+      }
+    },
+    {
+      "id": "2o6a6SAFw8f5blStU3zPOIymU9F2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.317604,
+        "longitude": 100.289834
+      }
+    },
+    {
+      "id": "38W6f1Wm2ghSsA7NTeM08fylbyn1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.410724,
+        "longitude": 100.27817
+      }
+    },
+    {
+      "id": "3QBUFpADCuVK4EQIsKoAQWJFhmx2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.405292,
+        "longitude": 100.407609
+      }
+    },
+    {
+      "id": "3XqYTTiPJPaTX4dwPukkOKKXp6Y2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.367,
+        "longitude": 100.30562
+      }
+    },
+    {
+      "id": "3csj8NEZ9mONj7GoT4Be4fkqHsC2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.166702,
+        "longitude": 100.485225
+      }
+    },
+    {
+      "id": "40kHrNn6oOQlDlPjc5JdjRdNok23",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.523772,
+        "longitude": 100.433662
+      }
+    },
+    {
+      "id": "4Hee85G9JaSxWUPBIzwlo7d6pIP2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.31513,
+        "longitude": 100.271802
+      }
+    },
+    {
+      "id": "4RIoHfEsXdT4RoCv9rJhgUknwaw2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.405317,
+        "longitude": 100.27117
+      }
+    },
+    {
+      "id": "54OCGSMan0eGCaSDBW2WjqGmGS53",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.464185,
+        "longitude": 100.215552
+      }
+    },
+    {
+      "id": "57CYuD42ZKX94WNPGzjgU33tQGB3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.460403,
+        "longitude": 100.304334
+      }
+    },
+    {
+      "id": "5gONiXMu69NTeqR5unztu2SmWLm2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.391146,
+        "longitude": 100.316341
+      }
+    },
+    {
+      "id": "64ye8VQqmrfstdc4rCusGA8sLqC2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.517101,
+        "longitude": 100.420746
+      }
+    },
+    {
+      "id": "7GIX1U3I9VdhKWkhKlzFPYoIPap1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.358773,
+        "longitude": 100.228972
+      }
+    },
+    {
+      "id": "7y08t8eDaWUPXxe99qSoTgGaTyJ2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.403101,
+        "longitude": 100.401321
+      }
+    },
+    {
+      "id": "8FOvlgSRxcR7iMmC7EFr3F7OjfB2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.28508,
+        "longitude": 100.475696
+      }
+    },
+    {
+      "id": "8UZHOVvKCUgg8zBahdsjUDL2Xyv2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.364355,
+        "longitude": 100.305305
+      }
+    },
+    {
+      "id": "8ZumT9Vy2Ffnk2bdXizuO6x7v002",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.439763,
+        "longitude": 100.303484
+      }
+    },
+    {
+      "id": "903chPuYu4TmM0dl8iURkGmn8ta2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.350068,
+        "longitude": 100.234197
+      }
+    },
+    {
+      "id": "9kylPc8st0cX1Qtg65yYcAw4Zhk2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.418422,
+        "longitude": 100.32113
+      }
+    },
+    {
+      "id": "A6pYjHeMxsOcr9WQv8ryfGO01ov1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.323792,
+        "longitude": 100.286229
+      }
+    },
+    {
+      "id": "AK7Zs1AzwwR4GB3cE8vS8qh1C1r2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.463822,
+        "longitude": 100.306681
+      }
+    },
+    {
+      "id": "Ba9KCbmxfpfieyhQ29qzhjY2EhA2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.464465,
+        "longitude": 100.296187
+      }
+    },
+    {
+      "id": "CTdaNiiaWdWroBVm2DkVQgjdrXz2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.520741,
+        "longitude": 100.423455
+      }
+    },
+    {
+      "id": "CZa5zEzzDNWaqmdpUEHepXEtyDz2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.361787,
+        "longitude": 100.465287
+      }
+    },
+    {
+      "id": "EE6HdCX5KoebJLzCGV3UP78DdCh1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.16083,
+        "longitude": 100.485981
+      }
+    },
+    {
+      "id": "EoYHNvDSIqOETTiXGWBwB4gd2f13",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.326548,
+        "longitude": 100.292044
+      }
+    },
+    {
+      "id": "F8KoAmNBwXONRuYzLA8HiVr2Apg2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.469185,
+        "longitude": 100.242334
+      }
+    },
+    {
+      "id": "G4fMA7XeBlSfEVLKOGhTqEmjrCv2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.47686,
+        "longitude": 100.252304
+      }
+    },
+    {
+      "id": "G69O2bpKBDeq8Oyn9t9hyn2QsCh1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.388543,
+        "longitude": 100.394429
+      }
+    },
+    {
+      "id": "GZmVcoNikbOVP42fVUeHDhXtNAl1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.16878,
+        "longitude": 100.47802
+      }
+    },
+    {
+      "id": "GazC00wCx6Ws3TND6qp1EIpf6Uq2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.385899,
+        "longitude": 100.319018
+      }
+    },
+    {
+      "id": "IgvDMxXYF4ejdpQ6BqQHSONmZKv1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.328922,
+        "longitude": 100.258673
+      }
+    },
+    {
+      "id": "Im9V9Qjsi1TeXDsPTLopsTq8vyl1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.372964,
+        "longitude": 100.451595
+      }
+    },
+    {
+      "id": "JJPlbxQxX5heo17ZhoFCT2evjMx2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.298068,
+        "longitude": 100.262962
+      }
+    },
+    {
+      "id": "JtSOS2uJhvh0ZU0t3unkFU7b37a2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.296752,
+        "longitude": 100.267418
+      }
+    },
+    {
+      "id": "Jw4iEcqNi2eUsMhQk4PhxqA4iOf2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.472305,
+        "longitude": 100.23782
+      }
+    },
+    {
+      "id": "JyXgRxkyQgaS5LVtGvGo0zEsQpq2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.342593,
+        "longitude": 100.24158
+      }
+    },
+    {
+      "id": "KHeCBsZWMBbqPMrNP0ujgChkDM12",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.362322,
+        "longitude": 100.298774
+      }
+    },
+    {
+      "id": "KVfhrNkmaQMEPMDIJfIjm7Qrg573",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.328338,
+        "longitude": 100.269438
+      }
+    },
+    {
+      "id": "KrEZbaz4dkgBs68YgM9qVVtjZQA3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.362912,
+        "longitude": 100.449415
+      }
+    },
+    {
+      "id": "LMLw8WAGGrSn9mUb6KsZrwiUBuA2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.365746,
+        "longitude": 100.306023
+      }
+    },
+    {
+      "id": "MN0y7odRCCWgNrlToAuPU3F1Ltl2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.405152,
+        "longitude": 100.365209
+      }
+    },
+    {
+      "id": "N3KZs9WgeIevbWa4V09m50mRd3n2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.392062,
+        "longitude": 100.3671
+      }
+    },
+    {
+      "id": "NPmY2sRBvwfp3Oc5p1gDEtuV0ft1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.463951,
+        "longitude": 100.215438
+      }
+    },
+    {
+      "id": "NmiljOTut1gpuTMPsLUxAnnmjKr1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.523641,
+        "longitude": 100.427703
+      }
+    },
+    {
+      "id": "NqDtlpaZ73YBfj2yxh8pJTNJKdF2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.39228,
+        "longitude": 100.401205
+      }
+    },
+    {
+      "id": "NqMRWIljP5ZLvsGrDKmJeVJ9O7i2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.444783,
+        "longitude": 100.313462
+      }
+    },
+    {
+      "id": "O3VmEeuXvVP5aSTJqBr0a4qHZxk2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.420472,
+        "longitude": 100.327346
+      }
+    },
+    {
+      "id": "OaufbysiR4QQgZqafWEGuz3Kr9l2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.400631,
+        "longitude": 100.272701
+      }
+    },
+    {
+      "id": "QhSwpTzwLHYTOo94BopeCTWAq7f2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.391662,
+        "longitude": 100.321487
+      }
+    },
+    {
+      "id": "Qj0p0SqyNAhSkXGKNgBpSYQmxa53",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.46019,
+        "longitude": 100.311356
+      }
+    },
+    {
+      "id": "QpeZ872HEWeURi50QoZNEJ86s2z1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.423086,
+        "longitude": 100.317379
+      }
+    },
+    {
+      "id": "T7aaPgQsgGPO5K2shjREH0XFn3B3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.405792,
+        "longitude": 100.325663
+      }
+    },
+    {
+      "id": "TA2r3H9MlPYS6DtBt5yzwmX7L3z1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.343335,
+        "longitude": 100.235802
+      }
+    },
+    {
+      "id": "UR4RMEpr4wOXwlfigdnR6wQldgU2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.414652,
+        "longitude": 100.335431
+      }
+    },
+    {
+      "id": "UmJNzClVm1Qy3JqsG0hO1RCkK3R2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.420435,
+        "longitude": 100.328761
+      }
+    },
+    {
+      "id": "UqInypwFy2ZjekkbVLFCmCDoVRH2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.430224,
+        "longitude": 100.304555
+      }
+    },
+    {
+      "id": "VeaucOoGE9VuU1C1twNXj9eIrMd2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.403959,
+        "longitude": 100.275956
+      }
+    },
+    {
+      "id": "VrsIzVUgDlbSuokcKV6DTiiZkos1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.461589,
+        "longitude": 100.309284
+      }
+    },
+    {
+      "id": "Vs0phEx12gXHssslHwrjsVQT7hK2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.304914,
+        "longitude": 100.259809
+      }
+    },
+    {
+      "id": "WA9KffGyI7ZB19FuMFQqXgz0fBU2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.514257,
+        "longitude": 100.433816
+      }
+    },
+    {
+      "id": "WAFR9nTEtCcCucfk30HFKyBTllw2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.276713,
+        "longitude": 100.4799
+      }
+    },
+    {
+      "id": "XeKmHWbKlBbNUSRpsVEGJooGi3L2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.36262,
+        "longitude": 100.291665
+      }
+    },
+    {
+      "id": "Y5xQr029eHQo6C8sxcDDeR74V2N2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.280245,
+        "longitude": 100.484133
+      }
+    },
+    {
+      "id": "ZSWJiaFbeEcufwUWCnKkh0Zmsdt1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.372816,
+        "longitude": 100.293512
+      }
+    },
+    {
+      "id": "aYF7RXQgT3Psgqreg3w6qcNOBQx1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.281602,
+        "longitude": 100.468446
+      }
+    },
+    {
+      "id": "abqSp8fm37bj3wKx7jM5Yzsypv03",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.462091,
+        "longitude": 100.215186
+      }
+    },
+    {
+      "id": "aqYsbHGZCqZOlbek3SHynyzdUf72",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.478201,
+        "longitude": 100.241358
+      }
+    },
+    {
+      "id": "bDblC6yym4dVas9D1XAjvO50Rgk1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.510479,
+        "longitude": 100.425324
+      }
+    },
+    {
+      "id": "bMOt6g57tPXuI0tEmW8TcsyrPqt2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.402753,
+        "longitude": 100.396298
+      }
+    },
+    {
+      "id": "cZ9LRZOwd5WBeOsFSpItS8yLFSq1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.39414,
+        "longitude": 100.404459
+      }
+    },
+    {
+      "id": "cZAR0h6hIJXFNkCHoNhKcW6RNRp2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.430278,
+        "longitude": 100.308085
+      }
+    },
+    {
+      "id": "fF37JLCIBsOBmvwBHouGhldO6JB2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.321599,
+        "longitude": 100.290227
+      }
+    },
+    {
+      "id": "ggA6auDym7XpBuFsSvKwXtnndHl1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.410202,
+        "longitude": 100.335654
+      }
+    },
+    {
+      "id": "grMeJ0CYNxWPqHvSXBNHqEbU75J2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.160719,
+        "longitude": 100.476864
+      }
+    },
+    {
+      "id": "h3vz8BrW9YNRgCwqiwKA4yXt66g2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.463691,
+        "longitude": 100.209506
+      }
+    },
+    {
+      "id": "h5hAbhZEA3XxMp05xfMNTDLrnSF3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.368013,
+        "longitude": 100.461996
+      }
+    },
+    {
+      "id": "hhFqPeS7sEhpB66aFaGlAsBLDX83",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.458011,
+        "longitude": 100.301839
+      }
+    },
+    {
+      "id": "iFca3as5kMNm9LGt3UvoJS5yOWI3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.289715,
+        "longitude": 100.256064
+      }
+    },
+    {
+      "id": "iVNvbfI4P8WqGVxyi29Yj08wL9R2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.322753,
+        "longitude": 100.269051
+      }
+    },
+    {
+      "id": "iZeAfM1VBGe9wZ3PMCsFLB7kThD2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.395997,
+        "longitude": 100.370606
+      }
+    },
+    {
+      "id": "iaD64qXv40ZikxZRNuGk61muuJ52",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.343787,
+        "longitude": 100.226672
+      }
+    },
+    {
+      "id": "intmO2a2d1UI2F23FXKjT8qcpa23",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.463556,
+        "longitude": 100.314037
+      }
+    },
+    {
+      "id": "j3q0cKrmFjbbbGteNuoQE7J9HBU2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.434398,
+        "longitude": 100.307195
+      }
+    },
+    {
+      "id": "j6kUg8WRdGVnhPR2j46B7BVMFdB2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.312358,
+        "longitude": 100.2648
+      }
+    },
+    {
+      "id": "jAb8unEmJUh86wUVLDk2DygntQF3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.407323,
+        "longitude": 100.361685
+      }
+    },
+    {
+      "id": "jfXYO7AnlHT5cYRXRQERqhuAVGV2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.354667,
+        "longitude": 100.241041
+      }
+    },
+    {
+      "id": "lItl2JaMMQbjkqcZucBW20hkz8L2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.473298,
+        "longitude": 100.236809
+      }
+    },
+    {
+      "id": "oJvRmVRwxrMneqESE69QiH0n5Ej1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.391379,
+        "longitude": 100.309821
+      }
+    },
+    {
+      "id": "oPphX74ssnf3uYR377IPjldkigZ2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.434134,
+        "longitude": 100.312847
+      }
+    },
+    {
+      "id": "ohHQ9pJJUFc91crHrIRULex0lCm1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.45187,
+        "longitude": 100.214448
+      }
+    },
+    {
+      "id": "oxl1abJ6FRM65z8zDTsD4T61ZMs1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.38905,
+        "longitude": 100.317071
+      }
+    },
+    {
+      "id": "p0pwbc4qz7ThutzOTBOUcIfTOKR2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.431838,
+        "longitude": 100.303315
+      }
+    },
+    {
+      "id": "p0tZVZhLtCheerwwk73H8sZ3cQr2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.442623,
+        "longitude": 100.305421
+      }
+    },
+    {
+      "id": "pIRxQyQh82W2aDp9tXe1QHorgzv1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.430879,
+        "longitude": 100.306827
+      }
+    },
+    {
+      "id": "pLusb5yEAuQU98ODQKxedTplk3S2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.360745,
+        "longitude": 100.460961
+      }
+    },
+    {
+      "id": "pN0eJiGFY0MMPSvMLAmgHhH2Ks22",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.400191,
+        "longitude": 100.275771
+      }
+    },
+    {
+      "id": "qghQuv7grKPWa1zTENNGSFRJ62w2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.27257,
+        "longitude": 100.472385
+      }
+    },
+    {
+      "id": "rJIZXt7mpGSCD2sjf1pPegAer652",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.465375,
+        "longitude": 100.313471
+      }
+    },
+    {
+      "id": "rMOG7EIeQ1fQ6j4A73ofWppVGtY2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.406387,
+        "longitude": 100.365674
+      }
+    },
+    {
+      "id": "s05DG1SN2JTTNPkpw3p3nbpC5W03",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.394582,
+        "longitude": 100.271231
+      }
+    },
+    {
+      "id": "tUiKMycbp3fowGld3yWODcZ2tIA3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.296298,
+        "longitude": 100.261695
+      }
+    },
+    {
+      "id": "uLfDyFEWqQUiEox1zWM7oVSXjYp1",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.396134,
+        "longitude": 100.36598
+      }
+    },
+    {
+      "id": "vH1YwADoi0OC853mufEZ9Ch07so2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.472303,
+        "longitude": 100.294798
+      }
+    },
+    {
+      "id": "vhahKziIOrZuFiEdET31a70wYiF3",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.172248,
+        "longitude": 100.483263
+      }
+    },
+    {
+      "id": "wSMvfJYZvkcFW47GsR57UVLRfUy2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.453107,
+        "longitude": 100.3128
+      }
+    },
+    {
+      "id": "x6ka7NpbDXhB7BEz79iA7lHhkc02",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.324873,
+        "longitude": 100.281829
+      }
+    },
+    {
+      "id": "xWZJWSif4mPayfK0oiVvhoxx9jR2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.318187,
+        "longitude": 100.258267
+      }
+    },
+    {
+      "id": "xZWB1vt39TeOos8mTin06ViFpvY2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.469272,
+        "longitude": 100.305002
+      }
+    },
+    {
+      "id": "xhWW9iGxTARggWRaisnfHVRBVSJ2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.364103,
+        "longitude": 100.466231
+      }
+    },
+    {
+      "id": "z6hz6rKZNsVoWKXWZ05qYfYhWcQ2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.441429,
+        "longitude": 100.307935
+      }
+    },
+    {
+      "id": "z8bzoCrKnyTUiJLmzXQM3asRLTD2",
+      "data": {
+        "__type": "GeoPoint",
+        "latitude": 5.28658,
+        "longitude": 100.477442
+      }
+    }
+  ]
+}

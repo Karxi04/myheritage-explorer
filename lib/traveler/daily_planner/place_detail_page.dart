@@ -125,7 +125,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     var name = currentUser?.displayName?.trim() ?? '';
 
     try {
-      final profile = await AppServices.db.collection('users').doc(uid).get();
+      final profile = await AppServices.db.collection('travelers').doc(uid).get();
       final data = profile.data() ?? const <String, dynamic>{};
       for (final key in ['fullName', 'name', 'username']) {
         final candidate = '${data[key] ?? ''}'.trim();
@@ -149,69 +149,52 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     required String reviewText,
     required String placeNameKey,
     required String uid,
+    required ReviewMlPrediction prediction,
   }) async {
     final flags = <String>[];
-    final lower = reviewText.toLowerCase();
     final normalised = _normaliseReview(reviewText);
     final words = normalised
         .split(' ')
         .where((word) => word.isNotEmpty)
         .toList();
 
-    final negativeTerms = [
-      'bad',
-      'poor',
-      'terrible',
-      'awful',
-      'disappoint',
-      'worst',
-      'dirty',
-      'rude',
-    ];
-    final positiveTerms = [
-      'excellent',
-      'amazing',
-      'great',
-      'love',
-      'wonderful',
-      'perfect',
-      'fantastic',
-      'best',
-    ];
-
-    final mismatch =
-        (rating >= 4 && negativeTerms.any(lower.contains)) ||
-            (rating <= 2 && positiveTerms.any(lower.contains));
-    if (mismatch) {
-      flags.add('Possible rating-comment mismatch');
+    if (prediction.ratingMismatch) {
+      flags.add(
+        'ML sentiment does not match the selected star rating',
+      );
     }
-
+    if (prediction.suspiciousProbability >=
+        ReviewMlModel.suspiciousThreshold) {
+      flags.add('ML model detected a suspicious review pattern');
+    }
     if (reviewText.trim().length < 12 || words.length < 3) {
       flags.add('Review is too short or generic');
     }
-
     if (_containsRepeatedWords(reviewText)) {
       flags.add('Repeated word or phrase pattern');
     }
 
-    if (placeNameKey.isNotEmpty && normalised.isNotEmpty) {
-      final relatedReviews = await AppServices.db
-          .collection('reviews')
-          .where('placeNameKey', isEqualTo: placeNameKey)
-          .get();
+    final vendorId = '${place['vendorId'] ?? ''}'.trim();
+    Query<Map<String, dynamic>> query = AppServices.db.collection('reviews');
+    if (vendorId.isNotEmpty) {
+      query = query.where('vendorId', isEqualTo: vendorId);
+    } else if (placeNameKey.isNotEmpty) {
+      query = query.where('placeNameKey', isEqualTo: placeNameKey);
+    }
 
+    if (normalised.isNotEmpty) {
+      final relatedReviews = await query.get();
       final duplicate = relatedReviews.docs.any((doc) {
         final data = doc.data();
         if ('${data['userId'] ?? ''}' == uid) return false;
         return _normaliseReview('${data['comment'] ?? ''}') == normalised;
       });
-
       if (duplicate) {
         flags.add('Duplicate review text detected');
       }
     }
 
-    return flags;
+    return flags.toSet().toList();
   }
 
   Future<void> submitReview() async {
@@ -248,38 +231,52 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       }
 
       final placeNameKey = GeoapifyPlanner.reviewKeyFor(place);
+      final mlPrediction = ReviewMlModel.analyze(
+        reviewText: reviewText,
+        rating: rating,
+      );
       final flags = await _detectReviewFlags(
         reviewText: reviewText,
         placeNameKey: placeNameKey,
         uid: uid,
+        prediction: mlPrediction,
       );
-      final nlpPrediction = ReviewFlagNlpModel.predict(
-        reviewText: reviewText,
-        rating: rating,
-      );
-      if (nlpPrediction.isSuspicious && flags.isEmpty) {
-        flags.add('NLP model detected a suspicious review pattern');
-      }
-      final flagged = flags.isNotEmpty || nlpPrediction.isSuspicious;
+      final flagged = flags.isNotEmpty || mlPrediction.isSuspicious;
       final reviewerName = await _loadReviewerName(uid);
 
       await AppServices.db.collection('reviews').add({
         'userId': uid,
         'reviewerName': reviewerName,
         'placeId': widget.placeId,
+        'vendorId': place['vendorId'],
         'geoapifyPlaceId': place['geoapifyPlaceId'],
         'placeName': place['name'],
         'placeNameKey': placeNameKey,
-        'source': place['source'] ?? 'geoapify',
+        'source': place['source'] ?? 'registered_vendor',
         'rating': rating,
         'comment': reviewText,
         'status': flagged ? 'flagged' : 'valid',
-        'flagReason': flagged ? flags.join(' • ') : null,
+        'flagReason': flagged ? flags.join(' - ') : null,
         'flagReasons': flags,
-        'mlModelVersion': ReviewFlagNlpModel.modelVersion,
-        'mlSuspiciousProbability':
-            double.parse(nlpPrediction.suspiciousProbability.toStringAsFixed(4)),
-        'mlDecision': nlpPrediction.isSuspicious ? 'flagged' : 'valid',
+        'mlModelVersion': ReviewMlModel.modelVersion,
+        'mlSentiment': mlPrediction.sentiment,
+        'mlSentimentConfidence': double.parse(
+          mlPrediction.sentimentConfidence.toStringAsFixed(4),
+        ),
+        'mlNegativeProbability': double.parse(
+          mlPrediction.negativeProbability.toStringAsFixed(4),
+        ),
+        'mlNeutralProbability': double.parse(
+          mlPrediction.neutralProbability.toStringAsFixed(4),
+        ),
+        'mlPositiveProbability': double.parse(
+          mlPrediction.positiveProbability.toStringAsFixed(4),
+        ),
+        'mlRatingMismatch': mlPrediction.ratingMismatch,
+        'mlSuspiciousProbability': double.parse(
+          mlPrediction.suspiciousProbability.toStringAsFixed(4),
+        ),
+        'mlDecision': mlPrediction.isSuspicious ? 'flagged' : 'valid',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -312,16 +309,43 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     if (mounted) showMessage(context, message);
   }
 
+  LatLng? _placeLatLng() {
+    final raw = place['location'];
+    if (raw is GeoPoint) {
+      return LatLng(raw.latitude, raw.longitude);
+    }
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      final latitude = map['latitude'] ?? map['lat'];
+      final longitude = map['longitude'] ?? map['lng'] ?? map['lon'];
+      if (latitude is num && longitude is num) {
+        return LatLng(latitude.toDouble(), longitude.toDouble());
+      }
+    }
+    final latitude = place['latitude'] ?? place['lat'];
+    final longitude = place['longitude'] ?? place['lng'] ?? place['lon'];
+    if (latitude is num && longitude is num) {
+      return LatLng(latitude.toDouble(), longitude.toDouble());
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final imageType = '${place['imageType'] ?? ''}';
-    final suggestionReason = '${place['suggestionReason'] ?? ''}';
+    final suggestionReason = cleanDisplayText(place['suggestionReason']);
     final culturalTask = place['culturalTask'] is Map
         ? Map<String, dynamic>.from(place['culturalTask'] as Map)
         : null;
     final source = '${place['source'] ?? ''}';
     final mapUrl = '${place['mapUrl'] ?? ''}';
     final trust = '${place['trustLabel'] ?? 'Insufficient Data'}';
+    final coordinates = _placeLatLng();
+    final activeVouchers = List<Map<String, dynamic>>.from(
+      (place['activeVouchers'] ?? const <Map<String, dynamic>>[]).map(
+        (item) => Map<String, dynamic>.from(item as Map),
+      ),
+    );
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -428,7 +452,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${place['category'] ?? ''} • '
+                                  '${place['category'] ?? ''} - '
                                   '${place['area'] ?? ''}',
                                   style: const TextStyle(
                                     color: ExplorerColors.muted,
@@ -680,7 +704,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                'Cultural Task Available',
+                                'Optional Cultural Task',
                                 style: TextStyle(
                                   color: ExplorerColors.goldDark,
                                   fontSize: 10,
@@ -711,6 +735,22 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                   color: ExplorerColors.goldDark,
                                   fontWeight: FontWeight.w700,
                                 ),
+                              ),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => CulturalTasksPage(
+                                      initialTaskId:
+                                          '${culturalTask['id'] ?? ''}',
+                                      vendorId:
+                                          '${place['vendorId'] ?? ''}',
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.camera_alt_outlined),
+                                label: const Text('View Optional Task'),
                               ),
                             ],
                           ),
@@ -788,6 +828,101 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             color: ExplorerColors.muted,
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (coordinates != null) ...[
+                  const SizedBox(height: 18),
+                  ExplorerCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16, 16, 16, 10),
+                          child: Text(
+                            'Vendor Location Map',
+                            style: TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          height: 210,
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              bottom: Radius.circular(14),
+                            ),
+                            child: GoogleMap(
+                              initialCameraPosition: CameraPosition(
+                                target: coordinates,
+                                zoom: 16,
+                              ),
+                              zoomControlsEnabled: false,
+                              myLocationButtonEnabled: false,
+                              markers: {
+                                Marker(
+                                  markerId: const MarkerId('vendor'),
+                                  position: coordinates,
+                                  infoWindow: InfoWindow(
+                                    title: '${place['name'] ?? 'Vendor'}',
+                                    snippet:
+                                        '${place['formattedAddress'] ?? ''}',
+                                  ),
+                                ),
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (activeVouchers.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  ExplorerCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const ExplorerSectionTitle(
+                          'Vendor Rewards',
+                          subtitle:
+                              'Use cultural-task points to claim a voucher from this vendor.',
+                        ),
+                        const SizedBox(height: 10),
+                        ...activeVouchers.take(3).map((voucher) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  backgroundColor: ExplorerColors.goldSoft,
+                                  child: Icon(
+                                    Icons.confirmation_number_outlined,
+                                    color: ExplorerColors.goldDark,
+                                  ),
+                                ),
+                                title: Text('${voucher['title'] ?? ''}'),
+                                subtitle: Text(
+                                  '${voucher['pointCost'] ?? 0} points - '
+                                  '${voucher['inventoryRemaining'] ?? 0} remaining',
+                                ),
+                              ),
+                            )),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const RewardsPage(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.redeem_outlined),
+                            label: const Text('Open Rewards'),
                           ),
                         ),
                       ],

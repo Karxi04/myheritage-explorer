@@ -1,0 +1,86 @@
+// Add these match blocks inside:
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+
+function signedIn() {
+  return request.auth != null;
+}
+
+function ownUser(uid) {
+  return signedIn() && request.auth.uid == uid;
+}
+
+function isAdmin() {
+  return signedIn()
+      && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+}
+
+match /users/{uid} {
+  allow read: if signedIn();
+  allow create: if ownUser(uid);
+  allow update: if ownUser(uid) || isAdmin();
+  allow delete: if isAdmin();
+}
+
+match /reviews/{reviewId} {
+  allow read: if signedIn();
+  allow create: if signedIn()
+      && request.resource.data.userId == request.auth.uid;
+  allow update, delete: if isAdmin()
+      || (signedIn() && resource.data.userId == request.auth.uid);
+}
+
+match /cultural_tasks/{taskId} {
+  allow read: if signedIn();
+  allow write: if isAdmin();
+}
+
+match /task_submissions/{submissionId} {
+  allow read: if signedIn()
+      && (resource.data.userId == request.auth.uid || isAdmin());
+  allow create: if signedIn()
+      && request.resource.data.userId == request.auth.uid;
+  allow update, delete: if isAdmin();
+}
+
+match /vouchers/{voucherId} {
+  allow read: if signedIn();
+  allow create: if signedIn()
+      && request.resource.data.vendorId == request.auth.uid;
+  allow update, delete: if isAdmin()
+      || (signedIn() && resource.data.vendorId == request.auth.uid);
+}
+
+match /claimed_vouchers/{claimId} {
+  allow read: if signedIn()
+      && (resource.data.userId == request.auth.uid
+          || resource.data.vendorId == request.auth.uid
+          || isAdmin());
+  allow create: if signedIn()
+      && request.resource.data.userId == request.auth.uid;
+  allow update: if signedIn()
+      && (resource.data.userId == request.auth.uid
+          || resource.data.vendorId == request.auth.uid
+          || isAdmin());
+}
+
+match /itineraries/{itineraryId} {
+  allow read: if signedIn()
+      && resource.data.userId == request.auth.uid;
+  allow create: if signedIn()
+      && request.resource.data.userId == request.auth.uid;
+  allow update, delete: if signedIn()
+      && resource.data.userId == request.auth.uid;
+}
+
+match /shared_itineraries/{shareId} {
+  allow get: if resource.data.visibility == 'public';
+  allow list: if false;
+  allow create: if signedIn()
+      && request.resource.data.ownerId == request.auth.uid;
+  allow update, delete: if signedIn()
+      && resource.data.ownerId == request.auth.uid;
+}
+
+// }
+// }

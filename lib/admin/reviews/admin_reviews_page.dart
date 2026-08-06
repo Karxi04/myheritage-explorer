@@ -258,11 +258,16 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                     _ReviewMeta(
                                       icon: Icons.psychology_outlined,
                                       text:
-                                          'NLP risk: ${(((data['mlSuspiciousProbability'] as num).toDouble()) * 100).toStringAsFixed(0)}% • ${data['mlModelVersion'] ?? 'model'}',
+                                          'ML risk: ${(((data['mlSuspiciousProbability'] as num).toDouble()) * 100).toStringAsFixed(0)}% • '
+                                          'sentiment ${data['mlSentiment'] ?? '-'} '
+                                          '(${(((data['mlSentimentConfidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%) • '
+                                          '${data['mlRatingMismatch'] == true ? 'rating mismatch' : 'rating aligned'} • '
+                                          '${data['mlModelVersion'] ?? 'model'}',
                                       danger:
                                           (data['mlSuspiciousProbability'] as num)
                                                   .toDouble() >=
-                                              0.60,
+                                              0.60 ||
+                                          data['mlRatingMismatch'] == true,
                                     ),
                                 ],
                               ),

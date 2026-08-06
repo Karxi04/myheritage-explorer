@@ -1,24 +1,30 @@
-
-part of '../auth_pages.dart';
+﻿part of '../auth_pages.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({
     super.key,
-    this.initialEmail = '',
-    this.admin = false,
+    
+    this.admin = false,this.initialEmail = '',
+    this.isAdmin = false,
+    this.role,
   });
 
   final String initialEmail;
   final bool admin;
+  final bool isAdmin;
+  final String? role;
+
+  bool get adminMode => admin || isAdmin || role == 'admin';
 
   @override
-  State<ForgotPasswordPage> createState() => _ForgotPasswordPageState();
+  State<ForgotPasswordPage> createState() =>
+      _ForgotPasswordPageState();
 }
 
-class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
+class _ForgotPasswordPageState
+    extends State<ForgotPasswordPage> {
   late final TextEditingController email;
   bool busy = false;
-  bool sent = false;
 
   @override
   void initState() {
@@ -26,23 +32,49 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     email = TextEditingController(text: widget.initialEmail);
   }
 
-  Future<void> sendReset() async {
-    if (email.text.trim().isEmpty) {
-      showMessage(context, 'Enter your email address.', error: true);
+  Future<void> sendResetLink() async {
+    final address = email.text.trim().toLowerCase();
+
+    if (address.isEmpty || !address.contains('@')) {
+      showMessage(
+        context,
+        'Enter a valid email address.',
+        error: true,
+      );
       return;
     }
+
     setState(() => busy = true);
+
     try {
-      await AppServices.auth.sendPasswordResetEmail(email: email.text.trim());
-      if (mounted) setState(() => sent = true);
-    } catch (e) {
-      if (mounted) {
-        showMessage(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-          error: true,
-        );
+      await AppServices.auth.sendPasswordResetEmail(email: address);
+
+      if (!mounted) return;
+      showMessage(
+        context,
+        'Password reset link sent. Check your email inbox.',
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+
+      var message = 'Unable to send the reset email.';
+      if (error.code == 'user-not-found') {
+        message = 'No account was found for this email address.';
+      } else if (error.code == 'invalid-email') {
+        message = 'The email address is invalid.';
+      } else if (error.message != null &&
+          error.message!.trim().isNotEmpty) {
+        message = error.message!;
       }
+
+      showMessage(context, message, error: true);
+    } catch (error) {
+      if (!mounted) return;
+      showMessage(
+        context,
+        error.toString().replaceFirst('Exception: ', ''),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -56,85 +88,98 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   @override
   Widget build(BuildContext context) {
+    final adminMode = widget.adminMode;
+
     return Scaffold(
-      backgroundColor: widget.admin
+      backgroundColor: adminMode
           ? ExplorerColors.companionBackground
           : ExplorerColors.background,
-      appBar: widget.admin
-          ? null
-          : AppBar(
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back),
-              ),
-            ),
+      appBar: AppBar(
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: const Text('Forgot Password'),
+      ),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(22),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
+            constraints: const BoxConstraints(maxWidth: 500),
             child: ExplorerCard(
-              padding: const EdgeInsets.all(30),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (widget.admin)
-                    const ExplorerBrand()
-                  else
-                    Container(
-                      width: 62,
-                      height: 62,
-                      decoration: const BoxDecoration(
-                        color: ExplorerColors.navySoft,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.lock_reset,
-                        color: ExplorerColors.navy,
-                        size: 30,
-                      ),
+                  if (adminMode) ...[
+                    const Center(child: ExplorerBrand()),
+                    const SizedBox(height: 20),
+                  ],
+                  Container(
+                    width: 64,
+                    height: 64,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: const BoxDecoration(
+                      color: ExplorerColors.navySoft,
+                      shape: BoxShape.circle,
                     ),
-                  const SizedBox(height: 22),
-                  Text(
-                    sent ? 'Check Your Email' : 'Reset Password',
-                    style: const TextStyle(
+                    child: const Icon(
+                      Icons.mark_email_read_outlined,
                       color: ExplorerColors.navy,
-                      fontSize: 26,
+                      size: 30,
+                    ),
+                  ),
+                  const Text(
+                    'Reset your password',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 24,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    sent
-                        ? 'A secure password reset link was sent to ${email.text.trim()}.'
-                        : widget.admin
-                            ? 'Enter your administrator email and we will send you a secure link to reset your password.'
-                            : 'Enter your email and we will send you a secure password reset link.',
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Enter the email address registered with MyHeritage Explorer. A password-reset link will be sent to that address.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: ExplorerColors.muted,
                       height: 1.45,
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  if (!sent) ...[
-                    TextField(
-                      controller: email,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email Address',
-                        prefixIcon: Icon(Icons.mail_outline),
-                      ),
+                  const SizedBox(height: 22),
+                  TextField(
+                    controller: email,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) {
+                      if (!busy) sendResetLink();
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined),
                     ),
-                    const SizedBox(height: 18),
-                    ElevatedButton(
-                      onPressed: busy ? null : sendReset,
-                      child: Text(busy ? 'Sending...' : 'Send Reset Link'),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: busy ? null : sendResetLink,
+                    icon: busy
+                        ? const SizedBox(
+                            width: 17,
+                            height: 17,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.send_outlined),
+                    label: Text(
+                      busy ? 'Sending...' : 'Send Reset Link',
                     ),
-                  ],
-                  const SizedBox(height: 10),
+                  ),
+                  const SizedBox(height: 8),
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(sent ? 'Back to Login' : 'Back to Login'),
+                    onPressed:
+                        busy ? null : () => Navigator.pop(context),
+                    child: const Text('Back to Login'),
                   ),
                 ],
               ),
@@ -145,3 +190,4 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 }
+
