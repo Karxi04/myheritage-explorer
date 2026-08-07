@@ -408,7 +408,7 @@ class _ProfileInformationPageState
     setState(() => busy = true);
     try {
       final uid = AppServices.auth.currentUser!.uid;
-      await AppServices.userRef(uid).update({
+      await AppServices.travelerRef(uid).update({
         'displayName': name.text.trim(),
         'travelInterests': interests.toList(),
         'budgetPreference': budget,

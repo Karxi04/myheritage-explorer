@@ -32,7 +32,10 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       final refreshedUser = FirebaseAuth.instance.currentUser;
 
       if (refreshedUser?.emailVerified == true) {
-        await AppServices.userRef(refreshedUser!.uid).set(
+        final profileRef = await AppServices.accountRef(
+          refreshedUser!.uid,
+        );
+        await profileRef.set(
           {
             'emailVerified': true,
             'updatedAt': FieldValue.serverTimestamp(),

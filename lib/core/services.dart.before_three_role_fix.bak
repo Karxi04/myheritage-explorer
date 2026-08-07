@@ -1,0 +1,494 @@
+import 'dart:typed_data';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'helpers.dart';
+
+class AppServices {
+  static final auth = FirebaseAuth.instance;
+  static final db = FirebaseFirestore.instance;
+  static final storage = FirebaseStorage.instance;
+
+  // Traveler and administrator profiles.
+  static DocumentReference<Map<String, dynamic>> userRef(String uid) =>
+      db.collection('users').doc(uid);
+
+  // Vendor profiles are stored separately.
+  static DocumentReference<Map<String, dynamic>> vendorRef(String uid) =>
+      db.collection('vendors').doc(uid);
+
+  static Future<Map<String, dynamic>?> profileForRole(
+    String uid,
+    String role,
+  ) async {
+    if (role == 'vendor') {
+      return (await vendorRef(uid).get()).data();
+    }
+    return (await userRef(uid).get()).data();
+  }
+
+  static Future<DocumentReference<Map<String, dynamic>>> accountRef(
+    String uid,
+  ) async {
+    final user = await userRef(uid).get();
+    if (user.exists) return userRef(uid);
+
+    final vendor = await vendorRef(uid).get();
+    if (vendor.exists) return vendorRef(uid);
+
+    throw Exception('The signed-in account profile was not found.');
+  }
+
+  static Future<Map<String, dynamic>?> currentProfile() async {
+    final uid = auth.currentUser?.uid;
+    if (uid == null) return null;
+
+    final user = (await userRef(uid).get()).data();
+    if (user != null) return user;
+
+    return (await vendorRef(uid).get()).data();
+  }
+
+  static Future<void> registerTraveler({
+    required String email,
+    required String password,
+    required String fullName,
+    required List<String> interests,
+    required String budgetPreference,
+    required String travelPace,
+  }) async {
+    final result = await auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+
+    await result.user!.updateDisplayName(fullName.trim());
+    await result.user!.sendEmailVerification();
+
+    await userRef(result.user!.uid).set({
+      'uid': result.user!.uid,
+      'email': email.trim().toLowerCase(),
+      'displayName': fullName.trim(),
+      'role': 'traveler',
+      'status': 'active',
+      'emailVerified': false,
+      'travelInterests': interests,
+      'budgetPreference': budgetPreference,
+      'travelPace': travelPace,
+
+      // Travelers earn points only after an approved cultural task.
+      'points': 0,
+      'localImpactScore': 0,
+      'rank': 'Bronze',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> registerVendor({
+    required String email,
+    required String password,
+    required String businessName,
+    required String ownerName,
+    required String category,
+    required String contactNumber,
+    required String shopLocation,
+    required String businessHours,
+    required String description,
+    required double latitude,
+    required double longitude,
+    Uint8List? verificationBytes,
+    String? verificationExtension,
+    Uint8List? businessImageBytes,
+    String? businessImageExtension,
+  }) async {
+    final result = await auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+
+    await result.user!.updateDisplayName(businessName.trim());
+    await result.user!.sendEmailVerification();
+
+    String? verificationUrl;
+    if (verificationBytes != null) {
+      final ref = storage.ref(
+        'vendor_verification/${result.user!.uid}/'
+        'document.${verificationExtension ?? 'jpg'}',
+      );
+      await ref.putData(verificationBytes);
+      verificationUrl = await ref.getDownloadURL();
+    }
+
+    String? businessImageUrl;
+    if (businessImageBytes != null) {
+      businessImageUrl = await uploadImage(
+        folder: 'vendor_business_images',
+        uid: result.user!.uid,
+        bytes: businessImageBytes,
+        extension: businessImageExtension ?? 'jpg',
+      );
+    }
+
+    final plannerCategories = _vendorPlannerCategories(category);
+    final mapUrl = Uri.https(
+      'www.google.com',
+      '/maps/search/',
+      {
+        'api': '1',
+        'query': '$latitude,$longitude',
+      },
+    ).toString();
+
+    await vendorRef(result.user!.uid).set({
+      'uid': result.user!.uid,
+      'email': email.trim().toLowerCase(),
+      'displayName': businessName.trim(),
+      'businessName': businessName.trim(),
+      'ownerName': ownerName.trim(),
+      'businessCategory': category,
+      'plannerCategories': plannerCategories,
+      'contactNumber': contactNumber.trim(),
+      'shopLocation': shopLocation.trim(),
+      'businessHours': businessHours.trim(),
+      'businessDescription': description.trim(),
+      'verificationDocumentUrl': verificationUrl,
+      'imageUrl': businessImageUrl ?? '',
+      'imageType': businessImageUrl == null
+          ? 'map_preview'
+          : 'vendor_uploaded_photo',
+      'location': GeoPoint(latitude, longitude),
+      'latitude': latitude,
+      'longitude': longitude,
+      'mapUrl': mapUrl,
+      'state': 'Penang',
+      'country': 'Malaysia',
+      'budgetLevel': 'Medium',
+      'role': 'vendor',
+      'status': 'active',
+      'vendorStatus': 'pending',
+      'emailVerified': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static List<String> _vendorPlannerCategories(String category) {
+    final value = category.toLowerCase();
+    final categories = <String>{'Local Business'};
+
+    if (value.contains('food') ||
+        value.contains('cafe') ||
+        value.contains('restaurant')) {
+      categories.add('Food');
+    }
+    if (value.contains('heritage')) {
+      categories.addAll(['Heritage', 'Culture']);
+    }
+    if (value.contains('craft') ||
+        value.contains('workshop') ||
+        value.contains('culture')) {
+      categories.add('Culture');
+    }
+    if (value.contains('nature') || value.contains('eco')) {
+      categories.add('Nature');
+    }
+    if (value.contains('art')) {
+      categories.addAll(['Art', 'Culture']);
+    }
+
+    return categories.toList();
+  }
+
+  static Future<String> uploadImage({
+    required String folder,
+    required String uid,
+    required Uint8List bytes,
+    required String extension,
+  }) async {
+    final normalizedExtension = extension.toLowerCase();
+    final contentType = switch (normalizedExtension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' || 'heif' => 'image/heic',
+      _ => 'image/jpeg',
+    };
+
+    final ref = storage.ref(
+      '$folder/$uid/'
+      '${DateTime.now().millisecondsSinceEpoch}.$normalizedExtension',
+    );
+
+    await ref.putData(
+      bytes,
+      SettableMetadata(contentType: contentType),
+    );
+
+    return ref.getDownloadURL();
+  }
+
+  static Future<void> reauthenticate(String password) async {
+    final user = auth.currentUser;
+
+    if (user == null || user.email == null) {
+      throw Exception('No signed-in email account was found.');
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: password,
+    );
+
+    await user.reauthenticateWithCredential(credential);
+  }
+
+  static Future<void> deactivateOwnAccount({
+    bool deletionRequested = false,
+  }) async {
+    final user = auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No signed-in user was found.');
+    }
+
+    final profileRef = await accountRef(user.uid);
+    await profileRef.update({
+      'status': 'inactive',
+      'deletionRequested': deletionRequested,
+      if (deletionRequested)
+        'deletionRequestedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await auth.signOut();
+  }
+
+  static Future<void> notify({
+    required String userId,
+    required String title,
+    required String message,
+    String type = 'general',
+    String? referenceId,
+  }) async {
+    await db.collection('notifications').add({
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'type': type,
+      'referenceId': referenceId,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> claimVoucher({
+    required String voucherId,
+    required Map<String, dynamic> voucher,
+  }) async {
+    final signedInUser = auth.currentUser;
+
+    if (signedInUser == null) {
+      throw Exception('Please sign in as a traveler first.');
+    }
+
+    final uid = signedInUser.uid;
+    final travelerRef = userRef(uid);
+    final voucherRef = db.collection('vouchers').doc(voucherId);
+    final claimRef = db
+        .collection('claimed_vouchers')
+        .doc('${uid}_$voucherId');
+
+    await db.runTransaction((transaction) async {
+      final travelerSnapshot = await transaction.get(travelerRef);
+      final voucherSnapshot = await transaction.get(voucherRef);
+      final existingClaim = await transaction.get(claimRef);
+
+      if (!travelerSnapshot.exists) {
+        throw Exception('Traveler profile was not found.');
+      }
+
+      final traveler = travelerSnapshot.data()!;
+      if (traveler['role'] != 'traveler') {
+        throw Exception('Only travelers can claim vouchers.');
+      }
+      if (traveler['status'] != 'active') {
+        throw Exception('This traveler account is not active.');
+      }
+
+      if (!voucherSnapshot.exists) {
+        throw Exception('This voucher is no longer available.');
+      }
+
+      final currentVoucher = voucherSnapshot.data()!;
+      final rawCost = currentVoucher['pointCost'];
+      final cost = rawCost is num ? rawCost.toInt() : 0;
+      final rawPoints = traveler['points'];
+      final currentPoints =
+          rawPoints is num ? rawPoints.toInt() : 0;
+      final rawInventory = currentVoucher['inventoryRemaining'];
+      final inventory =
+          rawInventory is num ? rawInventory.toInt() : 0;
+
+      // A zero-point or invalid voucher must never be claimable.
+      if (cost <= 0) {
+        throw Exception(
+          'This voucher has an invalid point cost and cannot be claimed.',
+        );
+      }
+
+      if (currentPoints <= 0 || currentPoints < cost) {
+        final missing = cost - currentPoints;
+        throw Exception(
+          'Insufficient points. You need '
+          '${missing > 0 ? missing : cost} more points.',
+        );
+      }
+
+      if (currentVoucher['status'] != 'active') {
+        throw Exception('This voucher is not active.');
+      }
+
+      final expiry = asDate(currentVoucher['expiresAt']);
+      if (expiry != null && !expiry.isAfter(DateTime.now())) {
+        throw Exception('This voucher has expired.');
+      }
+
+      if (inventory <= 0) {
+        throw Exception('This reward is fully claimed.');
+      }
+
+      if (existingClaim.exists) {
+        throw Exception('You already claimed this voucher.');
+      }
+
+      final vendorId =
+          '${currentVoucher['vendorId'] ?? ''}'.trim();
+      if (vendorId.isEmpty) {
+        throw Exception(
+          'This voucher is not linked to a registered vendor.',
+        );
+      }
+
+      final vendorSnapshot =
+          await transaction.get(vendorRef(vendorId));
+
+      if (!vendorSnapshot.exists) {
+        throw Exception(
+          'The vendor linked to this voucher was not found.',
+        );
+      }
+
+      final vendor = vendorSnapshot.data()!;
+      if (vendor['status'] != 'active' ||
+          vendor['vendorStatus'] != 'verified') {
+        throw Exception(
+          'The vendor linked to this voucher is unavailable.',
+        );
+      }
+
+      final pointsAfterClaim = currentPoints - cost;
+      if (pointsAfterClaim < 0) {
+        throw Exception('Insufficient points.');
+      }
+
+      final token = randomToken();
+
+      transaction.update(travelerRef, {
+        'points': pointsAfterClaim,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      transaction.update(voucherRef, {
+        'inventoryRemaining': inventory - 1,
+        'claimCount': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      transaction.set(claimRef, {
+        'userId': uid,
+        'voucherId': voucherId,
+        'vendorId': vendorId,
+        'vendorName':
+            currentVoucher['vendorName'] ??
+                vendor['businessName'] ??
+                vendor['displayName'],
+        'title': currentVoucher['title'],
+        'pointCost': cost,
+        'pointsBeforeClaim': currentPoints,
+        'pointsAfterClaim': pointsAfterClaim,
+        'token': token,
+        'status': 'claimed',
+        'claimedAt': FieldValue.serverTimestamp(),
+        'expiresAt': currentVoucher['expiresAt'],
+      });
+    });
+  }
+
+  static Future<String> redeemClaim(
+    String rawQr,
+    String vendorId,
+  ) async {
+    final parts = rawQr.split('|');
+
+    if (parts.length != 2) {
+      throw Exception('Unrecognized QR code.');
+    }
+
+    final claimRef =
+        db.collection('claimed_vouchers').doc(parts[0]);
+    final redemptionRef = db.collection('redemptions').doc();
+    String travelerId = '';
+
+    await db.runTransaction((transaction) async {
+      final claimSnapshot = await transaction.get(claimRef);
+
+      if (!claimSnapshot.exists) {
+        throw Exception('Voucher claim was not found.');
+      }
+
+      final claim = claimSnapshot.data()!;
+
+      if (claim['token'] != parts[1]) {
+        throw Exception('Invalid voucher token.');
+      }
+      if (claim['vendorId'] != vendorId) {
+        throw Exception('This voucher belongs to another vendor.');
+      }
+      if (claim['status'] != 'claimed') {
+        throw Exception(
+          'Voucher is already redeemed or unavailable.',
+        );
+      }
+
+      final expiry = asDate(claim['expiresAt']);
+      if (expiry != null && expiry.isBefore(DateTime.now())) {
+        throw Exception('Voucher has expired.');
+      }
+
+      travelerId = claim['userId'] as String;
+
+      transaction.update(claimRef, {
+        'status': 'redeemed',
+        'redeemedAt': FieldValue.serverTimestamp(),
+      });
+
+      transaction.set(redemptionRef, {
+        'claimId': claimRef.id,
+        'voucherId': claim['voucherId'],
+        'vendorId': vendorId,
+        'travelerId': claim['userId'],
+        'redeemedAt': FieldValue.serverTimestamp(),
+      });
+    });
+
+    await notify(
+      userId: travelerId,
+      title: 'Redemption successful',
+      message: 'Your voucher was successfully redeemed.',
+      type: 'voucher',
+      referenceId: claimRef.id,
+    );
+
+    return claimRef.id;
+  }
+}

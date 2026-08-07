@@ -4,25 +4,42 @@ class AdminUsersPage extends StatefulWidget {
   const AdminUsersPage({
     super.key,
     this.roleFilter,
-    this.pageTitle = 'User Management',
+    this.pageTitle,
   });
 
   final String? roleFilter;
-  final String pageTitle;
+  final String? pageTitle;
 
-  @override
+@override
   State<AdminUsersPage> createState() => _AdminUsersPageState();
+}
+
+class _AdminAccountRow {
+  const _AdminAccountRow({
+    required this.id,
+    required this.role,
+    required this.reference,
+    required this.data,
+  });
+
+  final String id;
+  final String role;
+  final DocumentReference<Map<String, dynamic>> reference;
+  final Map<String, dynamic> data;
 }
 
 class _AdminUsersPageState extends State<AdminUsersPage> {
   final search = TextEditingController();
-  String status = 'all';
-  String role = 'all';
+  late String role;
 
   @override
   void initState() {
     super.initState();
-    role = widget.roleFilter ?? 'all';
+
+    final requestedRole = widget.roleFilter;
+    role = const {'admin', 'traveler', 'vendor'}.contains(requestedRole)
+        ? requestedRole!
+        : 'all';
   }
 
   @override
@@ -31,348 +48,325 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     super.dispose();
   }
 
-  Future<void> _setVendorStatus(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-    String vendorStatus,
-  ) async {
-    await doc.reference.update({
-      'vendorStatus': vendorStatus,
-      'verifiedAt': vendorStatus == 'verified'
-          ? FieldValue.serverTimestamp()
-          : null,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    await AppServices.notify(
-      userId: doc.id,
-      title: vendorStatus == 'verified'
-          ? 'Vendor verified'
-          : 'Vendor verification rejected',
-      message: vendorStatus == 'verified'
-          ? 'Your business account has been approved.'
-          : 'Your business verification was rejected. Please review your submitted details.',
-      type: 'vendor',
-    );
+  List<_AdminAccountRow> _rows({
+    required QuerySnapshot<Map<String, dynamic>> admins,
+    required QuerySnapshot<Map<String, dynamic>> travelers,
+    required QuerySnapshot<Map<String, dynamic>> vendors,
+  }) {
+    return [
+      ...admins.docs.map(
+        (doc) => _AdminAccountRow(
+          id: doc.id,
+          role: 'admin',
+          reference: doc.reference,
+          data: doc.data(),
+        ),
+      ),
+      ...travelers.docs.map(
+        (doc) => _AdminAccountRow(
+          id: doc.id,
+          role: 'traveler',
+          reference: doc.reference,
+          data: doc.data(),
+        ),
+      ),
+      ...vendors.docs.map(
+        (doc) => _AdminAccountRow(
+          id: doc.id,
+          role: 'vendor',
+          reference: doc.reference,
+          data: doc.data(),
+        ),
+      ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final isVendorPage = widget.roleFilter == 'vendor';
-    final subtitle = isVendorPage
-        ? 'Review vendor registrations, business verification and account status.'
-        : widget.roleFilter == 'traveler'
-            ? 'Manage tourist accounts, activity status and community access.'
-            : 'Manage all users registered in MyHeritage Explorer.';
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: AppServices.db.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final allDocs = snapshot.data!.docs;
-        final baseDocs = allDocs.where((doc) {
-          final data = doc.data();
-          return widget.roleFilter == null || data['role'] == widget.roleFilter;
-        }).toList();
-        final q = search.text.trim().toLowerCase();
-        final docs = baseDocs.where((doc) {
-          final data = doc.data();
-          final matchesRole = role == 'all' || data['role'] == role;
-          final accountStatus = '${data['status'] ?? 'active'}';
-          final vendorStatus = '${data['vendorStatus'] ?? ''}';
-          final matchesStatus = status == 'all' ||
-              accountStatus == status ||
-              vendorStatus == status;
-          final haystack =
-              '${data['displayName']} ${data['email']} ${data['businessName']} ${data['rank']}'
-                  .toLowerCase();
-          return matchesRole && matchesStatus && haystack.contains(q);
-        }).toList();
-
-        final active = baseDocs
-            .where((doc) => '${doc.data()['status'] ?? 'active'}' == 'active')
-            .length;
-        final suspended = baseDocs
-            .where((doc) => '${doc.data()['status']}' == 'suspended')
-            .length;
-        final pending = baseDocs
-            .where((doc) => '${doc.data()['vendorStatus']}' == 'pending')
-            .length;
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            ExplorerAdminPageTitle(
-              title: widget.pageTitle,
-              subtitle: subtitle,
-            ),
-            const SizedBox(height: 22),
-            Row(
-              children: [
-                Expanded(
-                  child: ExplorerMetricCard(
-                    label: isVendorPage ? 'Total Vendors' : 'Total Tourists',
-                    value: '${baseDocs.length}',
-                    icon: isVendorPage
-                        ? Icons.storefront_outlined
-                        : Icons.explore_outlined,
-                  ),
+    return Column(
+      children: [
+        if (widget.pageTitle != null &&
+            widget.pageTitle!.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                widget.pageTitle!,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: ExplorerMetricCard(
-                    label: 'Active Accounts',
-                    value: '$active',
-                    icon: Icons.verified_user_outlined,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: ExplorerMetricCard(
-                    label: isVendorPage ? 'Pending Verification' : 'Suspended',
-                    value: isVendorPage ? '$pending' : '$suspended',
-                    icon: isVendorPage
-                        ? Icons.pending_actions_outlined
-                        : Icons.block_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            ExplorerCard(
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  ExplorerSearchField(
-                    controller: search,
-                    hintText: isVendorPage
-                        ? 'Search vendor or business...'
-                        : 'Search tourist name or email...',
-                    width: 360,
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  SizedBox(
-                    width: 190,
-                    child: DropdownButtonFormField<String>(
-                      value: status,
-                      decoration: const InputDecoration(
-                        labelText: 'Account status',
-                        isDense: true,
-                      ),
-                      items: (isVendorPage
-                              ? ['all', 'pending', 'verified', 'rejected', 'active', 'suspended']
-                              : ['all', 'active', 'suspended', 'deactivated'])
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(_pretty(value)),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) => setState(() => status = value!),
-                    ),
-                  ),
-                  if (widget.roleFilter == null)
-                    SizedBox(
-                      width: 170,
-                      child: DropdownButtonFormField<String>(
-                        value: role,
-                        decoration: const InputDecoration(
-                          labelText: 'Role',
-                          isDense: true,
-                        ),
-                        items: ['all', 'traveler', 'vendor', 'admin']
-                            .map(
-                              (value) => DropdownMenuItem(
-                                value: value,
-                                child: Text(_pretty(value)),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) => setState(() => role = value!),
-                      ),
-                    ),
-                  ExplorerStatusBadge(
-                    label: '${docs.length} RECORDS',
-                    tone: ExplorerStatusTone.navy,
-                  ),
-                ],
               ),
             ),
-            const SizedBox(height: 14),
-            ExplorerCard(
-              padding: EdgeInsets.zero,
-              child: docs.isEmpty
-                  ? const ExplorerEmptyState(
-                      title: 'No matching accounts',
-                      subtitle: 'Try another search term or status filter.',
-                      icon: Icons.manage_accounts_outlined,
-                    )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor: const WidgetStatePropertyAll(
-                          ExplorerColors.subtle,
-                        ),
-                        columns: [
-                          DataColumn(
-                            label: Text(isVendorPage ? 'Business / Owner' : 'Tourist'),
+          ),
+        Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: search,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText:
+                        'Search administrator, traveler or vendor',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 200,
+                child: DropdownButtonFormField<String>(
+                  initialValue: role,
+                  decoration:
+                      const InputDecoration(labelText: 'Role'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text('All roles'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'admin',
+                      child: Text('Administrators'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'traveler',
+                      child: Text('Travelers'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'vendor',
+                      child: Text('Vendors'),
+                    ),
+                  ],
+                  onChanged: (value) => setState(
+                    () => role = value ?? 'all',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<
+              QuerySnapshot<Map<String, dynamic>>>(
+            stream:
+                AppServices.db.collection('admins').snapshots(),
+            builder: (context, adminSnapshot) {
+              if (!adminSnapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              return StreamBuilder<
+                  QuerySnapshot<Map<String, dynamic>>>(
+                stream: AppServices.db
+                    .collection('travelers')
+                    .snapshots(),
+                builder: (context, travelerSnapshot) {
+                  if (!travelerSnapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  }
+
+                  return StreamBuilder<
+                      QuerySnapshot<Map<String, dynamic>>>(
+                    stream: AppServices.db
+                        .collection('vendors')
+                        .snapshots(),
+                    builder: (context, vendorSnapshot) {
+                      if (!vendorSnapshot.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+
+                      final query =
+                          search.text.trim().toLowerCase();
+
+                      final rows = _rows(
+                        admins: adminSnapshot.data!,
+                        travelers: travelerSnapshot.data!,
+                        vendors: vendorSnapshot.data!,
+                      ).where((row) {
+                        final data = row.data;
+                        final matchesRole =
+                            role == 'all' || row.role == role;
+                        final haystack =
+                            '${data['displayName'] ?? ''} '
+                                    '${data['email'] ?? ''} '
+                                    '${data['businessName'] ?? ''} '
+                                    '${data['ownerName'] ?? ''}'
+                                .toLowerCase();
+
+                        return matchesRole &&
+                            haystack.contains(query);
+                      }).toList()
+                        ..sort(
+                          (first, second) =>
+                              '${first.data['displayName'] ?? first.data['businessName'] ?? ''}'
+                                  .compareTo(
+                            '${second.data['displayName'] ?? second.data['businessName'] ?? ''}',
                           ),
-                          const DataColumn(label: Text('Email')),
-                          if (!isVendorPage)
-                            const DataColumn(label: Text('Rank / Points')),
-                          const DataColumn(label: Text('Account Status')),
-                          if (isVendorPage)
-                            const DataColumn(label: Text('Verification')),
-                          const DataColumn(label: Text('Actions')),
-                        ],
-                        rows: docs.map((doc) {
-                          final data = doc.data();
-                          final accountStatus = '${data['status'] ?? 'active'}';
-                          final vendorStatus = '${data['vendorStatus'] ?? 'pending'}';
-                          final display = isVendorPage
-                              ? '${data['businessName'] ?? data['displayName'] ?? '-'}'
-                              : '${data['displayName'] ?? '-'}';
-                          return DataRow(
-                            cells: [
-                              DataCell(
-                                Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 17,
-                                      backgroundColor: ExplorerColors.navySoft,
-                                      foregroundColor: ExplorerColors.navy,
-                                      child: Text(
-                                        display.isEmpty ? '?' : display[0].toUpperCase(),
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
-                                      ),
+                        );
+
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(
+                          20,
+                          0,
+                          20,
+                          20,
+                        ),
+                        child: Card(
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(
+                                label: Text('Name / Business'),
+                              ),
+                              DataColumn(label: Text('Email')),
+                              DataColumn(label: Text('Role')),
+                              DataColumn(label: Text('Status')),
+                              DataColumn(
+                                label: Text('Vendor verification'),
+                              ),
+                              DataColumn(label: Text('Actions')),
+                            ],
+                            rows: rows.map((row) {
+                              final data = row.data;
+                              final isVendor =
+                                  row.role == 'vendor';
+
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text(
+                                      '${data['businessName'] ?? data['displayName'] ?? '-'}',
                                     ),
-                                    const SizedBox(width: 9),
-                                    SizedBox(
-                                      width: 180,
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            display,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: ExplorerColors.navy,
-                                              fontWeight: FontWeight.w800,
+                                  ),
+                                  DataCell(
+                                    Text('${data['email'] ?? '-'}'),
+                                  ),
+                                  DataCell(Text(row.role)),
+                                  DataCell(
+                                    Text(
+                                      '${data['status'] ?? '-'}',
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      isVendor
+                                          ? '${data['vendorStatus'] ?? '-'}'
+                                          : '-',
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Wrap(
+                                      spacing: 6,
+                                      children: [
+                                        if (isVendor &&
+                                            data['vendorStatus'] ==
+                                                'pending') ...[
+                                          IconButton(
+                                            tooltip:
+                                                'Approve vendor',
+                                            onPressed: () async {
+                                              await row.reference
+                                                  .update({
+                                                'vendorStatus':
+                                                    'verified',
+                                                'verifiedAt':
+                                                    FieldValue
+                                                        .serverTimestamp(),
+                                                'updatedAt':
+                                                    FieldValue
+                                                        .serverTimestamp(),
+                                              });
+                                              await AppServices
+                                                  .notify(
+                                                userId: row.id,
+                                                title:
+                                                    'Vendor verified',
+                                                message:
+                                                    'Your business account has been approved.',
+                                                type: 'vendor',
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons
+                                                  .verified_outlined,
                                             ),
                                           ),
-                                          if (isVendorPage)
-                                            Text(
-                                              '${data['displayName'] ?? 'Business owner'}',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: ExplorerColors.muted,
-                                                fontSize: 10,
-                                              ),
+                                          IconButton(
+                                            tooltip:
+                                                'Reject vendor',
+                                            onPressed: () async {
+                                              await row.reference
+                                                  .update({
+                                                'vendorStatus':
+                                                    'rejected',
+                                                'updatedAt':
+                                                    FieldValue
+                                                        .serverTimestamp(),
+                                              });
+                                              await AppServices
+                                                  .notify(
+                                                userId: row.id,
+                                                title:
+                                                    'Vendor verification rejected',
+                                                message:
+                                                    'Your business verification was rejected.',
+                                                type: 'vendor',
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons.cancel_outlined,
                                             ),
+                                          ),
                                         ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              DataCell(
-                                SizedBox(
-                                  width: 200,
-                                  child: Text(
-                                    '${data['email'] ?? '-'}',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                              if (!isVendorPage)
-                                DataCell(
-                                  Text(
-                                    '${data['rank'] ?? 'Bronze'} • ${data['points'] ?? 0} pts',
-                                  ),
-                                ),
-                              DataCell(
-                                ExplorerStatusBadge(
-                                  label: accountStatus.toUpperCase(),
-                                  tone: _tone(accountStatus),
-                                ),
-                              ),
-                              if (isVendorPage)
-                                DataCell(
-                                  ExplorerStatusBadge(
-                                    label: vendorStatus.toUpperCase(),
-                                    tone: _tone(vendorStatus),
-                                  ),
-                                ),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isVendorPage && vendorStatus == 'pending') ...[
-                                      IconButton(
-                                        tooltip: 'Approve vendor',
-                                        onPressed: () => _setVendorStatus(doc, 'verified'),
-                                        icon: const Icon(
-                                          Icons.verified_outlined,
-                                          color: ExplorerColors.success,
+                                        IconButton(
+                                          tooltip:
+                                              data['status'] ==
+                                                      'active'
+                                                  ? 'Suspend'
+                                                  : 'Reactivate',
+                                          onPressed: () =>
+                                              row.reference.update({
+                                            'status':
+                                                data['status'] ==
+                                                        'active'
+                                                    ? 'suspended'
+                                                    : 'active',
+                                            'updatedAt': FieldValue
+                                                .serverTimestamp(),
+                                          }),
+                                          icon: Icon(
+                                            data['status'] ==
+                                                    'active'
+                                                ? Icons.block
+                                                : Icons
+                                                    .check_circle_outline,
+                                          ),
                                         ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Reject vendor',
-                                        onPressed: () => _setVendorStatus(doc, 'rejected'),
-                                        icon: const Icon(
-                                          Icons.cancel_outlined,
-                                          color: ExplorerColors.danger,
-                                        ),
-                                      ),
-                                    ],
-                                    IconButton(
-                                      tooltip: accountStatus == 'active'
-                                          ? 'Suspend account'
-                                          : 'Reactivate account',
-                                      onPressed: () => doc.reference.update({
-                                        'status': accountStatus == 'active'
-                                            ? 'suspended'
-                                            : 'active',
-                                        'updatedAt': FieldValue.serverTimestamp(),
-                                      }),
-                                      icon: Icon(
-                                        accountStatus == 'active'
-                                            ? Icons.block_outlined
-                                            : Icons.check_circle_outline,
-                                      ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
-            ),
-          ],
-        );
-      },
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
-
-  static String _pretty(String value) {
-    if (value == 'all') return 'All';
-    if (value == 'traveler') return 'Tourist';
-    return '${value[0].toUpperCase()}${value.substring(1)}';
-  }
-
-  static ExplorerStatusTone _tone(String status) => switch (status) {
-        'active' || 'verified' => ExplorerStatusTone.success,
-        'pending' => ExplorerStatusTone.warning,
-        'rejected' || 'suspended' || 'deactivated' => ExplorerStatusTone.danger,
-        _ => ExplorerStatusTone.neutral,
-      };
 }

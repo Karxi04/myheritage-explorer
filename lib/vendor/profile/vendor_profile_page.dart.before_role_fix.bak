@@ -1,0 +1,159 @@
+part of '../vendor_pages.dart';
+
+class VendorProfilePage extends StatefulWidget {
+  const VendorProfilePage({super.key, required this.profile});
+  final Map<String, dynamic> profile;
+  @override
+  State<VendorProfilePage> createState() => _VendorProfilePageState();
+}
+
+class _VendorProfilePageState extends State<VendorProfilePage> {
+  late final TextEditingController business;
+  late final TextEditingController owner;
+  late final TextEditingController phone;
+  late final TextEditingController location;
+  late final TextEditingController hours;
+  late final TextEditingController description;
+  LatLng? pinnedLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    business = TextEditingController(text: widget.profile['businessName'] ?? '');
+    owner = TextEditingController(text: widget.profile['ownerName'] ?? '');
+    phone = TextEditingController(text: widget.profile['contactNumber'] ?? '');
+    location = TextEditingController(text: widget.profile['shopLocation'] ?? '');
+    hours = TextEditingController(text: widget.profile['businessHours'] ?? '');
+    description = TextEditingController(text: widget.profile['businessDescription'] ?? '');
+    final rawLocation = widget.profile['location'];
+    if (rawLocation is GeoPoint) {
+      pinnedLocation = LatLng(rawLocation.latitude, rawLocation.longitude);
+    } else if (rawLocation is Map) {
+      final map = Map<String, dynamic>.from(rawLocation);
+      final latitude = map['latitude'] ?? map['lat'];
+      final longitude = map['longitude'] ?? map['lng'] ?? map['lon'];
+      if (latitude is num && longitude is num) {
+        pinnedLocation = LatLng(latitude.toDouble(), longitude.toDouble());
+      }
+    }
+  }
+
+  Future<void> save() async {
+    final point = pinnedLocation;
+    await AppServices.userRef(AppServices.auth.currentUser!.uid).update({
+      'displayName': business.text.trim(),
+      'businessName': business.text.trim(),
+      'ownerName': owner.text.trim(),
+      'contactNumber': phone.text.trim(),
+      'shopLocation': location.text.trim(),
+      'businessHours': hours.text.trim(),
+      'businessDescription': description.text.trim(),
+      if (point != null) 'location': GeoPoint(point.latitude, point.longitude),
+      if (point != null) 'latitude': point.latitude,
+      if (point != null) 'longitude': point.longitude,
+      if (point != null)
+        'mapUrl': Uri.https(
+          'www.google.com',
+          '/maps/search/',
+          {'api': '1', 'query': '${point.latitude},${point.longitude}'},
+        ).toString(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (mounted) showMessage(context, 'Business profile updated.');
+  }
+
+  Future<void> deactivateAccount({required bool deletionRequested}) async {
+    if (deletionRequested) {
+      final keywordConfirmed = await confirmDeletionKeyword(context);
+      if (!keywordConfirmed || !mounted) {
+        if (mounted && !keywordConfirmed) {
+          showMessage(context, 'Deletion keyword was not confirmed.', error: true);
+        }
+        return;
+      }
+    } else {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Deactivate vendor account?'),
+          content: const Text('The business profile and vouchers will become unavailable until an administrator reactivates the account.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Deactivate')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    final password = await requestPassword(context);
+    if (password == null || password.isEmpty) return;
+    try {
+      await AppServices.reauthenticate(password);
+      await AppServices.deactivateOwnAccount(deletionRequested: deletionRequested);
+    } catch (e) {
+      if (mounted) showMessage(context, e.toString(), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Vendor Profile')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(controller: business, decoration: const InputDecoration(labelText: 'Business name')),
+            const SizedBox(height: 12),
+            TextField(controller: owner, decoration: const InputDecoration(labelText: 'Owner name')),
+            const SizedBox(height: 12),
+            TextField(controller: phone, decoration: const InputDecoration(labelText: 'Contact number')),
+            const SizedBox(height: 12),
+            TextField(
+              controller: location,
+              decoration: const InputDecoration(labelText: 'Shop address'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final selected = await Navigator.push<LatLng>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VendorLocationPickerPage(
+                      initialLocation: pinnedLocation,
+                    ),
+                  ),
+                );
+                if (selected != null && mounted) {
+                  setState(() => pinnedLocation = selected);
+                }
+              },
+              icon: const Icon(Icons.location_on_outlined),
+              label: Text(
+                pinnedLocation == null
+                    ? 'Pin business coordinate on map'
+                    : 'Coordinate: '
+                        '${pinnedLocation!.latitude.toStringAsFixed(5)}, '
+                        '${pinnedLocation!.longitude.toStringAsFixed(5)}',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: hours, decoration: const InputDecoration(labelText: 'Business hours')),
+            const SizedBox(height: 12),
+            TextField(controller: description, maxLines: 3, decoration: const InputDecoration(labelText: 'Business description')),
+            const SizedBox(height: 16),
+            ElevatedButton(onPressed: save, child: const Text('Save business profile')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordPage())),
+              icon: const Icon(Icons.password_outlined),
+              label: const Text('Change password'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(onPressed: AppServices.auth.signOut, icon: const Icon(Icons.logout), label: const Text('Logout')),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(onPressed: () => deactivateAccount(deletionRequested: false), icon: const Icon(Icons.pause_circle_outline), label: const Text('Deactivate account')),
+            const SizedBox(height: 8),
+            TextButton.icon(onPressed: () => deactivateAccount(deletionRequested: true), icon: const Icon(Icons.delete_forever_outlined), label: const Text('Delete account')),
+          ],
+        ),
+      );
+}

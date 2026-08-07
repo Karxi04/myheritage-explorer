@@ -23,7 +23,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
 
   Future<String> _displayName(String uid) async {
     try {
-      final profile = await AppServices.userRef(uid).get();
+      final profile = await AppServices.travelerRef(uid).get();
       final data = profile.data() ?? const <String, dynamic>{};
       return '${data['displayName'] ?? data['fullName'] ?? data['name'] ?? uid}';
     } catch (_) {
@@ -132,7 +132,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     setState(() => addingMember = true);
     try {
       final users = await AppServices.db
-          .collection('users')
+          .collection('travelers')
           .where('email', isEqualTo: normalizedEmail)
           .limit(1)
           .get();
@@ -756,7 +756,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                 (memberId) => FutureBuilder<
                     DocumentSnapshot<Map<String, dynamic>>>(
                   key: ValueKey('travel-group-member-$memberId'),
-                  future: AppServices.userRef(memberId).get(),
+                  future: AppServices.travelerRef(memberId).get(),
                   builder: (context, snapshot) {
                     final profile = snapshot.data?.data();
                     final name =

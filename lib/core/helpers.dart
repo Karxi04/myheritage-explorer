@@ -42,6 +42,35 @@ Future<Position> determinePosition() async {
   );
 }
 
+
+String cleanDisplayText(Object? value) {
+  var text = '${value ?? ''}';
+
+  const replacements = <String, String>{
+    'â€¢': ' - ',
+    'â€˘': ' - ',
+    'â€¯': ' ',
+    'â€“': '-',
+    'â€”': '-',
+    'â€˜': "'",
+    'â€™': "'",
+    'â€œ': '"',
+    'â€': '"',
+    'Â': '',
+    '�': '',
+    '•': ' - ',
+  };
+
+  for (final entry in replacements.entries) {
+    text = text.replaceAll(entry.key, entry.value);
+  }
+
+  return text
+      .replaceAll(RegExp(r'\s+-\s+'), ' - ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
 void showMessage(BuildContext context, String message, {bool error = false}) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(

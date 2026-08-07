@@ -1,0 +1,138 @@
+part of '../vendor_pages.dart';
+
+class VoucherEditorPage extends StatefulWidget {
+  const VoucherEditorPage({super.key, this.voucherId, this.voucher});
+  final String? voucherId;
+  final Map<String, dynamic>? voucher;
+  @override
+  State<VoucherEditorPage> createState() => _VoucherEditorPageState();
+}
+
+class _VoucherEditorPageState extends State<VoucherEditorPage> {
+  late final TextEditingController title;
+  late final TextEditingController description;
+  late final TextEditingController terms;
+  late final TextEditingController pointCost;
+  late final TextEditingController inventory;
+  late DateTime expiry;
+  GeoPoint? voucherLocation;
+  double notificationRadiusMeters = 750.0;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final data = widget.voucher ?? {};
+    title = TextEditingController(text: data['title'] ?? '');
+    description = TextEditingController(text: data['description'] ?? '');
+    terms = TextEditingController(text: data['terms'] ?? '');
+    pointCost = TextEditingController(text: '${data['pointCost'] ?? 200}');
+    inventory = TextEditingController(text: '${data['inventoryLimit'] ?? 50}');
+    expiry = asDate(data['expiresAt']) ?? DateTime.now().add(const Duration(days: 30));
+    voucherLocation = data['location'] is GeoPoint ? data['location'] as GeoPoint : null;
+    notificationRadiusMeters = ((data['notificationRadiusMeters'] ?? 750.0) as num).toDouble();
+  }
+
+  Future<void> save() async {
+    final cost = int.tryParse(pointCost.text);
+    final limit = int.tryParse(inventory.text);
+    if (title.text.trim().isEmpty || description.text.trim().isEmpty || cost == null || cost <= 0 || limit == null || limit <= 0 || expiry.isBefore(DateTime.now())) {
+      showMessage(context, 'Enter valid voucher details, point cost, inventory and expiry date.', error: true);
+      return;
+    }
+    setState(() => busy = true);
+    final vendorId = AppServices.auth.currentUser!.uid;
+    final vendorProfile =
+        (await AppServices.userRef(vendorId).get()).data() ??
+            const <String, dynamic>{};
+    final profileLocation = vendorProfile['location'];
+    if (voucherLocation == null && profileLocation is GeoPoint) {
+      voucherLocation = profileLocation;
+    }
+    final data = {
+      'vendorId': vendorId,
+      'vendorName':
+          '${vendorProfile['businessName'] ?? vendorProfile['displayName'] ?? 'Vendor'}',
+      'vendorCategory': '${vendorProfile['businessCategory'] ?? ''}',
+      'vendorAddress': '${vendorProfile['shopLocation'] ?? ''}',
+      'title': title.text.trim(),
+      'description': description.text.trim(),
+      'terms': terms.text.trim(),
+      'pointCost': cost,
+      'inventoryLimit': limit,
+      'expiresAt': Timestamp.fromDate(expiry),
+      if (voucherLocation != null) 'location': voucherLocation,
+      'notificationRadiusMeters': notificationRadiusMeters,
+      'status': 'active',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (widget.voucherId == null) {
+      await AppServices.db.collection('vouchers').add({...data, 'inventoryRemaining': limit, 'claimCount': 0, 'createdAt': FieldValue.serverTimestamp()});
+    } else {
+      final alreadyUsed = ((widget.voucher?['inventoryLimit'] ?? limit) as num) - ((widget.voucher?['inventoryRemaining'] ?? limit) as num);
+      await AppServices.db.collection('vouchers').doc(widget.voucherId).update({...data, 'inventoryRemaining': max(0, limit - alreadyUsed.toInt())});
+    }
+    if (mounted) {
+      setState(() => busy = false);
+      showMessage(context, 'Voucher published successfully.');
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(widget.voucherId == null ? 'Create New Voucher' : 'Edit Voucher')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(controller: title, decoration: const InputDecoration(labelText: 'Voucher title')),
+            const SizedBox(height: 12),
+            TextField(controller: description, maxLines: 3, decoration: const InputDecoration(labelText: 'Description')),
+            const SizedBox(height: 12),
+            TextField(controller: terms, maxLines: 2, decoration: const InputDecoration(labelText: 'Terms and conditions')),
+            const SizedBox(height: 12),
+            TextField(controller: pointCost, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Point cost')),
+            const SizedBox(height: 12),
+            TextField(controller: inventory, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Inventory limit')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  final position = await determinePosition();
+                  setState(() => voucherLocation = GeoPoint(position.latitude, position.longitude));
+                } catch (e) {
+                  if (mounted) showMessage(context, e.toString(), error: true);
+                }
+              },
+              icon: const Icon(Icons.my_location),
+              label: Text(voucherLocation == null ? 'Use current shop location' : 'Shop location captured'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<double>(
+              value: notificationRadiusMeters,
+              decoration: const InputDecoration(labelText: 'Nearby reward radius'),
+              items: const [
+                DropdownMenuItem(value: 250.0, child: Text('250 metres')),
+                DropdownMenuItem(value: 500.0, child: Text('500 metres')),
+                DropdownMenuItem(value: 750.0, child: Text('750 metres')),
+                DropdownMenuItem(value: 1000.0, child: Text('1 kilometre')),
+                DropdownMenuItem(value: 2000.0, child: Text('2 kilometres')),
+              ],
+              onChanged: (value) => setState(() => notificationRadiusMeters = value ?? 750.0),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              tileColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              title: const Text('Expiration date'),
+              subtitle: Text(DateFormat.yMMMd().format(expiry)),
+              trailing: const Icon(Icons.calendar_month_outlined),
+              onTap: () async { final picked = await showDatePicker(context: context, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 730)), initialDate: expiry); if (picked != null) setState(() => expiry = picked); },
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(onPressed: busy ? null : save, child: Text(busy ? 'Saving...' : 'Publish voucher')),
+          ],
+        ),
+      );
+}
+
