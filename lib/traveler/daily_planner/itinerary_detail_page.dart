@@ -1,10 +1,7 @@
 part of '../traveler_pages.dart';
 
 class ItineraryDetailPage extends StatelessWidget {
-  const ItineraryDetailPage({
-    super.key,
-    required this.itineraryId,
-  });
+  const ItineraryDetailPage({super.key, required this.itineraryId});
 
   final String itineraryId;
 
@@ -64,7 +61,17 @@ class ItineraryDetailPage extends StatelessWidget {
   Future<void> _deleteItinerary(
     BuildContext context,
     DocumentReference<Map<String, dynamic>> reference,
+    Map<String, dynamic> itinerary,
   ) async {
+    if (!ItineraryShareHelper.canCurrentUserManage(itinerary)) {
+      showMessage(
+        context,
+        'Only the owner can delete this itinerary.',
+        error: true,
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -95,8 +102,7 @@ class ItineraryDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reference =
-        AppServices.db.collection('itineraries').doc(itineraryId);
+    final reference = AppServices.db.collection('itineraries').doc(itineraryId);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: reference.snapshots(),
@@ -128,13 +134,14 @@ class ItineraryDetailPage extends StatelessWidget {
         final createdAt = asDate(itinerary['createdAt']);
         final totalMinutes =
             (itinerary['totalEstimatedMinutes'] as num?)?.round() ??
-                stops.fold<int>(
-                  0,
-                  (total, stop) =>
-                      total +
-                      ((stop['durationMinutes'] as num?)?.round() ?? 60) +
-                      ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
-                );
+            stops.fold<int>(
+              0,
+              (total, stop) =>
+                  total +
+                  ((stop['durationMinutes'] as num?)?.round() ?? 60) +
+                  ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
+            );
+        final canModify = ItineraryShareHelper.canCurrentUserManage(itinerary);
 
         return Scaffold(
           backgroundColor: ExplorerColors.background,
@@ -151,11 +158,12 @@ class ItineraryDetailPage extends StatelessWidget {
                   actions: [
                     IconButton(
                       tooltip: 'Share itinerary link',
-                      onPressed: () =>
-                          ItineraryShareHelper.openShareDialog(
-                        context,
-                        itinerary,
-                      ),
+                      onPressed: canModify
+                          ? () => ItineraryShareHelper.openShareDialog(
+                              context,
+                              itinerary,
+                            )
+                          : null,
                       icon: const Icon(Icons.link_rounded),
                     ),
                   ],
@@ -207,29 +215,26 @@ class ItineraryDetailPage extends StatelessWidget {
                                   _ItinerarySummaryItem(
                                     icon: Icons.calendar_today_outlined,
                                     label: 'Saved',
-                                    value:
-                                        DateFormat.yMMMd().format(createdAt),
+                                    value: DateFormat.yMMMd().format(createdAt),
                                   ),
                               ],
                             ),
-                            if ((itinerary['interests'] as List?)
-                                    ?.isNotEmpty ==
+                            if ((itinerary['interests'] as List?)?.isNotEmpty ==
                                 true) ...[
                               const SizedBox(height: 14),
                               Wrap(
                                 spacing: 7,
                                 runSpacing: 7,
-                                children: List<String>.from(
-                                  itinerary['interests'],
-                                )
-                                    .map(
-                                      (interest) => Chip(
-                                        label: Text(interest),
-                                        visualDensity:
-                                            VisualDensity.compact,
-                                      ),
-                                    )
-                                    .toList(),
+                                children:
+                                    List<String>.from(itinerary['interests'])
+                                        .map(
+                                          (interest) => Chip(
+                                            label: Text(interest),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          ),
+                                        )
+                                        .toList(),
                               ),
                             ],
                           ],
@@ -254,8 +259,7 @@ class ItineraryDetailPage extends StatelessWidget {
                       else
                         _PreparedItineraryRoute(
                           stops: stops,
-                          onResolved: (resolvedStops) =>
-                              _saveResolvedImages(
+                          onResolved: (resolvedStops) => _saveResolvedImages(
                             reference,
                             stops,
                             resolvedStops,
@@ -267,30 +271,38 @@ class ItineraryDetailPage extends StatelessWidget {
                         runSpacing: 10,
                         children: [
                           FilledButton.icon(
-                            onPressed: () =>
-                                ItineraryShareHelper.openShareDialog(
-                              context,
-                              itinerary,
-                            ),
+                            onPressed: canModify
+                                ? () => ItineraryShareHelper.openShareDialog(
+                                    context,
+                                    itinerary,
+                                  )
+                                : null,
                             icon: const Icon(Icons.link_rounded),
                             label: const Text('Share Link'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ItineraryEditPage(
-                                  itineraryId: itineraryId,
-                                  itinerary: itinerary,
-                                ),
-                              ),
-                            ),
+                            onPressed: canModify
+                                ? () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ItineraryEditPage(
+                                        itineraryId: itineraryId,
+                                        itinerary: itinerary,
+                                      ),
+                                    ),
+                                  )
+                                : null,
                             icon: const Icon(Icons.edit_outlined),
                             label: const Text('Edit Stops'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: () =>
-                                _deleteItinerary(context, reference),
+                            onPressed: canModify
+                                ? () => _deleteItinerary(
+                                    context,
+                                    reference,
+                                    itinerary,
+                                  )
+                                : null,
                             icon: const Icon(
                               Icons.delete_outline,
                               color: ExplorerColors.danger,
@@ -318,28 +330,28 @@ class _PreparedItineraryRoute extends StatefulWidget {
   });
 
   final List<Map<String, dynamic>> stops;
-  final Future<void> Function(
-    List<Map<String, dynamic>> resolvedStops,
-  ) onResolved;
+  final Future<void> Function(List<Map<String, dynamic>> resolvedStops)
+  onResolved;
 
   @override
   State<_PreparedItineraryRoute> createState() =>
       _PreparedItineraryRouteState();
 }
 
-class _PreparedItineraryRouteState
-    extends State<_PreparedItineraryRoute> {
+class _PreparedItineraryRouteState extends State<_PreparedItineraryRoute> {
   Future<List<Map<String, dynamic>>>? preparation;
   String stopSignature = '';
   bool persisted = false;
 
   String _signature(List<Map<String, dynamic>> stops) {
-    return stops.map((stop) {
-      return '${stop['placeId'] ?? ''}|'
-          '${stop['geoapifyPlaceId'] ?? ''}|'
-          '${stop['name'] ?? ''}|'
-          '${stop['imageUrl'] ?? ''}';
-    }).join('||');
+    return stops
+        .map((stop) {
+          return '${stop['placeId'] ?? ''}|'
+              '${stop['geoapifyPlaceId'] ?? ''}|'
+              '${stop['name'] ?? ''}|'
+              '${stop['imageUrl'] ?? ''}';
+        })
+        .join('||');
   }
 
   void _startPreparation() {
@@ -348,10 +360,7 @@ class _PreparedItineraryRouteState
 
     preparation = Future.wait(
       widget.stops.map(
-        (stop) => ItineraryImageResolver.resolveAndPrecache(
-          context,
-          stop,
-        ),
+        (stop) => ItineraryImageResolver.resolveAndPrecache(context, stop),
       ),
     );
   }
@@ -365,9 +374,7 @@ class _PreparedItineraryRouteState
   }
 
   @override
-  void didUpdateWidget(
-    covariant _PreparedItineraryRoute oldWidget,
-  ) {
+  void didUpdateWidget(covariant _PreparedItineraryRoute oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     final nextSignature = _signature(widget.stops);
@@ -558,14 +565,11 @@ class _SavedItineraryStopCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final rating =
         (stop['inAppAverageRating'] as num?)?.toDouble() ??
-            (stop['score'] as num?)?.toDouble() ??
-            0;
-    final reviewCount =
-        (stop['inAppReviewCount'] as num?)?.round() ?? 0;
-    final travelMinutes =
-        (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
-    final visitMinutes =
-        (stop['durationMinutes'] as num?)?.round() ?? 60;
+        (stop['score'] as num?)?.toDouble() ??
+        0;
+    final reviewCount = (stop['inAppReviewCount'] as num?)?.round() ?? 0;
+    final travelMinutes = (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
+    final visitMinutes = (stop['durationMinutes'] as num?)?.round() ?? 60;
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -575,15 +579,10 @@ class _SavedItineraryStopCard extends StatelessWidget {
           if (travelMinutes > 0)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 7,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: const BoxDecoration(
                 color: ExplorerColors.navySoft,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(14),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
               ),
               child: Text(
                 '$travelMinutes minutes travel from previous stop',
@@ -681,13 +680,6 @@ class _SavedItineraryStopCard extends StatelessWidget {
                                 ),
                               ],
                             ),
-                          Text(
-                            '${stop['trustLabel'] ?? 'Insufficient Data'}',
-                            style: const TextStyle(
-                              color: ExplorerColors.muted,
-                              fontSize: 9,
-                            ),
-                          ),
                         ],
                       ),
                     ],

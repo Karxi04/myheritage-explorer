@@ -3,7 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "repair-vendor-symbol-admin": "node repair_vendor_names_symbols_admin.js"
+    "ensure-admin-account": "node ensure_admin_account.js",
+    "migrate-three-role-profiles": "node migrate_three_role_profiles.js",
+    "repair-auth-role-profiles": "node repair_auth_role_profiles.js",
+    "repair-vendor-symbol-admin": "node repair_vendor_names_symbols_admin.js",
+    "reset-vendor-ecosystem": "node reset_vendor_ecosystem.js"
   },
   "dependencies": {
     "firebase-admin": "^13.4.0"

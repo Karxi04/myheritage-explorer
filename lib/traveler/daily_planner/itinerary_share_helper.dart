@@ -5,8 +5,7 @@ class ItineraryShareHelper {
 
   static const String publicWebUrl = 'https://myheritage-4fe2f.web.app/share/';
   static const String _shareCollection = 'shared_itineraries';
-  static const String _shareCharacters =
-      'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  static const String _shareCharacters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   static String _shortText(Object? value, [int maxLength = 350]) {
     final text = '${value ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -20,6 +19,29 @@ class ItineraryShareHelper {
   static String previewImageForStop(Map<String, dynamic> stop) =>
       ItineraryImageResolver.previewImageForStop(stop);
 
+  static bool canCurrentUserManage(Map<String, dynamic> itinerary) {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return false;
+    return _isOwnedBy(itinerary, user.uid);
+  }
+
+  static bool _isOwnedBy(Map<String, dynamic> itinerary, String uid) {
+    final ownerIds = <String>{
+      '${itinerary['userId'] ?? ''}'.trim(),
+      '${itinerary['travelerId'] ?? ''}'.trim(),
+      '${itinerary['ownerId'] ?? ''}'.trim(),
+      '${itinerary['createdBy'] ?? ''}'.trim(),
+    }..remove('');
+    if (ownerIds.isNotEmpty) return ownerIds.contains(uid);
+
+    final hasSharedContext =
+        '${itinerary['visibility'] ?? ''}' == 'public' ||
+        '${itinerary['groupId'] ?? ''}'.trim().isNotEmpty ||
+        '${itinerary['sharedFromGroupId'] ?? ''}'.trim().isNotEmpty ||
+        '${itinerary['sharedBy'] ?? ''}'.trim().isNotEmpty;
+    return !hasSharedContext;
+  }
+
   static Future<Map<String, dynamic>> _publicStop(
     Map<String, dynamic> rawStop,
   ) async {
@@ -29,8 +51,10 @@ class ItineraryShareHelper {
     return <String, dynamic>{
       'name': _shortText(stop['name'], 100),
       'description': _shortText(stop['description']),
-      'formattedAddress':
-          _shortText(stop['formattedAddress'] ?? stop['area'], 180),
+      'formattedAddress': _shortText(
+        stop['formattedAddress'] ?? stop['area'],
+        180,
+      ),
       'area': _shortText(stop['area'], 80),
       'category': _shortText(stop['category'], 60),
       'imageUrl': previewImage,
@@ -38,19 +62,14 @@ class ItineraryShareHelper {
           '${stop['fallbackImageUrl'] ?? stop['mapPreviewUrl'] ?? ''}',
       'imageType':
           '${stop['imageType'] ?? (previewImage.isEmpty ? '' : 'map_preview')}',
-      'durationMinutes':
-          (stop['durationMinutes'] as num?)?.round() ?? 60,
+      'durationMinutes': (stop['durationMinutes'] as num?)?.round() ?? 60,
       'travelMinutesBefore':
           (stop['travelMinutesBefore'] as num?)?.round() ?? 0,
-      'rating': ((stop['inAppAverageRating'] as num?) ??
-              (stop['score'] as num?) ??
-              0)
-          .toDouble(),
-      'reviewCount':
-          (stop['inAppReviewCount'] as num?)?.round() ?? 0,
-      'trustLabel': _shortText(stop['trustLabel'], 50),
-      'culturalTaskTitle':
-          _shortText(stop['culturalTaskTitle'], 100),
+      'rating':
+          ((stop['inAppAverageRating'] as num?) ?? (stop['score'] as num?) ?? 0)
+              .toDouble(),
+      'reviewCount': (stop['inAppReviewCount'] as num?)?.round() ?? 0,
+      'culturalTaskTitle': _shortText(stop['culturalTaskTitle'], 100),
       'culturalTaskRewardPoints':
           (stop['culturalTaskRewardPoints'] as num?)?.round() ?? 0,
       'mapUrl': _shortText(stop['mapUrl'], 350),
@@ -58,10 +77,9 @@ class ItineraryShareHelper {
     };
   }
 
-  static Future<Map<String, dynamic>> _publicItinerary(
+  static Future<Map<String, dynamic>> _publicItineraryPayload(
     Map<String, dynamic> itinerary,
     String shareId,
-    String ownerId,
   ) async {
     final createdAt = asDate(itinerary['createdAt']);
     final stops = List<Map<String, dynamic>>.from(
@@ -72,12 +90,8 @@ class ItineraryShareHelper {
 
     return <String, dynamic>{
       'shareId': shareId,
-      'ownerId': ownerId,
       'visibility': 'public',
-      'title': _shortText(
-        itinerary['title'] ?? 'Shared Penang Itinerary',
-        120,
-      ),
+      'title': _shortText(itinerary['title'] ?? 'Shared Penang Itinerary', 120),
       'area': _shortText(itinerary['area'] ?? 'Penang', 80),
       'availableHours': itinerary['availableHours'],
       'budgetLevel': _shortText(itinerary['budgetLevel'], 30),
@@ -89,6 +103,17 @@ class ItineraryShareHelper {
       'remainingMinutes': itinerary['remainingMinutes'],
       'originalCreatedAt': createdAt?.toIso8601String(),
       'stops': await Future.wait(stops.map(_publicStop)),
+    };
+  }
+
+  static Future<Map<String, dynamic>> _publicItinerary(
+    Map<String, dynamic> itinerary,
+    String shareId,
+    String ownerId,
+  ) async {
+    return <String, dynamic>{
+      ...await _publicItineraryPayload(itinerary, shareId),
+      'ownerId': ownerId,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -109,24 +134,38 @@ class ItineraryShareHelper {
     if (user == null) {
       throw Exception('Please sign in before sharing an itinerary.');
     }
+    if (!_isOwnedBy(itinerary, user.uid)) {
+      throw Exception(
+        'Only the itinerary owner can re-share this shared itinerary.',
+      );
+    }
 
     for (var attempt = 0; attempt < 6; attempt++) {
       final shareId = _newShareId();
-      final reference =
-          AppServices.db.collection(_shareCollection).doc(shareId);
-      final existing = await reference.get();
-      if (existing.exists) continue;
+      final reference = AppServices.db
+          .collection(_shareCollection)
+          .doc(shareId);
+      try {
+        final existing = await reference.get();
+        if (existing.exists) continue;
+        await reference.set(
+          await _publicItinerary(itinerary, shareId, user.uid),
+        );
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied') {
+          throw Exception(
+            'Short share links need the shared_itineraries Firestore rule to be published.',
+          );
+        }
+        rethrow;
+      }
 
-      await reference.set(
-        await _publicItinerary(itinerary, shareId, user.uid),
-      );
-
-      return Uri.parse(publicWebUrl)
-          .replace(queryParameters: {'id': shareId})
-          .toString();
+      return Uri.parse(
+        publicWebUrl,
+      ).replace(queryParameters: {'share': shareId}).toString();
     }
 
-    throw Exception('Unable to create a unique share link. Try again.');
+    throw Exception('Unable to create a unique short share link. Try again.');
   }
 
   static Future<void> openShareDialog(
@@ -146,7 +185,7 @@ class ItineraryShareHelper {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             SizedBox(width: 14),
-            Text('Creating short share link...'),
+            Text('Creating share link...'),
           ],
         ),
       ),

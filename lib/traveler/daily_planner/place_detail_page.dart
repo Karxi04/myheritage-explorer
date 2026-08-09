@@ -44,15 +44,13 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
 
     try {
       final isGeoapify = '${enriched['source'] ?? ''}' == 'geoapify';
-      final geoapifyPlaceId =
-          '${enriched['geoapifyPlaceId'] ?? ''}'.trim();
+      final geoapifyPlaceId = '${enriched['geoapifyPlaceId'] ?? ''}'.trim();
 
       if (isGeoapify && geoapifyPlaceId.isNotEmpty) {
         enriched = await GeoapifyPlanner.loadPlaceDetails(enriched);
       }
     } catch (error) {
-      loadingError =
-          error.toString().replaceFirst('Exception: ', '');
+      loadingError = error.toString().replaceFirst('Exception: ', '');
     }
 
     try {
@@ -98,10 +96,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
   }
 
   bool _containsRepeatedWords(String value) {
-    final words = _normaliseReview(value)
-        .split(' ')
-        .where((word) => word.isNotEmpty)
-        .toList();
+    final words = _normaliseReview(
+      value,
+    ).split(' ').where((word) => word.isNotEmpty).toList();
 
     if (words.length < 3) return false;
 
@@ -125,7 +122,10 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     var name = currentUser?.displayName?.trim() ?? '';
 
     try {
-      final profile = await AppServices.db.collection('travelers').doc(uid).get();
+      final profile = await AppServices.db
+          .collection('travelers')
+          .doc(uid)
+          .get();
       final data = profile.data() ?? const <String, dynamic>{};
       for (final key in ['fullName', 'name', 'username']) {
         final candidate = '${data[key] ?? ''}'.trim();
@@ -159,12 +159,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         .toList();
 
     if (prediction.ratingMismatch) {
-      flags.add(
-        'ML sentiment does not match the selected star rating',
-      );
+      flags.add('ML sentiment does not match the selected star rating');
     }
-    if (prediction.suspiciousProbability >=
-        ReviewMlModel.suspiciousThreshold) {
+    if (prediction.suspiciousProbability >= ReviewMlModel.suspiciousThreshold) {
       flags.add('ML model detected a suspicious review pattern');
     }
     if (reviewText.trim().length < 12 || words.length < 3) {
@@ -339,7 +336,6 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         : null;
     final source = '${place['source'] ?? ''}';
     final mapUrl = '${place['mapUrl'] ?? ''}';
-    final trust = '${place['trustLabel'] ?? 'Insufficient Data'}';
     final coordinates = _placeLatLng();
     final activeVouchers = List<Map<String, dynamic>>.from(
       (place['activeVouchers'] ?? const <Map<String, dynamic>>[]).map(
@@ -462,16 +458,6 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                               ],
                             ),
                           ),
-                          ExplorerStatusBadge(
-                            label: trust.toUpperCase(),
-                            tone: trust == 'High Trust'
-                                ? ExplorerStatusTone.success
-                                : trust == 'Medium Trust'
-                                    ? ExplorerStatusTone.warning
-                                    : trust == 'Low Trust'
-                                        ? ExplorerStatusTone.danger
-                                        : ExplorerStatusTone.neutral,
-                          ),
                         ],
                       ),
                       const SizedBox(height: 13),
@@ -579,7 +565,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           Expanded(
                             child: ExplorerLabeledValue(
                               label: 'MyHeritage Rating',
-                              value: (place['inAppReviewCount'] as num? ?? 0) > 0
+                              value:
+                                  (place['inAppReviewCount'] as num? ?? 0) > 0
                                   ? '${place['score']} ★'
                                   : 'Not rated',
                             ),
@@ -744,8 +731,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                     builder: (_) => CulturalTasksPage(
                                       initialTaskId:
                                           '${culturalTask['id'] ?? ''}',
-                                      vendorId:
-                                          '${place['vendorId'] ?? ''}',
+                                      vendorId: '${place['vendorId'] ?? ''}',
                                     ),
                                   ),
                                 ),
@@ -813,10 +799,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                         if (mapUrl.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           OutlinedButton.icon(
-                            onPressed: () => _copyText(
-                              mapUrl,
-                              'Map link copied.',
-                            ),
+                            onPressed: () =>
+                                _copyText(mapUrl, 'Map link copied.'),
                             icon: const Icon(Icons.content_copy_outlined),
                             label: const Text('Copy Map Link'),
                           ),
@@ -894,24 +878,28 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                               'Use cultural-task points to claim a voucher from this vendor.',
                         ),
                         const SizedBox(height: 10),
-                        ...activeVouchers.take(3).map((voucher) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const CircleAvatar(
-                                  backgroundColor: ExplorerColors.goldSoft,
-                                  child: Icon(
-                                    Icons.confirmation_number_outlined,
-                                    color: ExplorerColors.goldDark,
+                        ...activeVouchers
+                            .take(3)
+                            .map(
+                              (voucher) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const CircleAvatar(
+                                    backgroundColor: ExplorerColors.goldSoft,
+                                    child: Icon(
+                                      Icons.confirmation_number_outlined,
+                                      color: ExplorerColors.goldDark,
+                                    ),
+                                  ),
+                                  title: Text('${voucher['title'] ?? ''}'),
+                                  subtitle: Text(
+                                    '${voucher['pointCost'] ?? 0} points - '
+                                    '${voucher['inventoryRemaining'] ?? 0} remaining',
                                   ),
                                 ),
-                                title: Text('${voucher['title'] ?? ''}'),
-                                subtitle: Text(
-                                  '${voucher['pointCost'] ?? 0} points - '
-                                  '${voucher['inventoryRemaining'] ?? 0} remaining',
-                                ),
                               ),
-                            )),
+                            ),
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(
@@ -936,47 +924,44 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 ),
                 const SizedBox(height: 10),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: AppServices.db
-                      .collection('reviews')
-                      .snapshots(),
+                  stream: AppServices.db.collection('reviews').snapshots(),
                   builder: (context, snapshot) {
-                    final currentNameKey =
-                        GeoapifyPlanner.reviewKeyFor(place);
-                    final docs = (snapshot.data?.docs ?? []).where((doc) {
-                      final review = doc.data();
-                      if (review['status'] != 'valid') return false;
+                    final currentNameKey = GeoapifyPlanner.reviewKeyFor(place);
+                    final docs =
+                        (snapshot.data?.docs ?? []).where((doc) {
+                          final review = doc.data();
+                          if (review['status'] != 'valid') return false;
 
-                      final source =
-                          '${review['source'] ?? ''}'.toLowerCase();
-                      final generatedReview =
-                          review['isDemo'] == true ||
+                          final source = '${review['source'] ?? ''}'
+                              .toLowerCase();
+                          final generatedReview =
+                              review['isDemo'] == true ||
                               review['isPrototype'] == true ||
                               source.contains('demo') ||
                               source.contains('prototype') ||
                               source.contains('seed_demo');
 
-                      if (generatedReview) return false;
+                          if (generatedReview) return false;
 
-                      final reviewPlaceId =
-                          '${review['placeId'] ?? ''}'.trim();
-                      final reviewNameKey =
-                          '${review['placeNameKey'] ?? ''}'
-                              .trim()
-                              .toLowerCase();
+                          final reviewPlaceId = '${review['placeId'] ?? ''}'
+                              .trim();
+                          final reviewNameKey =
+                              '${review['placeNameKey'] ?? ''}'
+                                  .trim()
+                                  .toLowerCase();
 
-                      return reviewPlaceId == widget.placeId ||
-                          (currentNameKey.isNotEmpty &&
-                              reviewNameKey == currentNameKey);
-                    }).toList()
-                      ..sort((first, second) {
-                        final firstDate =
-                            asDate(first.data()['createdAt']) ??
-                                DateTime(2000);
-                        final secondDate =
-                            asDate(second.data()['createdAt']) ??
-                                DateTime(2000);
-                        return secondDate.compareTo(firstDate);
-                      });
+                          return reviewPlaceId == widget.placeId ||
+                              (currentNameKey.isNotEmpty &&
+                                  reviewNameKey == currentNameKey);
+                        }).toList()..sort((first, second) {
+                          final firstDate =
+                              asDate(first.data()['createdAt']) ??
+                              DateTime(2000);
+                          final secondDate =
+                              asDate(second.data()['createdAt']) ??
+                              DateTime(2000);
+                          return secondDate.compareTo(firstDate);
+                        });
 
                     if (docs.isEmpty) {
                       return Column(
@@ -990,9 +975,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          _WriteReviewPrompt(
-                            onPressed: _scrollToReviewForm,
-                          ),
+                          _WriteReviewPrompt(onPressed: _scrollToReviewForm),
                         ],
                       );
                     }
@@ -1001,8 +984,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                     final visibleDocs = showAllReviews
                         ? docs
                         : docs.take(previewCount).toList();
-                    final hiddenCount =
-                        docs.length - visibleDocs.length;
+                    final hiddenCount = docs.length - visibleDocs.length;
 
                     return Column(
                       children: [
@@ -1012,8 +994,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             children: [
                               ...visibleDocs.asMap().entries.map((entry) {
                                 final review = entry.value.data();
-                                final createdAt =
-                                    asDate(review['createdAt']);
+                                final createdAt = asDate(review['createdAt']);
                                 final isLastVisible =
                                     entry.key == visibleDocs.length - 1;
 
@@ -1022,16 +1003,14 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                     ListTile(
                                       contentPadding:
                                           const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 10,
-                                      ),
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
                                       leading: const CircleAvatar(
                                         backgroundColor:
                                             ExplorerColors.navySoft,
-                                        foregroundColor:
-                                            ExplorerColors.navy,
-                                        child:
-                                            Icon(Icons.person_outline),
+                                        foregroundColor: ExplorerColors.navy,
+                                        child: Icon(Icons.person_outline),
                                       ),
                                       title: Text(
                                         '${review['reviewerName'] ?? 'Traveler'}',
@@ -1046,20 +1025,16 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         children: [
                                           const SizedBox(height: 6),
                                           Row(
-                                            children:
-                                                List.generate(5, (index) {
+                                            children: List.generate(5, (index) {
                                               final reviewRating =
-                                                  (review['rating']
-                                                              as num?)
-                                                          ?.round() ??
-                                                      0;
+                                                  (review['rating'] as num?)
+                                                      ?.round() ??
+                                                  0;
                                               return Icon(
                                                 index < reviewRating
                                                     ? Icons.star_rounded
-                                                    : Icons
-                                                        .star_border_rounded,
-                                                color:
-                                                    ExplorerColors.goldDark,
+                                                    : Icons.star_border_rounded,
+                                                color: ExplorerColors.goldDark,
                                                 size: 18,
                                               );
                                             }),
@@ -1076,11 +1051,11 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                           Text(
                                             createdAt == null
                                                 ? 'Recent review'
-                                                : DateFormat.yMMMd()
-                                                    .format(createdAt),
+                                                : DateFormat.yMMMd().format(
+                                                    createdAt,
+                                                  ),
                                             style: const TextStyle(
-                                              color:
-                                                  ExplorerColors.muted,
+                                              color: ExplorerColors.muted,
                                               fontSize: 10,
                                             ),
                                           ),
@@ -1088,10 +1063,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                       ),
                                     ),
                                     if (!isLastVisible)
-                                      const Divider(
-                                        height: 1,
-                                        indent: 70,
-                                      ),
+                                      const Divider(height: 1, indent: 70),
                                   ],
                                 );
                               }),
@@ -1106,15 +1078,12 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                     width: double.infinity,
                                     child: OutlinedButton.icon(
                                       onPressed: () => setState(
-                                        () => showAllReviews =
-                                            !showAllReviews,
+                                        () => showAllReviews = !showAllReviews,
                                       ),
                                       icon: Icon(
                                         showAllReviews
-                                            ? Icons
-                                                .keyboard_arrow_up_rounded
-                                            : Icons
-                                                .keyboard_arrow_down_rounded,
+                                            ? Icons.keyboard_arrow_up_rounded
+                                            : Icons.keyboard_arrow_down_rounded,
                                       ),
                                       label: Text(
                                         showAllReviews
@@ -1129,9 +1098,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _WriteReviewPrompt(
-                          onPressed: _scrollToReviewForm,
-                        ),
+                        _WriteReviewPrompt(onPressed: _scrollToReviewForm),
                       ],
                     );
                   },
@@ -1246,9 +1213,11 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     if (cleaned.isEmpty) return '';
     return cleaned
         .split(' ')
-        .map((word) => word.isEmpty
-            ? word
-            : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 
@@ -1274,10 +1243,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                color: ExplorerColors.text,
-                fontSize: 11,
-              ),
+              style: const TextStyle(color: ExplorerColors.text, fontSize: 11),
             ),
           ),
         ],
@@ -1286,21 +1252,19 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
   }
 
   static Widget _placeHero() => Container(
-        color: ExplorerColors.navy,
-        child: const Center(
-          child: Icon(
-            Icons.account_balance_outlined,
-            color: Colors.white70,
-            size: 76,
-          ),
-        ),
-      );
+    color: ExplorerColors.navy,
+    child: const Center(
+      child: Icon(
+        Icons.account_balance_outlined,
+        color: Colors.white70,
+        size: 76,
+      ),
+    ),
+  );
 }
 
 class _WriteReviewPrompt extends StatelessWidget {
-  const _WriteReviewPrompt({
-    required this.onPressed,
-  });
+  const _WriteReviewPrompt({required this.onPressed});
 
   final VoidCallback onPressed;
 
@@ -1337,22 +1301,15 @@ class _WriteReviewPrompt extends StatelessWidget {
                 SizedBox(height: 3),
                 Text(
                   'Write your own rating and review below.',
-                  style: TextStyle(
-                    color: ExplorerColors.muted,
-                    fontSize: 11,
-                  ),
+                  style: TextStyle(color: ExplorerColors.muted, fontSize: 11),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          TextButton(
-            onPressed: onPressed,
-            child: const Text('Write Review'),
-          ),
+          TextButton(onPressed: onPressed, child: const Text('Write Review')),
         ],
       ),
     );
   }
 }
-

@@ -135,6 +135,19 @@ const reviewerNames = [
   'Kavitha Raj', 'Muhammad Aqil', 'Chloe Ng', 'Raymond Goh', 'Nadia Azman',
 ];
 
+const branchLabels = [
+  '',
+  'Central',
+  'Harbour',
+  'Garden',
+  'Market',
+  'Courtyard',
+  'Old Town',
+  'Seaside',
+  'Village',
+  'Hill',
+];
+
 function normalize(value) {
   return String(value || '')
     .toLowerCase()
@@ -231,9 +244,12 @@ async function deleteCollection(collectionRef) {
   }
 }
 
-async function backupAndCleanExceptUsers() {
+async function backupAndCleanExceptAccountCollections() {
+  const preservedCollections = new Set(['users', 'admins', 'travelers']);
   const collections = await db.listCollections();
-  const targets = collections.filter((collection) => collection.id !== 'users');
+  const targets = collections.filter(
+    (collection) => !preservedCollections.has(collection.id),
+  );
   const backup = {};
 
   for (const collection of targets) {
@@ -275,39 +291,181 @@ async function ensureVendorAuth(email, displayName) {
   }
 }
 
-function validReviewTexts(vendor, definition) {
-  return [
-    {
-      rating: 5,
-      sentiment: 'positive',
-      comment: `${vendor.businessName} provided ${definition.highlight}. The visit felt organised and worthwhile.`,
-    },
-    {
-      rating: 4,
-      sentiment: 'positive',
-      comment: `The team explained the experience clearly and the ${definition.category.toLowerCase()} service matched the description.`,
-    },
-    {
-      rating: 5,
-      sentiment: 'positive',
-      comment: `A memorable local stop in ${vendor.areaName}. The staff were helpful and the experience felt connected to Penang.`,
-    },
-    {
-      rating: 4,
-      sentiment: 'positive',
-      comment: `The location was easy to identify and the business offered a pleasant, reliable visitor experience.`,
-    },
-    {
-      rating: 3,
-      sentiment: 'neutral',
-      comment: `The visit was generally acceptable. The available choices were moderate and the overall experience was average.`,
-    },
-    {
-      rating: 2,
-      sentiment: 'negative',
-      comment: `The waiting time was longer than expected and some information was unclear during the visit.`,
-    },
-  ];
+const reviewProfiles = [
+  {
+    label: 'excellent',
+    reviews: [
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: (vendor, definition) =>
+          `${vendor.businessName} delivered ${definition.highlight} with warm service, clear guidance and strong local character.`,
+      },
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: (vendor, definition) =>
+          `One of the best ${definition.category.toLowerCase()} stops in ${vendor.areaName}. The visit was smooth, memorable and worth recommending.`,
+      },
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: (vendor) =>
+          `The staff at ${vendor.businessName} were attentive from start to finish and helped visitors understand the Penang context.`,
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'Very good overall, with only minor crowding during the busiest period.',
+      },
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: () =>
+          'Everything felt well prepared, clean and visitor friendly.',
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'A reliable place to recommend, especially for travelers who want a polished local experience.',
+      },
+    ],
+  },
+  {
+    label: 'good',
+    reviews: [
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: (vendor, definition) =>
+          `${vendor.businessName} offered ${definition.highlight} and the team made the visit easy to enjoy.`,
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: (vendor) =>
+          `The location in ${vendor.areaName} was convenient and the service was friendly.`,
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'Good value for the time spent, with clear information and a pleasant atmosphere.',
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'The experience matched the description and felt suitable for visitors.',
+      },
+      {
+        rating: 3,
+        sentiment: 'neutral',
+        comment: () =>
+          'A decent stop, though the pace slowed when more visitors arrived.',
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'Helpful staff and a generally smooth visit.',
+      },
+    ],
+  },
+  {
+    label: 'mixed',
+    reviews: [
+      {
+        rating: 5,
+        sentiment: 'positive',
+        comment: (vendor, definition) =>
+          `${vendor.businessName} had a strong highlight in ${definition.highlight}, especially for first-time visitors.`,
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: () =>
+          'The main experience was enjoyable and the staff were polite.',
+      },
+      {
+        rating: 3,
+        sentiment: 'neutral',
+        comment: () =>
+          'Some parts were useful, but the explanation could be more detailed.',
+      },
+      {
+        rating: 2,
+        sentiment: 'negative',
+        comment: () =>
+          'The waiting time was longer than expected and the flow felt a bit confusing.',
+      },
+      {
+        rating: 4,
+        sentiment: 'positive',
+        comment: (vendor) =>
+          `Still a worthwhile stop in ${vendor.areaName} if the timing is right.`,
+      },
+      {
+        rating: 3,
+        sentiment: 'neutral',
+        comment: () =>
+          'Average overall, with both helpful moments and a few rough edges.',
+      },
+    ],
+  },
+  {
+    label: 'low',
+    reviews: [
+      {
+        rating: 2,
+        sentiment: 'negative',
+        comment: (vendor) =>
+          `${vendor.businessName} was hard to follow because the staff gave limited guidance and the visit felt rushed.`,
+      },
+      {
+        rating: 1,
+        sentiment: 'negative',
+        comment: () =>
+          'The service was disappointing, the waiting time was too long and I would not return soon.',
+      },
+      {
+        rating: 2,
+        sentiment: 'negative',
+        comment: () =>
+          'The place has potential, but the information provided was unclear and the experience felt poorly organised.',
+      },
+      {
+        rating: 3,
+        sentiment: 'neutral',
+        comment: () =>
+          'Some parts were acceptable, but the overall visit needs better coordination.',
+      },
+      {
+        rating: 2,
+        sentiment: 'negative',
+        comment: () =>
+          'The facilities and visitor flow did not meet expectations.',
+      },
+      {
+        rating: 1,
+        sentiment: 'negative',
+        comment: () =>
+          'I left frustrated because several advertised details were missing during the visit.',
+      },
+    ],
+  },
+];
+
+function validReviewTexts(vendor, definition, vendorIndex) {
+  const profile = reviewProfiles[vendorIndex % reviewProfiles.length];
+  return profile.reviews.map((review) => ({
+    rating: review.rating,
+    sentiment: review.sentiment,
+    comment: review.comment(vendor, definition),
+    profile: profile.label,
+  }));
 }
 
 function mismatchReviews(vendor) {
@@ -343,7 +501,11 @@ async function seedVendorEcosystem() {
     const area = areas[index % areas.length];
     const coordinate = coordinateFor(index, area);
     const nameBase = definition.names[index % definition.names.length];
-    const businessName = `${area.name} ${nameBase} ${String(index + 1).padStart(3, '0')}`;
+    const branchLabel = branchLabels[Math.floor(index / 40)] ||
+      `Branch ${String.fromCharCode(65 + (index % 26))}`;
+    const businessName = [area.name, nameBase, branchLabel]
+      .filter(Boolean)
+      .join(' ');
     const email = `vendor${String(index + 1).padStart(3, '0')}@myheritage.test`;
     const user = await ensureVendorAuth(email, businessName);
     const mapPreview = staticMapUrl(coordinate.lat, coordinate.lng);
@@ -425,7 +587,7 @@ async function seedVendorEcosystem() {
     const placeId = `vendor_${vendor.uid}`;
     const placeNameKey = normalize(vendor.businessName);
 
-    const validReviewsForVendor = validReviewTexts(vendor, definition);
+    const validReviewsForVendor = validReviewTexts(vendor, definition, index);
     const flaggedForVendor = mismatchReviews(vendor);
     const reviews = [...validReviewsForVendor, ...flaggedForVendor];
 
@@ -448,6 +610,7 @@ async function seedVendorEcosystem() {
           placeName: vendor.businessName,
           placeNameKey,
           source: 'vendor_seed',
+          reviewProfile: review.profile ?? null,
           rating: review.rating,
           comment: review.comment,
           status: flagged ? 'flagged' : 'valid',
@@ -583,7 +746,8 @@ async function main() {
   const collections = (await db.listCollections()).map((item) => item.id);
   console.log('Current top-level collections:');
   console.log(collections.length ? collections.join(', ') : '(none)');
-  console.log('The users collection will be preserved.');
+  console.log('Account collections preserved: users, admins, travelers.');
+  console.log('Vendor profiles will be reseeded in vendors/.');
 
   if (!confirmed) {
     console.log('');
@@ -596,7 +760,7 @@ async function main() {
     console.warn('Warning: GEOAPIFY_API_KEY is empty. Vendors will still have coordinates, but seeded imageUrl values will be blank.');
   }
 
-  const deletedCollections = await backupAndCleanExceptUsers();
+  const deletedCollections = await backupAndCleanExceptAccountCollections();
   const result = await seedVendorEcosystem();
 
   console.log('');

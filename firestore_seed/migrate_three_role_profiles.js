@@ -25,6 +25,9 @@ initializeApp({
 });
 
 const db = getFirestore();
+const CONFIRM_TOKEN = 'MIGRATE_THREE_ROLE_PROFILES';
+const confirmed = process.argv.includes('--confirm') &&
+  process.argv.includes(CONFIRM_TOKEN);
 const collections = [
   'users',
   'admins',
@@ -242,6 +245,18 @@ async function main() {
     }
 
     counts[role] += 1;
+  }
+
+  if (!confirmed) {
+    console.log('');
+    console.log('DRY RUN ONLY. Nothing was moved or deleted.');
+    console.log(`Backup: ${backupPath}`);
+    console.log(`Administrators to place in admins/: ${counts.admin}`);
+    console.log(`Travelers to place in travelers/: ${counts.traveler}`);
+    console.log(`Vendors to place in vendors/: ${counts.vendor}`);
+    console.log('');
+    console.log(`Run with: node migrate_three_role_profiles.js --confirm ${CONFIRM_TOKEN}`);
+    return;
   }
 
   await commitOperations(operations);

@@ -1,13 +1,11 @@
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../core/services.dart';
 import '../core/explorer_ui.dart';
 import 'traveler_pages.dart';
 
 class TravelerShell extends StatefulWidget {
-  const TravelerShell({
-    super.key,
-    required this.profile,
-  });
+  const TravelerShell({super.key, required this.profile});
 
   final Map<String, dynamic> profile;
 
@@ -20,12 +18,28 @@ class _TravelerShellState extends State<TravelerShell> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid == null) return _buildShell(widget.profile);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: AppServices.travelerRef(uid).snapshots(),
+      builder: (context, snapshot) {
+        final liveProfile = snapshot.data?.data();
+        final profile = liveProfile == null
+            ? widget.profile
+            : <String, dynamic>{...widget.profile, ...liveProfile};
+        return _buildShell(profile);
+      },
+    );
+  }
+
+  Widget _buildShell(Map<String, dynamic> profile) {
     final pages = [
-      TravelerHomePage(profile: widget.profile),
+      TravelerHomePage(profile: profile),
       const DailyPlannerPage(),
       const CulturalTasksPage(),
       const CompanionPage(),
-      TravelerProfilePage(profile: widget.profile),
+      TravelerProfilePage(profile: profile),
     ];
 
     return Scaffold(

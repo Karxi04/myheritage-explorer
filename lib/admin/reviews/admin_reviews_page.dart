@@ -22,14 +22,18 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
         .collection('reviews')
         .where('placeId', isEqualTo: placeId)
         .get();
-    final valid = all.docs.where((doc) => doc.data()['status'] == 'valid').toList();
-    final flagged = all.docs.where((doc) => doc.data()['status'] == 'flagged').length;
+    final valid = all.docs
+        .where((doc) => doc.data()['status'] == 'valid')
+        .toList();
+    final flagged = all.docs
+        .where((doc) => doc.data()['status'] == 'flagged')
+        .length;
     final average = valid.isEmpty
         ? 0.0
         : valid
-                .map((doc) => (doc.data()['rating'] ?? 0) as num)
-                .reduce((a, b) => a + b) /
-            valid.length;
+                  .map((doc) => (doc.data()['rating'] ?? 0) as num)
+                  .reduce((a, b) => a + b) /
+              valid.length;
     String trust;
     if (valid.length < 3) {
       trust = 'Insufficient Data';
@@ -38,8 +42,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
       trust = accuracy >= 0.85
           ? 'High Trust'
           : accuracy >= 0.6
-              ? 'Medium Trust'
-              : 'Low Trust';
+          ? 'Medium Trust'
+          : 'Low Trust';
     }
     final placeRef = AppServices.db.collection('places').doc(placeId);
     final placeDocument = await placeRef.get();
@@ -62,6 +66,18 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: AppServices.db.collection('reviews').snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return ExplorerEmptyState(
+            title: 'Unable to load reviews',
+            subtitle: '${snapshot.error}'.replaceFirst('Exception: ', ''),
+            icon: Icons.rate_review_outlined,
+            action: OutlinedButton.icon(
+              onPressed: () => setState(() {}),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          );
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -72,13 +88,19 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
           final matchesStatus = filter == 'all' || data['status'] == filter;
           final haystack =
               '${data['comment']} ${data['placeId']} ${data['placeName']} '
-              '${data['userId']} ${data['reviewerName']} ${data['flagReason']}'
+                      '${data['userId']} ${data['reviewerName']} ${data['flagReason']}'
                   .toLowerCase();
           return matchesStatus && haystack.contains(q);
         }).toList();
-        final flagged = allDocs.where((doc) => doc.data()['status'] == 'flagged').length;
-        final valid = allDocs.where((doc) => doc.data()['status'] == 'valid').length;
-        final hidden = allDocs.where((doc) => doc.data()['status'] == 'hidden').length;
+        final flagged = allDocs
+            .where((doc) => doc.data()['status'] == 'flagged')
+            .length;
+        final valid = allDocs
+            .where((doc) => doc.data()['status'] == 'valid')
+            .length;
+        final hidden = allDocs
+            .where((doc) => doc.data()['status'] == 'hidden')
+            .length;
 
         return ListView(
           padding: const EdgeInsets.all(24),
@@ -248,7 +270,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                     text:
                                         'Traveler: ${data['reviewerName'] ?? data['userId'] ?? '-'}',
                                   ),
-                                  if ((data['flagReason'] ?? '').toString().isNotEmpty)
+                                  if ((data['flagReason'] ?? '')
+                                      .toString()
+                                      .isNotEmpty)
                                     _ReviewMeta(
                                       icon: Icons.report_problem_outlined,
                                       text: '${data['flagReason']}',
@@ -264,7 +288,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                           '${data['mlRatingMismatch'] == true ? 'rating mismatch' : 'rating aligned'} • '
                                           '${data['mlModelVersion'] ?? 'model'}',
                                       danger:
-                                          (data['mlSuspiciousProbability'] as num)
+                                          (data['mlSuspiciousProbability']
+                                                      as num)
                                                   .toDouble() >=
                                               0.60 ||
                                           data['mlRatingMismatch'] == true,
@@ -337,15 +362,19 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   }
 
   static ExplorerStatusTone _tone(String status) => switch (status) {
-        'valid' => ExplorerStatusTone.success,
-        'flagged' => ExplorerStatusTone.warning,
-        'hidden' => ExplorerStatusTone.neutral,
-        _ => ExplorerStatusTone.neutral,
-      };
+    'valid' => ExplorerStatusTone.success,
+    'flagged' => ExplorerStatusTone.warning,
+    'hidden' => ExplorerStatusTone.neutral,
+    _ => ExplorerStatusTone.neutral,
+  };
 }
 
 class _ReviewMeta extends StatelessWidget {
-  const _ReviewMeta({required this.icon, required this.text, this.danger = false});
+  const _ReviewMeta({
+    required this.icon,
+    required this.text,
+    this.danger = false,
+  });
 
   final IconData icon;
   final String text;

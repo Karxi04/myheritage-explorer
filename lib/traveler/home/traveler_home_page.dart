@@ -1,11 +1,7 @@
-
 part of '../traveler_pages.dart';
 
 class TravelerHomePage extends StatelessWidget {
-  const TravelerHomePage({
-    super.key,
-    required this.profile,
-  });
+  const TravelerHomePage({super.key, required this.profile});
 
   final Map<String, dynamic> profile;
 
@@ -72,17 +68,11 @@ class TravelerHomePage extends StatelessWidget {
             const SizedBox(height: 3),
             const Text(
               'Ready to discover something new today?',
-              style: TextStyle(
-                color: ExplorerColors.muted,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
             ),
             const SizedBox(height: 16),
             ExplorerCard(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 15,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
               child: Row(
                 children: [
                   Container(
@@ -105,16 +95,13 @@ class TravelerHomePage extends StatelessWidget {
                       valueColor: ExplorerColors.goldDark,
                     ),
                   ),
-                  Container(
-                    width: 1,
-                    height: 42,
-                    color: ExplorerColors.border,
-                  ),
+                  Container(width: 1, height: 42, color: ExplorerColors.border),
                   const SizedBox(width: 18),
                   Expanded(
                     child: ExplorerLabeledValue(
-                      label: 'Local Impact Score',
-                      value: '${profile['localImpactScore'] ?? 0} pts',
+                      label: 'Points',
+                      value:
+                          '${profile['points'] ?? profile['localImpactScore'] ?? 0} pts',
                     ),
                   ),
                 ],
@@ -190,9 +177,7 @@ class TravelerHomePage extends StatelessWidget {
               trailing: TextButton(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const MyItinerariesPage(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const MyItinerariesPage()),
                 ),
                 child: const Text('View all'),
               ),
@@ -216,14 +201,15 @@ class TravelerHomePage extends StatelessWidget {
                 }
                 final docs = snapshot.data!.docs.toList()
                   ..sort(
-                    (a, b) => (asDate(b.data()['updatedAt']) ??
-                            asDate(b.data()['createdAt']) ??
-                            DateTime(2000))
-                        .compareTo(
-                      asDate(a.data()['updatedAt']) ??
-                          asDate(a.data()['createdAt']) ??
-                          DateTime(2000),
-                    ),
+                    (a, b) =>
+                        (asDate(b.data()['updatedAt']) ??
+                                asDate(b.data()['createdAt']) ??
+                                DateTime(2000))
+                            .compareTo(
+                              asDate(a.data()['updatedAt']) ??
+                                  asDate(a.data()['createdAt']) ??
+                                  DateTime(2000),
+                            ),
                   );
                 if (docs.isEmpty) {
                   return ExplorerCard(
@@ -283,11 +269,10 @@ class TravelerHomePage extends StatelessWidget {
                 }
                 final docs = snapshot.data!.docs.toList()
                   ..sort(
-                    (a, b) => (asDate(b.data()['createdAt']) ??
-                            DateTime(2000))
+                    (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
                         .compareTo(
-                      asDate(a.data()['createdAt']) ?? DateTime(2000),
-                    ),
+                          asDate(a.data()['createdAt']) ?? DateTime(2000),
+                        ),
                   );
                 if (docs.isEmpty) {
                   return ExplorerCard(
@@ -343,9 +328,7 @@ class TravelerHomePage extends StatelessWidget {
               subtitle: 'Review the latest forecast before outdoor activities.',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const WeatherReminderPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const WeatherReminderPage()),
               ),
             ),
           ],
@@ -366,10 +349,8 @@ class TravelerHomePage extends StatelessWidget {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ItineraryEditPage(
-            itineraryId: itineraryId,
-            itinerary: data,
-          ),
+          builder: (_) =>
+              ItineraryEditPage(itineraryId: itineraryId, itinerary: data),
         ),
       ),
       child: Column(
@@ -468,16 +449,13 @@ class TravelerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _taskCard(
-    BuildContext context,
-    Map<String, dynamic> data,
-  ) {
+  Widget _taskCard(BuildContext context, Map<String, dynamic> data) {
     final status = '${data['status'] ?? 'pending'}';
     final tone = status == 'approved'
         ? ExplorerStatusTone.success
         : status == 'rejected'
-            ? ExplorerStatusTone.danger
-            : ExplorerStatusTone.warning;
+        ? ExplorerStatusTone.danger
+        : ExplorerStatusTone.warning;
     return ExplorerCard(
       onTap: () => Navigator.push(
         context,
@@ -488,10 +466,7 @@ class TravelerHomePage extends StatelessWidget {
         children: [
           Row(
             children: [
-              ExplorerStatusBadge(
-                label: status.toUpperCase(),
-                tone: tone,
-              ),
+              ExplorerStatusBadge(label: status.toUpperCase(), tone: tone),
               const Spacer(),
               Text(
                 '+${data['rewardPoints'] ?? 0} pts',
@@ -534,9 +509,7 @@ class TravelerHomePage extends StatelessWidget {
             child: OutlinedButton(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const CulturalTasksPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const CulturalTasksPage()),
               ),
               child: const Text('Continue Task'),
             ),
@@ -604,10 +577,7 @@ class TravelerHomePage extends StatelessWidget {
               ),
             )
           else
-            const Icon(
-              Icons.chevron_right,
-              color: ExplorerColors.muted,
-            ),
+            const Icon(Icons.chevron_right, color: ExplorerColors.muted),
         ],
       ),
     );
