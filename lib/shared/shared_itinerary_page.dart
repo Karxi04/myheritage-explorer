@@ -4,11 +4,8 @@ import 'package:flutter/material.dart';
 import '../core/explorer_ui.dart';
 
 class SharedItineraryPage extends StatelessWidget {
-  const SharedItineraryPage({
-    super.key,
-    this.shareId,
-    this.encodedItinerary,
-  }) : assert(shareId != null || encodedItinerary != null);
+  const SharedItineraryPage({super.key, this.shareId, this.encodedItinerary})
+    : assert(shareId != null || encodedItinerary != null);
 
   final String? shareId;
   final String? encodedItinerary;
@@ -37,7 +34,6 @@ class SharedItineraryPage extends StatelessWidget {
               'travelMinutesBefore': stop['w'] ?? 0,
               'rating': stop['r'] ?? 0,
               'reviewCount': stop['v'] ?? 0,
-              'trustLabel': '${stop['t'] ?? ''}',
               'culturalTaskTitle': '${stop['x'] ?? ''}',
               'culturalTaskRewardPoints': stop['p'] ?? 0,
             };
@@ -59,14 +55,19 @@ class SharedItineraryPage extends StatelessWidget {
     }
   }
 
+  Future<Map<String, dynamic>?> _loadSharedItinerary(String id) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('shared_itineraries')
+        .doc(id)
+        .get();
+    return snapshot.data();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (shareId != null && shareId!.trim().isNotEmpty) {
-      return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future: FirebaseFirestore.instance
-            .collection('shared_itineraries')
-            .doc(shareId!.trim())
-            .get(),
+      return FutureBuilder<Map<String, dynamic>?>(
+        future: _loadSharedItinerary(shareId!.trim()),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
@@ -79,11 +80,12 @@ class SharedItineraryPage extends StatelessWidget {
               message: snapshot.error.toString(),
             );
           }
-          final data = snapshot.data?.data();
+          final data = snapshot.data;
           if (data == null || data['visibility'] != 'public') {
             return const _SharedError(
               title: 'Shared itinerary not found',
-              message: 'The link may be invalid or the itinerary is no longer shared.',
+              message:
+                  'The link may be invalid or the itinerary is no longer shared.',
             );
           }
           return _SharedItineraryContent(itinerary: data);
@@ -155,13 +157,13 @@ class _SharedItineraryContent extends StatelessWidget {
     );
     final totalMinutes =
         (itinerary['totalEstimatedMinutes'] as num?)?.round() ??
-            stops.fold<int>(
-              0,
-              (total, stop) =>
-                  total +
-                  ((stop['durationMinutes'] as num?)?.round() ?? 60) +
-                  ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
-            );
+        stops.fold<int>(
+          0,
+          (total, stop) =>
+              total +
+              ((stop['durationMinutes'] as num?)?.round() ?? 60) +
+              ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
+        );
     final cover = stops.isEmpty ? '' : '${stops.first['imageUrl'] ?? ''}';
 
     return Scaffold(
@@ -239,10 +241,8 @@ class _SharedItineraryContent extends StatelessWidget {
                     (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
                 final duration =
                     (stop['durationMinutes'] as num?)?.round() ?? 60;
-                final rating =
-                    (stop['rating'] as num?)?.toDouble() ?? 0;
-                final reviewCount =
-                    (stop['reviewCount'] as num?)?.round() ?? 0;
+                final rating = (stop['rating'] as num?)?.toDouble() ?? 0;
+                final reviewCount = (stop['reviewCount'] as num?)?.round() ?? 0;
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 11),
@@ -307,7 +307,8 @@ class _SharedItineraryContent extends StatelessWidget {
                                         fontSize: 11,
                                       ),
                                     ),
-                                    if ('${stop['description'] ?? ''}'.isNotEmpty) ...[
+                                    if ('${stop['description'] ?? ''}'
+                                        .isNotEmpty) ...[
                                       const SizedBox(height: 8),
                                       Text(
                                         '${stop['description']}',

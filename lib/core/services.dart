@@ -8,10 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'helpers.dart';
 
 class AccountProfile {
-  const AccountProfile({
-    required this.role,
-    required this.data,
-  });
+  const AccountProfile({required this.role, required this.data});
 
   final String role;
   final Map<String, dynamic> data;
@@ -42,6 +39,22 @@ class AppServices {
     };
   }
 
+  static String collectionNameForRole(String role) {
+    return switch (role.toLowerCase()) {
+      'admin' => 'admins',
+      'vendor' => 'vendors',
+      _ => 'travelers',
+    };
+  }
+
+  static String labelForRole(String role) {
+    return switch (role.toLowerCase()) {
+      'admin' => 'administrator',
+      'vendor' => 'vendor',
+      _ => 'tourist',
+    };
+  }
+
   static Future<Map<String, dynamic>?> profileForRole(
     String uid,
     String role,
@@ -49,23 +62,57 @@ class AppServices {
     return (await profileRefForRole(uid, role).get()).data();
   }
 
+  static Future<bool> recoverRoleProfileFromEmail(String role) async {
+    final user = auth.currentUser;
+    final email = user?.email?.trim().toLowerCase();
+    if (user == null || email == null || email.isEmpty) return false;
+
+    final targetRef = profileRefForRole(user.uid, role);
+    final current = await targetRef.get();
+    if (_profileHasRole(current.data(), role)) return true;
+
+    final matches = await db
+        .collection(collectionNameForRole(role))
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+
+    if (matches.docs.isEmpty) return false;
+
+    final source = matches.docs.first;
+    final data = source.data();
+    if (!_profileHasRole(data, role)) return false;
+
+    await targetRef.set({
+      ...data,
+      'uid': user.uid,
+      'email': email,
+      'role': role.toLowerCase(),
+      'recoveredFromProfileId': source.id,
+      'recoveredAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    return true;
+  }
+
   static Future<AccountProfile?> currentAccountProfile() async {
     final uid = auth.currentUser?.uid;
     if (uid == null) return null;
 
     final admin = (await adminRef(uid).get()).data();
-    if (admin != null) {
-      return AccountProfile(role: 'admin', data: admin);
+    if (_profileHasRole(admin, 'admin')) {
+      return AccountProfile(role: 'admin', data: admin!);
     }
 
     final traveler = (await travelerRef(uid).get()).data();
-    if (traveler != null) {
-      return AccountProfile(role: 'traveler', data: traveler);
+    if (_profileHasRole(traveler, 'traveler')) {
+      return AccountProfile(role: 'traveler', data: traveler!);
     }
 
     final vendor = (await vendorRef(uid).get()).data();
-    if (vendor != null) {
-      return AccountProfile(role: 'vendor', data: vendor);
+    if (_profileHasRole(vendor, 'vendor')) {
+      return AccountProfile(role: 'vendor', data: vendor!);
     }
 
     return null;
@@ -73,6 +120,19 @@ class AppServices {
 
   static Future<Map<String, dynamic>?> currentProfile() async {
     return (await currentAccountProfile())?.data;
+  }
+
+  static bool _profileHasRole(Map<String, dynamic>? data, String role) {
+    if (data == null) return false;
+    return '${data['role'] ?? ''}'.trim().toLowerCase() == role;
+  }
+
+  static User _currentUserOrThrow() {
+    final user = auth.currentUser;
+    if (user == null) {
+      throw Exception('No signed-in Firebase account was found.');
+    }
+    return user;
   }
 
   static Future<DocumentReference<Map<String, dynamic>>> accountRef(
@@ -103,19 +163,17 @@ class AppServices {
     void emit() {
       if (!adminReady || !travelerReady || !vendorReady) return;
 
-      if (adminData != null) {
+      if (_profileHasRole(adminData, 'admin')) {
         controller.add(AccountProfile(role: 'admin', data: adminData!));
         return;
       }
 
-      if (travelerData != null) {
-        controller.add(
-          AccountProfile(role: 'traveler', data: travelerData!),
-        );
+      if (_profileHasRole(travelerData, 'traveler')) {
+        controller.add(AccountProfile(role: 'traveler', data: travelerData!));
         return;
       }
 
-      if (vendorData != null) {
+      if (_profileHasRole(vendorData, 'vendor')) {
         controller.add(AccountProfile(role: 'vendor', data: vendorData!));
         return;
       }
@@ -125,32 +183,23 @@ class AppServices {
 
     controller = StreamController<AccountProfile?>(
       onListen: () {
-        adminSub = adminRef(uid).snapshots().listen(
-          (snapshot) {
-            adminData = snapshot.data();
-            adminReady = true;
-            emit();
-          },
-          onError: controller.addError,
-        );
+        adminSub = adminRef(uid).snapshots().listen((snapshot) {
+          adminData = snapshot.data();
+          adminReady = true;
+          emit();
+        }, onError: controller.addError);
 
-        travelerSub = travelerRef(uid).snapshots().listen(
-          (snapshot) {
-            travelerData = snapshot.data();
-            travelerReady = true;
-            emit();
-          },
-          onError: controller.addError,
-        );
+        travelerSub = travelerRef(uid).snapshots().listen((snapshot) {
+          travelerData = snapshot.data();
+          travelerReady = true;
+          emit();
+        }, onError: controller.addError);
 
-        vendorSub = vendorRef(uid).snapshots().listen(
-          (snapshot) {
-            vendorData = snapshot.data();
-            vendorReady = true;
-            emit();
-          },
-          onError: controller.addError,
-        );
+        vendorSub = vendorRef(uid).snapshots().listen((snapshot) {
+          vendorData = snapshot.data();
+          vendorReady = true;
+          emit();
+        }, onError: controller.addError);
       },
       onCancel: () async {
         await adminSub?.cancel();
@@ -178,13 +227,30 @@ class AppServices {
     await result.user!.updateDisplayName(fullName.trim());
     await result.user!.sendEmailVerification();
 
-    await travelerRef(result.user!.uid).set({
-      'uid': result.user!.uid,
-      'email': email.trim().toLowerCase(),
+    await createTravelerProfileForCurrentUser(
+      fullName: fullName,
+      interests: interests,
+      budgetPreference: budgetPreference,
+      travelPace: travelPace,
+    );
+  }
+
+  static Future<void> createTravelerProfileForCurrentUser({
+    required String fullName,
+    required List<String> interests,
+    required String budgetPreference,
+    required String travelPace,
+  }) async {
+    final user = _currentUserOrThrow();
+    await user.updateDisplayName(fullName.trim());
+
+    await travelerRef(user.uid).set({
+      'uid': user.uid,
+      'email': user.email?.trim().toLowerCase(),
       'displayName': fullName.trim(),
       'role': 'traveler',
       'status': 'active',
-      'emailVerified': false,
+      'emailVerified': user.emailVerified,
       'travelInterests': interests,
       'budgetPreference': budgetPreference,
       'travelPace': travelPace,
@@ -221,10 +287,45 @@ class AppServices {
     await result.user!.updateDisplayName(businessName.trim());
     await result.user!.sendEmailVerification();
 
+    await createVendorProfileForCurrentUser(
+      businessName: businessName,
+      ownerName: ownerName,
+      category: category,
+      contactNumber: contactNumber,
+      shopLocation: shopLocation,
+      businessHours: businessHours,
+      description: description,
+      latitude: latitude,
+      longitude: longitude,
+      verificationBytes: verificationBytes,
+      verificationExtension: verificationExtension,
+      businessImageBytes: businessImageBytes,
+      businessImageExtension: businessImageExtension,
+    );
+  }
+
+  static Future<void> createVendorProfileForCurrentUser({
+    required String businessName,
+    required String ownerName,
+    required String category,
+    required String contactNumber,
+    required String shopLocation,
+    required String businessHours,
+    required String description,
+    required double latitude,
+    required double longitude,
+    Uint8List? verificationBytes,
+    String? verificationExtension,
+    Uint8List? businessImageBytes,
+    String? businessImageExtension,
+  }) async {
+    final user = _currentUserOrThrow();
+    await user.updateDisplayName(businessName.trim());
+
     String? verificationUrl;
     if (verificationBytes != null) {
       final ref = storage.ref(
-        'vendor_verification/${result.user!.uid}/'
+        'vendor_verification/${user.uid}/'
         'document.${verificationExtension ?? 'jpg'}',
       );
       await ref.putData(verificationBytes);
@@ -235,25 +336,21 @@ class AppServices {
     if (businessImageBytes != null) {
       businessImageUrl = await uploadImage(
         folder: 'vendor_business_images',
-        uid: result.user!.uid,
+        uid: user.uid,
         bytes: businessImageBytes,
         extension: businessImageExtension ?? 'jpg',
       );
     }
 
     final plannerCategories = _vendorPlannerCategories(category);
-    final mapUrl = Uri.https(
-      'www.google.com',
-      '/maps/search/',
-      {
-        'api': '1',
-        'query': '$latitude,$longitude',
-      },
-    ).toString();
+    final mapUrl = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': '$latitude,$longitude',
+    }).toString();
 
-    await vendorRef(result.user!.uid).set({
-      'uid': result.user!.uid,
-      'email': email.trim().toLowerCase(),
+    await vendorRef(user.uid).set({
+      'uid': user.uid,
+      'email': user.email?.trim().toLowerCase(),
       'displayName': businessName.trim(),
       'businessName': businessName.trim(),
       'ownerName': ownerName.trim(),
@@ -278,7 +375,7 @@ class AppServices {
       'role': 'vendor',
       'status': 'active',
       'vendorStatus': 'pending',
-      'emailVerified': false,
+      'emailVerified': user.emailVerified,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -330,10 +427,7 @@ class AppServices {
       '${DateTime.now().millisecondsSinceEpoch}.$normalizedExtension',
     );
 
-    await ref.putData(
-      bytes,
-      SettableMetadata(contentType: contentType),
-    );
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
 
     return ref.getDownloadURL();
   }
@@ -404,13 +498,10 @@ class AppServices {
     final uid = signedInUser.uid;
     final travelerProfileRef = travelerRef(uid);
     final voucherRef = db.collection('vouchers').doc(voucherId);
-    final claimRef = db
-        .collection('claimed_vouchers')
-        .doc('${uid}_$voucherId');
+    final claimRef = db.collection('claimed_vouchers').doc('${uid}_$voucherId');
 
     await db.runTransaction((transaction) async {
-      final travelerSnapshot =
-          await transaction.get(travelerProfileRef);
+      final travelerSnapshot = await transaction.get(travelerProfileRef);
       final voucherSnapshot = await transaction.get(voucherRef);
       final existingClaim = await transaction.get(claimRef);
 
@@ -431,10 +522,8 @@ class AppServices {
       }
 
       final currentVoucher = voucherSnapshot.data()!;
-      final cost =
-          (currentVoucher['pointCost'] as num?)?.toInt() ?? 0;
-      final currentPoints =
-          (traveler['points'] as num?)?.toInt() ?? 0;
+      final cost = (currentVoucher['pointCost'] as num?)?.toInt() ?? 0;
+      final currentPoints = (traveler['points'] as num?)?.toInt() ?? 0;
       final inventory =
           (currentVoucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
 
@@ -467,29 +556,21 @@ class AppServices {
         throw Exception('You already claimed this voucher.');
       }
 
-      final vendorId =
-          '${currentVoucher['vendorId'] ?? ''}'.trim();
+      final vendorId = '${currentVoucher['vendorId'] ?? ''}'.trim();
       if (vendorId.isEmpty) {
-        throw Exception(
-          'This voucher is not linked to a registered vendor.',
-        );
+        throw Exception('This voucher is not linked to a registered vendor.');
       }
 
-      final vendorSnapshot =
-          await transaction.get(vendorRef(vendorId));
+      final vendorSnapshot = await transaction.get(vendorRef(vendorId));
 
       if (!vendorSnapshot.exists) {
-        throw Exception(
-          'The vendor linked to this voucher was not found.',
-        );
+        throw Exception('The vendor linked to this voucher was not found.');
       }
 
       final vendor = vendorSnapshot.data()!;
       if (vendor['status'] != 'active' ||
           vendor['vendorStatus'] != 'verified') {
-        throw Exception(
-          'The vendor linked to this voucher is unavailable.',
-        );
+        throw Exception('The vendor linked to this voucher is unavailable.');
       }
 
       final pointsAfterClaim = currentPoints - cost;
@@ -513,8 +594,8 @@ class AppServices {
         'vendorId': vendorId,
         'vendorName':
             currentVoucher['vendorName'] ??
-                vendor['businessName'] ??
-                vendor['displayName'],
+            vendor['businessName'] ??
+            vendor['displayName'],
         'title': currentVoucher['title'],
         'pointCost': cost,
         'pointsBeforeClaim': currentPoints,
@@ -527,17 +608,13 @@ class AppServices {
     });
   }
 
-  static Future<String> redeemClaim(
-    String rawQr,
-    String vendorId,
-  ) async {
+  static Future<String> redeemClaim(String rawQr, String vendorId) async {
     final parts = rawQr.split('|');
     if (parts.length != 2) {
       throw Exception('Unrecognized QR code.');
     }
 
-    final claimRef =
-        db.collection('claimed_vouchers').doc(parts[0]);
+    final claimRef = db.collection('claimed_vouchers').doc(parts[0]);
     final redemptionRef = db.collection('redemptions').doc();
     String travelerId = '';
 
@@ -555,9 +632,7 @@ class AppServices {
         throw Exception('This voucher belongs to another vendor.');
       }
       if (claim['status'] != 'claimed') {
-        throw Exception(
-          'Voucher is already redeemed or unavailable.',
-        );
+        throw Exception('Voucher is already redeemed or unavailable.');
       }
 
       final expiry = asDate(claim['expiresAt']);
@@ -565,8 +640,7 @@ class AppServices {
         throw Exception('Voucher has expired.');
       }
 
-      travelerId =
-          '${claim['travelerId'] ?? claim['userId'] ?? ''}';
+      travelerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
 
       transaction.update(claimRef, {
         'status': 'redeemed',

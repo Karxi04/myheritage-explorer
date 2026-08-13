@@ -1,4 +1,3 @@
-﻿
 part of '../auth_pages.dart';
 
 class LoginPage extends StatefulWidget {
@@ -27,18 +26,51 @@ class _LoginPageState extends State<LoginPage> {
         email: email.text.trim(),
         password: password.text,
       );
-      final profile = await AppServices.profileForRole(
+      var profile = await AppServices.profileForRole(
         credential.user!.uid,
         widget.role,
       );
+
       if (profile == null || profile['role'] != widget.role) {
+        try {
+          final recovered = await AppServices.recoverRoleProfileFromEmail(
+            widget.role,
+          );
+          if (recovered) {
+            profile = await AppServices.profileForRole(
+              credential.user!.uid,
+              widget.role,
+            );
+          }
+        } catch (_) {
+          // If Firestore rules block the email lookup, keep the clearer
+          // profile-missing message below.
+        }
+      }
+
+      if (profile == null || profile['role'] != widget.role) {
+        final account = await AppServices.currentAccountProfile();
         await AppServices.auth.signOut();
+
+        if (account != null) {
+          throw Exception(
+            'This email is registered as ${AppServices.labelForRole(account.role)}. '
+            'Open the ${AppServices.labelForRole(account.role)} login screen.',
+          );
+        }
+
         throw Exception(
-          'This account is not registered as ${widget.role == 'traveler' ? 'a tourist' : widget.role}.',
+          'Firebase login found, but the ${AppServices.labelForRole(widget.role)} '
+          'profile is missing in ${AppServices.collectionNameForRole(widget.role)}/'
+          '${credential.user!.uid}. Ask the administrator to repair the role profile.',
         );
       }
       if (mounted) {
         Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        showMessage(context, _authMessage(e), error: true);
       }
     } catch (e) {
       if (mounted) {
@@ -58,6 +90,21 @@ class _LoginPageState extends State<LoginPage> {
     email.dispose();
     password.dispose();
     super.dispose();
+  }
+
+  String _authMessage(FirebaseAuthException e) {
+    return switch (e.code) {
+      'user-not-found' =>
+        'No Firebase Authentication account exists for this email. If this email appears in Firestore, run the Auth/profile repair script or recreate the Auth account.',
+      'wrong-password' || 'invalid-credential' =>
+        'The email or password is incorrect. Try Forgot Password if this is your account.',
+      'invalid-email' => 'Enter a valid email address.',
+      'user-disabled' => 'This login account has been disabled.',
+      _ =>
+        e.message?.trim().isNotEmpty == true
+            ? e.message!.trim()
+            : 'Unable to sign in.',
+    };
   }
 
   @override
@@ -211,9 +258,10 @@ class _LoginPageState extends State<LoginPage> {
                   TextField(
                     controller: password,
                     obscureText: obscure,
+                    obscuringCharacter: '*',
                     onSubmitted: (_) => busy ? null : login(),
                     decoration: InputDecoration(
-                      hintText: 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢',
+                      hintText: '********',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         onPressed: () => setState(() => obscure = !obscure),
@@ -235,8 +283,8 @@ class _LoginPageState extends State<LoginPage> {
                           busy
                               ? 'Signing in...'
                               : tourist
-                                  ? 'Login'
-                                  : 'Login as Vendor',
+                              ? 'Login'
+                              : 'Login as Vendor',
                         ),
                         if (!busy) ...[
                           const SizedBox(width: 8),
@@ -314,10 +362,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 14),
                   const Text(
                     'Smart Cultural Tourism Platform',
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
                   ),
                   const SizedBox(height: 28),
                   const Text(
@@ -334,7 +379,7 @@ class _LoginPageState extends State<LoginPage> {
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       labelText: 'Email Address',
-                      hintText: 'admin@myheritage.gov.my',
+                      hintText: 'admin@myheritage.com',
                       prefixIcon: Icon(Icons.mail_outline),
                     ),
                   ),
@@ -342,10 +387,11 @@ class _LoginPageState extends State<LoginPage> {
                   TextField(
                     controller: password,
                     obscureText: obscure,
+                    obscuringCharacter: '*',
                     onSubmitted: (_) => busy ? null : login(),
                     decoration: InputDecoration(
                       labelText: 'Password',
-                      hintText: 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢',
+                      hintText: '********',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         onPressed: () => setState(() => obscure = !obscure),
@@ -402,10 +448,7 @@ class _LoginPageState extends State<LoginPage> {
                   const Text(
                     'Powered by Contemporary Stewardship Engine',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFF98A2B3),
-                      fontSize: 10,
-                    ),
+                    style: TextStyle(color: Color(0xFF98A2B3), fontSize: 10),
                   ),
                 ],
               ),
@@ -416,4 +459,3 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
-

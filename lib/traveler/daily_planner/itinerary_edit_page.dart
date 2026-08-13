@@ -19,6 +19,26 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
   bool saving = false;
   bool loadingPlaces = false;
 
+  String _stopIdentity(Map<String, dynamic> stop) {
+    final vendorId = '${stop['vendorId'] ?? ''}'.trim();
+    if (vendorId.isNotEmpty) return 'vendor:$vendorId';
+    final placeId = '${stop['placeId'] ?? ''}'.trim();
+    if (placeId.isNotEmpty) return 'place:$placeId';
+    final geoapifyPlaceId = '${stop['geoapifyPlaceId'] ?? ''}'.trim();
+    if (geoapifyPlaceId.isNotEmpty) return 'geo:$geoapifyPlaceId';
+    return 'name:${GeoapifyPlanner.reviewKeyFor(stop)}';
+  }
+
+  bool _hasDuplicateStops(Iterable<Map<String, dynamic>> values) {
+    final seen = <String>{};
+    for (final stop in values) {
+      final key = _stopIdentity(stop);
+      if (key.endsWith(':')) continue;
+      if (!seen.add(key)) return true;
+    }
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +64,15 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         ),
       );
       if (selected == null || !mounted) return;
+      final selectedKey = _stopIdentity(selected);
+      if (stops.any((stop) => _stopIdentity(stop) == selectedKey)) {
+        showMessage(
+          context,
+          'This stop is already in the itinerary.',
+          error: true,
+        );
+        return;
+      }
 
       Map<String, dynamic> detailed = selected;
       try {
@@ -53,6 +82,16 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
       }
       detailed = await ItineraryImageResolver.resolveStop(detailed);
       if (!mounted) return;
+
+      final detailedKey = _stopIdentity(detailed);
+      if (stops.any((stop) => _stopIdentity(stop) == detailedKey)) {
+        showMessage(
+          context,
+          'This stop is already in the itinerary.',
+          error: true,
+        );
+        return;
+      }
 
       final task = detailed['culturalTask'] is Map
           ? Map<String, dynamic>.from(detailed['culturalTask'] as Map)
@@ -121,6 +160,23 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
   }
 
   Future<void> save() async {
+    if (!ItineraryShareHelper.canCurrentUserManage(widget.itinerary)) {
+      showMessage(
+        context,
+        'Only the owner can edit this itinerary.',
+        error: true,
+      );
+      return;
+    }
+    if (_hasDuplicateStops(stops)) {
+      showMessage(
+        context,
+        'Remove duplicate stops before saving this itinerary.',
+        error: true,
+      );
+      return;
+    }
+
     setState(() => saving = true);
     try {
       final updatedStops = await Future.wait(
@@ -144,9 +200,9 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           .collection('itineraries')
           .doc(widget.itineraryId)
           .update({
-        'stops': updatedStops,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+            'stops': updatedStops,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
       if (mounted) {
         showMessage(context, 'Itinerary updated successfully.');
         Navigator.pop(context);
@@ -284,14 +340,14 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                                   tooltip: 'Remove stop',
                                   onPressed: stops.length <= 1
                                       ? () => showMessage(
-                                            context,
-                                            'Cannot remove the only location. '
-                                            'Delete the full itinerary instead.',
-                                            error: true,
-                                          )
+                                          context,
+                                          'Cannot remove the only location. '
+                                          'Delete the full itinerary instead.',
+                                          error: true,
+                                        )
                                       : () => setState(
-                                            () => stops.removeAt(index),
-                                          ),
+                                          () => stops.removeAt(index),
+                                        ),
                                   icon: const Icon(
                                     Icons.remove_circle_outline,
                                     color: ExplorerColors.danger,
@@ -329,8 +385,7 @@ class _AddItineraryStopDialog extends StatefulWidget {
       _AddItineraryStopDialogState();
 }
 
-class _AddItineraryStopDialogState
-    extends State<_AddItineraryStopDialog> {
+class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
   final search = TextEditingController();
   Timer? debounce;
   List<Map<String, dynamic>> results = const [];
@@ -553,58 +608,53 @@ class _AddItineraryStopDialogState
               child: loading
                   ? const Center(child: CircularProgressIndicator())
                   : error != null
-                      ? ExplorerEmptyState(
-                          title: 'Unable to search registered vendors',
-                          subtitle: error,
-                          icon: Icons.cloud_off_outlined,
-                          action: OutlinedButton.icon(
-                            onPressed: _runSearch,
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Try Again'),
-                          ),
-                        )
-                      : results.isEmpty
-                          ? ExplorerEmptyState(
-                              title: lastQuery.length == 1
-                                  ? 'Type at least 2 characters'
-                                  : 'No matching registered vendors found',
-                              subtitle: lastQuery.length == 1
-                                  ? 'Continue typing the place name, for example “Clan Jetties”.'
-                                  : lastQuery.isEmpty
-                                      ? 'No suggestions are available for this filter. Try another category.'
-                                      : 'No Penang place matched “$lastQuery”. Check the spelling or use a shorter keyword.',
-                              icon: Icons.search_off_rounded,
-                              action: lastQuery.length >= 2
-                                  ? OutlinedButton.icon(
-                                      onPressed: _runSearch,
-                                      icon: const Icon(Icons.refresh_rounded),
-                                      label: const Text('Try Again'),
-                                    )
-                                  : null,
+                  ? ExplorerEmptyState(
+                      title: 'Unable to search registered vendors',
+                      subtitle: error,
+                      icon: Icons.cloud_off_outlined,
+                      action: OutlinedButton.icon(
+                        onPressed: _runSearch,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Try Again'),
+                      ),
+                    )
+                  : results.isEmpty
+                  ? ExplorerEmptyState(
+                      title: lastQuery.length == 1
+                          ? 'Type at least 2 characters'
+                          : 'No matching registered vendors found',
+                      subtitle: lastQuery.length == 1
+                          ? 'Continue typing the place name, for example “Clan Jetties”.'
+                          : lastQuery.isEmpty
+                          ? 'No suggestions are available for this filter. Try another category.'
+                          : 'No Penang place matched “$lastQuery”. Check the spelling or use a shorter keyword.',
+                      icon: Icons.search_off_rounded,
+                      action: lastQuery.length >= 2
+                          ? OutlinedButton.icon(
+                              onPressed: _runSearch,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Try Again'),
                             )
-                          : ListView.separated(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: results.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 9),
-                              itemBuilder: (context, index) {
-                                final place = results[index];
-                                return _AddPlaceResultCard(
-                                  place: place,
-                                  onAdd: () =>
-                                      Navigator.pop(context, place),
-                                );
-                              },
-                            ),
+                          : null,
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: results.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 9),
+                      itemBuilder: (context, index) {
+                        final place = results[index];
+                        return _AddPlaceResultCard(
+                          place: place,
+                          onAdd: () => Navigator.pop(context, place),
+                        );
+                      },
+                    ),
             ),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 14),
               child: Text(
                 'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
-                style: TextStyle(
-                  color: ExplorerColors.muted,
-                  fontSize: 9,
-                ),
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 9),
               ),
             ),
           ],
@@ -615,10 +665,7 @@ class _AddItineraryStopDialogState
 }
 
 class _AddPlaceResultCard extends StatelessWidget {
-  const _AddPlaceResultCard({
-    required this.place,
-    required this.onAdd,
-  });
+  const _AddPlaceResultCard({required this.place, required this.onAdd});
 
   final Map<String, dynamic> place;
   final VoidCallback onAdd;
@@ -631,8 +678,8 @@ class _AddPlaceResultCard extends StatelessWidget {
     final distanceText = distance == null
         ? ''
         : distance < 1000
-            ? '$distance m'
-            : '${(distance / 1000).toStringAsFixed(1)} km';
+        ? '$distance m'
+        : '${(distance / 1000).toStringAsFixed(1)} km';
 
     return ExplorerCard(
       padding: const EdgeInsets.all(11),
@@ -713,13 +760,6 @@ class _AddPlaceResultCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                    Text(
-                      '${place['trustLabel'] ?? 'Insufficient Data'}',
-                      style: const TextStyle(
-                        color: ExplorerColors.muted,
-                        fontSize: 9,
-                      ),
-                    ),
                   ],
                 ),
               ],

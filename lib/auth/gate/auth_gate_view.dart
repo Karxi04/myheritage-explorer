@@ -8,8 +8,7 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: AppServices.auth.userChanges(),
       builder: (context, authSnapshot) {
-        if (authSnapshot.connectionState ==
-            ConnectionState.waiting) {
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
           return const _ProfileLoadingPage(
             message: 'Checking authentication...',
           );
@@ -18,30 +17,22 @@ class AuthGate extends StatelessWidget {
         final user = authSnapshot.data;
         if (user == null) return const RoleSelectPage();
 
-        return _ResolvedRoleGate(
-          key: ValueKey(user.uid),
-          user: user,
-        );
+        return _ResolvedRoleGate(key: ValueKey(user.uid), user: user);
       },
     );
   }
 }
 
 class _ResolvedRoleGate extends StatefulWidget {
-  const _ResolvedRoleGate({
-    super.key,
-    required this.user,
-  });
+  const _ResolvedRoleGate({super.key, required this.user});
 
   final User user;
 
   @override
-  State<_ResolvedRoleGate> createState() =>
-      _ResolvedRoleGateState();
+  State<_ResolvedRoleGate> createState() => _ResolvedRoleGateState();
 }
 
-class _ResolvedRoleGateState
-    extends State<_ResolvedRoleGate> {
+class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
   late Future<AccountProfile?> profileFuture;
 
   @override
@@ -65,8 +56,7 @@ class _ResolvedRoleGateState
     return FutureBuilder<AccountProfile?>(
       future: profileFuture,
       builder: (context, profileSnapshot) {
-        if (profileSnapshot.connectionState !=
-            ConnectionState.done) {
+        if (profileSnapshot.connectionState != ConnectionState.done) {
           return const _ProfileLoadingPage(
             message: 'Loading account profile...',
           );
@@ -74,11 +64,7 @@ class _ResolvedRoleGateState
 
         if (profileSnapshot.hasError) {
           return _ProfileLoadErrorPage(
-            message:
-                '${profileSnapshot.error}'.replaceFirst(
-              'Exception: ',
-              '',
-            ),
+            message: '${profileSnapshot.error}'.replaceFirst('Exception: ', ''),
             onRetry: () => setState(_reload),
           );
         }
@@ -93,22 +79,20 @@ class _ResolvedRoleGateState
           account.role,
         );
 
-        return StreamBuilder<
-            DocumentSnapshot<Map<String, dynamic>>>(
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: reference.snapshots(),
           builder: (context, liveSnapshot) {
-            if (!liveSnapshot.hasData) {
-              if (liveSnapshot.hasError) {
-                return _ProfileLoadErrorPage(
-                  message:
-                      '${liveSnapshot.error}'.replaceFirst(
-                    'Exception: ',
-                    '',
-                  ),
-                  onRetry: () => setState(_reload),
-                );
-              }
+            if (liveSnapshot.hasError) {
+              return _ProfileLoadErrorPage(
+                message: '${liveSnapshot.error}'.replaceFirst(
+                  'Exception: ',
+                  '',
+                ),
+                onRetry: () => setState(_reload),
+              );
+            }
 
+            if (!liveSnapshot.hasData) {
               return const _ProfileLoadingPage(
                 message: 'Opening your account...',
               );
@@ -119,11 +103,7 @@ class _ResolvedRoleGateState
               return MissingProfilePage(uid: widget.user.uid);
             }
 
-            return _routeProfile(
-              context,
-              role: account.role,
-              profile: profile,
-            );
+            return _routeProfile(context, role: account.role, profile: profile);
           },
         );
       },
@@ -135,6 +115,16 @@ class _ResolvedRoleGateState
     required String role,
     required Map<String, dynamic> profile,
   }) {
+    final profileRole = '${profile['role'] ?? ''}'.trim().toLowerCase();
+    if (profileRole != role) {
+      return _ProfileLoadErrorPage(
+        message:
+            'The $role profile for this account is missing role == $role. '
+            'Check the ${role}s/${widget.user.uid} document.',
+        onRetry: () => setState(_reload),
+      );
+    }
+
     if (profile['status'] != 'active') {
       return const AccountDisabledPage();
     }
@@ -182,9 +172,7 @@ class _ResolvedRoleGateState
 }
 
 class _ProfileLoadingPage extends StatelessWidget {
-  const _ProfileLoadingPage({
-    required this.message,
-  });
+  const _ProfileLoadingPage({required this.message});
 
   final String message;
 
@@ -199,10 +187,7 @@ class _ProfileLoadingPage extends StatelessWidget {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-              ),
+              Text(message, textAlign: TextAlign.center),
             ],
           ),
         ),
@@ -212,10 +197,7 @@ class _ProfileLoadingPage extends StatelessWidget {
 }
 
 class _ProfileLoadErrorPage extends StatelessWidget {
-  const _ProfileLoadErrorPage({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ProfileLoadErrorPage({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -234,10 +216,7 @@ class _ProfileLoadErrorPage extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.error_outline_rounded,
-                      size: 48,
-                    ),
+                    const Icon(Icons.error_outline_rounded, size: 48),
                     const SizedBox(height: 12),
                     const Text(
                       'Unable to load account profile',
@@ -247,10 +226,7 @@ class _ProfileLoadErrorPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      message,
-                      textAlign: TextAlign.center,
-                    ),
+                    Text(message, textAlign: TextAlign.center),
                     const SizedBox(height: 18),
                     Wrap(
                       spacing: 10,

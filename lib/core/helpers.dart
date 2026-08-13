@@ -6,13 +6,20 @@ import 'package:geolocator/geolocator.dart';
 String randomCode([int length = 6]) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   final random = Random.secure();
-  return List.generate(length, (_) => chars[random.nextInt(chars.length)]).join();
+  return List.generate(
+    length,
+    (_) => chars[random.nextInt(chars.length)],
+  ).join();
 }
 
 String randomToken([int length = 28]) {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const chars =
+      'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   final random = Random.secure();
-  return List.generate(length, (_) => chars[random.nextInt(chars.length)]).join();
+  return List.generate(
+    length,
+    (_) => chars[random.nextInt(chars.length)],
+  ).join();
 }
 
 DateTime? asDate(dynamic value) {
@@ -41,7 +48,6 @@ Future<Position> determinePosition() async {
     ),
   );
 }
-
 
 String cleanDisplayText(Object? value) {
   var text = '${value ?? ''}';
@@ -81,22 +87,25 @@ void showMessage(BuildContext context, String message, {bool error = false}) {
 }
 
 Widget emptyState(String title, [String? subtitle]) => Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.inbox_outlined, size: 54),
-            const SizedBox(height: 12),
-            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            if (subtitle != null) ...[
-              const SizedBox(height: 6),
-              Text(subtitle, textAlign: TextAlign.center),
-            ],
-          ],
+  child: Padding(
+    padding: const EdgeInsets.all(32),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.inbox_outlined, size: 54),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-      ),
-    );
+        if (subtitle != null) ...[
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: TextAlign.center),
+        ],
+      ],
+    ),
+  ),
+);
 
 Future<String?> requestPassword(
   BuildContext context, {
@@ -110,6 +119,7 @@ Future<String?> requestPassword(
       content: TextField(
         controller: controller,
         obscureText: true,
+        obscuringCharacter: '*',
         autofocus: true,
         decoration: const InputDecoration(labelText: 'Current password'),
       ),
@@ -137,19 +147,27 @@ Future<bool> confirmDeletionKeyword(BuildContext context) async {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Type DELETE to deactivate the account and submit a deletion request.'),
+              const Text(
+                'Type DELETE to deactivate the account and submit a deletion request.',
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
                 textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(labelText: 'Confirmation keyword'),
+                decoration: const InputDecoration(
+                  labelText: 'Confirmation keyword',
+                ),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim() == 'DELETE'),
+              onPressed: () =>
+                  Navigator.pop(context, controller.text.trim() == 'DELETE'),
               child: const Text('Continue'),
             ),
           ],
