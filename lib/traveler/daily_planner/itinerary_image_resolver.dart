@@ -62,6 +62,28 @@ class ItineraryImageResolver {
     return result;
   }
 
+  static Map<String, dynamic> _withLatestStopFields(
+    Map<String, dynamic> resolved,
+    Map<String, dynamic> original,
+  ) {
+    final merged = <String, dynamic>{...original, ...resolved};
+    for (final key in const [
+      'durationMinutes',
+      'openingHours',
+      'sequence',
+      'travelMinutesBefore',
+      'routeDistanceMetersBefore',
+      'suggestedStartMinutes',
+      'suggestedEndMinutes',
+      'suggestedTimeLabel',
+      'scheduleNotes',
+      'scheduleStatus',
+    ]) {
+      if (original.containsKey(key)) merged[key] = original[key];
+    }
+    return merged;
+  }
+
   static Map<String, double>? coordinatesFor(Map<String, dynamic> stop) {
     final raw = stop['location'];
     if (raw is GeoPoint) {
@@ -260,107 +282,132 @@ class ItineraryImageResolver {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> _wikimediaImage(
-    Map<String, dynamic> stop,
-  ) async {
+  static Future<List<Map<String, dynamic>>> _wikimediaImages(
+    Map<String, dynamic> stop, {
+    int limit = 3,
+  }) async {
     final name = '${stop['name'] ?? ''}'.trim();
-    if (name.isEmpty) return null;
+    final category = '${stop['category'] ?? ''}'.trim();
+    final area = '${stop['area'] ?? 'Penang'}'.trim();
+    if (name.isEmpty && category.isEmpty) return const [];
 
     try {
-      final uri = Uri.https(
-        'commons.wikimedia.org',
-        '/w/api.php',
-        {
-          'action': 'query',
-          'generator': 'search',
-          'gsrsearch': '$name Penang Malaysia',
-          'gsrnamespace': '6',
-          'gsrlimit': '8',
-          'prop': 'imageinfo',
-          'iiprop': 'url|mime',
-          'iiurlwidth': '960',
-          'format': 'json',
-          'formatversion': '2',
-          'origin': '*',
-        },
-      );
-      final response = await http.get(
-        uri,
-        headers: const {
-          'User-Agent':
-              'MyHeritageExplorer/1.0 (university tourism project)',
-        },
-      ).timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) return null;
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map ||
-          decoded['query'] is! Map ||
-          (decoded['query'] as Map)['pages'] is! List) {
-        return null;
-      }
-
-      final pages = List<Map<String, dynamic>>.from(
-        ((decoded['query'] as Map)['pages'] as List)
-            .whereType<Map>()
-            .map((page) => Map<String, dynamic>.from(page)),
-      );
       final nameTokens = _normalize(name)
           .split(' ')
           .where((token) => token.length > 2)
           .toSet();
+      final categoryTokens = _normalize(category)
+          .split(' ')
+          .where((token) => token.length > 2)
+          .toSet();
+      final searchTerms = <String>[
+        if (name.isNotEmpty) '$name Penang Malaysia',
+        if (name.isNotEmpty && area.isNotEmpty) '$name $area Malaysia',
+        if (category.isNotEmpty) '$category Penang Malaysia heritage',
+        if (category.isEmpty) 'Penang Malaysia heritage site',
+      ];
+      final uniqueTerms = searchTerms
+          .map((term) => term.replaceAll(RegExp(r'\s+'), ' ').trim())
+          .where((term) => term.isNotEmpty)
+          .toSet()
+          .take(3);
 
-      Map<String, dynamic>? best;
-      var bestScore = -100;
-      for (final page in pages) {
-        final imageInfo = page['imageinfo'];
-        if (imageInfo is! List || imageInfo.isEmpty) continue;
-        final info = Map<String, dynamic>.from(imageInfo.first as Map);
-        final mime = '${info['mime'] ?? ''}'.toLowerCase();
-        if (!mime.startsWith('image/') ||
-            mime.contains('svg') ||
-            mime.contains('gif')) {
+      final scored = <MapEntry<int, Map<String, dynamic>>>[];
+      final seen = <String>{};
+      for (final term in uniqueTerms) {
+        final uri = Uri.https(
+          'commons.wikimedia.org',
+          '/w/api.php',
+          {
+            'action': 'query',
+            'generator': 'search',
+            'gsrsearch': term,
+            'gsrnamespace': '6',
+            'gsrlimit': '10',
+            'prop': 'imageinfo',
+            'iiprop': 'url|mime',
+            'iiurlwidth': '960',
+            'format': 'json',
+            'formatversion': '2',
+            'origin': '*',
+          },
+        );
+        final response = await http.get(
+          uri,
+          headers: const {
+            'User-Agent':
+                'MyHeritageExplorer/1.0 (university tourism project)',
+          },
+        ).timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) continue;
+
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map ||
+            decoded['query'] is! Map ||
+            (decoded['query'] as Map)['pages'] is! List) {
           continue;
         }
 
-        final title = _normalize(page['title']);
-        final titleTokens = title
-            .split(' ')
-            .where((token) => token.length > 2)
-            .toSet();
-        var score = nameTokens.intersection(titleTokens).length * 4;
-        if (title.contains('penang') ||
-            title.contains('george town') ||
-            title.contains('pulau pinang')) {
-          score += 3;
-        }
-        for (final unwanted in [
-          'logo',
-          'map',
-          'diagram',
-          'icon',
-          'flag',
-          'poster',
-          'ticket',
-          'menu',
-        ]) {
-          if (title.contains(unwanted)) score -= 8;
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          best = {
+        final pages = List<Map<String, dynamic>>.from(
+          ((decoded['query'] as Map)['pages'] as List)
+              .whereType<Map>()
+              .map((page) => Map<String, dynamic>.from(page)),
+        );
+        for (final page in pages) {
+          final imageInfo = page['imageinfo'];
+          if (imageInfo is! List || imageInfo.isEmpty) continue;
+          final info = Map<String, dynamic>.from(imageInfo.first as Map);
+          final mime = '${info['mime'] ?? ''}'.toLowerCase();
+          if (!mime.startsWith('image/') ||
+              mime.contains('svg') ||
+              mime.contains('gif')) {
+            continue;
+          }
+
+          final imageUrl = _normaliseImageUrl(info['thumburl'] ?? info['url']);
+          if (imageUrl.isEmpty || !seen.add(imageUrl)) continue;
+
+          final title = _normalize(page['title']);
+          final titleTokens = title
+              .split(' ')
+              .where((token) => token.length > 2)
+              .toSet();
+          var score = nameTokens.intersection(titleTokens).length * 5;
+          score += categoryTokens.intersection(titleTokens).length * 2;
+          if (title.contains('penang') ||
+              title.contains('george town') ||
+              title.contains('pulau pinang')) {
+            score += 4;
+          }
+          for (final unwanted in [
+            'logo',
+            'map',
+            'diagram',
+            'icon',
+            'flag',
+            'poster',
+            'ticket',
+            'menu',
+            'floor plan',
+          ]) {
+            if (title.contains(unwanted)) score -= 10;
+          }
+          scored.add(
+            MapEntry(score, {
             'imageUrl': _normaliseImageUrl(
               info['thumburl'] ?? info['url'],
             ),
             'imageType': 'wikimedia_place_photo',
             'imageAttribution': 'Wikimedia Commons',
             'imageSourceUrl': '${info['descriptionurl'] ?? ''}',
-          };
+          }),
+          );
         }
       }
-      return '${best?['imageUrl'] ?? ''}'.isNotEmpty ? best : null;
+      scored.sort((a, b) => b.key.compareTo(a.key));
+      return scored.map((entry) => entry.value).take(limit).toList();
     } catch (_) {
-      return null;
+      return const [];
     }
   }
 
@@ -441,10 +488,11 @@ class ItineraryImageResolver {
         '${original['geoapifyPlaceId'] ?? ''}|'
         '${_normalize(original['name'])}';
 
-    return _stopCache.putIfAbsent(cacheKey, () async {
+    final resolved = _stopCache.putIfAbsent(cacheKey, () async {
       final stop = Map<String, dynamic>.from(original);
       final photoCandidates = <String>[];
       final mapCandidates = <String>[];
+      final onlineImageCandidates = <Map<String, dynamic>>[];
 
       final originalImageType = '${stop['imageType'] ?? ''}'.toLowerCase();
       final existingCandidates = _uniqueUrls([
@@ -477,10 +525,17 @@ class ItineraryImageResolver {
         photoCandidates.add(geoapifyUrl);
       }
 
-      if (photoCandidates.isEmpty) {
-        final commons = await _wikimediaImage(stop);
-        final commonsUrl = _normaliseImageUrl(commons?['imageUrl']);
-        if (commonsUrl.isNotEmpty) photoCandidates.add(commonsUrl);
+      final needsOnlineFallback =
+          photoCandidates.isEmpty || photoCandidates.length < 3;
+      if (needsOnlineFallback) {
+        final commonsImages = await _wikimediaImages(stop);
+        for (final commons in commonsImages) {
+          final commonsUrl = _normaliseImageUrl(commons['imageUrl']);
+          if (commonsUrl.isNotEmpty && !photoCandidates.contains(commonsUrl)) {
+            photoCandidates.add(commonsUrl);
+            onlineImageCandidates.add(commons);
+          }
+        }
       }
 
       var coordinates = coordinatesFor(stop);
@@ -507,9 +562,8 @@ class ItineraryImageResolver {
       final primary = allCandidates.isEmpty ? '' : allCandidates.first;
       final fallback = mapCandidates.isEmpty ? '' : mapCandidates.first;
 
-      return {
+      final resolvedStop = {
         ...stop,
-        if (coordinates != null) 'location': coordinates,
         if (primary.isNotEmpty) 'imageUrl': primary,
         if (fallback.isNotEmpty) 'fallbackImageUrl': fallback,
         if (fallback.isNotEmpty) 'mapPreviewUrl': fallback,
@@ -517,7 +571,9 @@ class ItineraryImageResolver {
         'imageType': photoCandidates.isNotEmpty
             ? '${geoapifyImage?['imageType'] ??
                 placeContent?['imageType'] ??
-                stop['imageType'] ??
+                (onlineImageCandidates.isNotEmpty
+                    ? onlineImageCandidates.first['imageType']
+                    : stop['imageType']) ??
                 'place_photo'}'
             : fallback.isNotEmpty
                 ? 'map_preview'
@@ -527,7 +583,10 @@ class ItineraryImageResolver {
         if ('${placeContent?['imageSourceUrl'] ?? ''}'.isNotEmpty)
           'imageSourceUrl': placeContent?['imageSourceUrl'],
       };
+      if (coordinates != null) resolvedStop['location'] = coordinates;
+      return resolvedStop;
     });
+    return resolved.then((value) => _withLatestStopFields(value, original));
   }
 
   static List<String> imageCandidatesFor(
@@ -549,6 +608,7 @@ class ItineraryImageResolver {
   ) async {
     final resolved = await resolveStop(stop);
     final candidates = imageCandidatesFor(resolved);
+    if (!context.mounted) return resolved;
 
     for (final candidate in candidates.take(5)) {
       var failed = false;
@@ -565,7 +625,7 @@ class ItineraryImageResolver {
             },
           ),
           context,
-          onError: (_, __) {
+          onError: (error, stackTrace) {
             failed = true;
           },
         ).timeout(const Duration(seconds: 12));
@@ -734,7 +794,7 @@ class _ItineraryCandidateImageState
           height: widget.height,
         );
       },
-      errorBuilder: (_, __, ___) {
+      errorBuilder: (context, error, stackTrace) {
         if (index + 1 < widget.candidates.length) {
           _useNextCandidate();
           return _ItineraryImageLoading(

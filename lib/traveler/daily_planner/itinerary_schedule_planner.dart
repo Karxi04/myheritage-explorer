@@ -1,0 +1,436 @@
+part of '../traveler_pages.dart';
+
+class ItineraryScheduleResult {
+  const ItineraryScheduleResult({
+    required this.stops,
+    required this.totalEstimatedMinutes,
+    required this.remainingMinutes,
+    required this.startMinutes,
+    required this.endMinutes,
+  });
+
+  final List<Map<String, dynamic>> stops;
+  final int totalEstimatedMinutes;
+  final int remainingMinutes;
+  final int startMinutes;
+  final int endMinutes;
+}
+
+class ItinerarySchedulePlanner {
+  const ItinerarySchedulePlanner._();
+
+  static const int defaultStartMinutes = 9 * 60;
+
+  static ItineraryScheduleResult plan({
+    required List<Map<String, dynamic>> stops,
+    required String pace,
+    required double availableHours,
+    int? preferredStartMinutes,
+  }) {
+    final planned = stops
+        .map((stop) => Map<String, dynamic>.from(stop))
+        .toList(growable: true);
+    if (planned.isEmpty) {
+      final start = preferredStartMinutes ?? defaultStartMinutes;
+      return ItineraryScheduleResult(
+        stops: const [],
+        totalEstimatedMinutes: 0,
+        remainingMinutes: (availableHours * 60).round(),
+        startMinutes: start,
+        endMinutes: start,
+      );
+    }
+
+    final start = _suggestedStart(
+      planned.first,
+      preferredStartMinutes ?? defaultStartMinutes,
+    );
+    var cursor = start;
+
+    for (var index = 0; index < planned.length; index++) {
+      final stop = planned[index];
+      final travel = index == 0
+          ? 0
+          : _travelMinutes(planned[index - 1], stop, pace);
+      final distance = index == 0
+          ? null
+          : _distanceMeters(planned[index - 1], stop);
+      final arrival = cursor + travel;
+      final duration = max(
+        30,
+        (stop['durationMinutes'] as num?)?.round() ?? 60,
+      );
+      final departure = arrival + duration;
+      final notes = <String>[];
+
+      final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
+      final openingNote = _openingNote(
+        window: openingWindow,
+        arrival: arrival,
+        departure: departure,
+      );
+      if (openingNote != null) notes.add(openingNote);
+
+      if (openingWindow == null &&
+          '${stop['openingHours'] ?? ''}'.trim().isNotEmpty) {
+        notes.add('Check the listed opening hours before visiting this stop.');
+      }
+
+      if (travel >= 35) {
+        notes.add(
+          'Long transfer from the previous stop. Consider moving closer places together.',
+        );
+      } else if (travel >= 22) {
+        notes.add(
+          'Moderate transfer from the previous stop. Keep some buffer time.',
+        );
+      }
+
+      stop
+        ..['sequence'] = index + 1
+        ..['travelMinutesBefore'] = travel
+        ..['routeDistanceMetersBefore'] = distance
+        ..['suggestedStartMinutes'] = arrival
+        ..['suggestedEndMinutes'] = departure
+        ..['suggestedTimeLabel'] =
+            '${formatTime(arrival)} - ${formatTime(departure)}'
+        ..['scheduleNotes'] = notes
+        ..['scheduleStatus'] = notes.isEmpty ? 'ok' : 'caution';
+
+      cursor = departure;
+    }
+
+    _addOrderSuggestions(planned, pace);
+
+    final total = max(0, cursor - start);
+    final remaining = max(0, (availableHours * 60).round() - total);
+
+    return ItineraryScheduleResult(
+      stops: planned,
+      totalEstimatedMinutes: total,
+      remainingMinutes: remaining,
+      startMinutes: start,
+      endMinutes: cursor,
+    );
+  }
+
+  static String formatTime(int minutes) {
+    final normalized = minutes % (24 * 60);
+    final hour24 = normalized ~/ 60;
+    final minute = normalized % 60;
+    final suffix = hour24 >= 12 ? 'PM' : 'AM';
+    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    return '$hour12:${minute.toString().padLeft(2, '0')} $suffix';
+  }
+
+  static int _suggestedStart(Map<String, dynamic> first, int fallback) {
+    final window = _openingWindow('${first['openingHours'] ?? ''}');
+    if (window == null) return fallback;
+    if (window.opens > fallback && window.opens < window.closes) {
+      return window.opens;
+    }
+    return fallback;
+  }
+
+  static int _travelMinutes(
+    Map<String, dynamic> from,
+    Map<String, dynamic> to,
+    String pace,
+  ) {
+    final fromPoint = GeoapifyPlanner._coordinateMap(from['location']);
+    final toPoint = GeoapifyPlanner._coordinateMap(to['location']);
+    if (fromPoint == null || toPoint == null) {
+      return (to['travelMinutesBefore'] as num?)?.round() ??
+          switch (pace) {
+            'Relaxed' => 15,
+            'Fast' || 'Packed' => 8,
+            _ => 10,
+          };
+    }
+    return GeoapifyPlanner._estimatedTravelMinutes(
+      from['location'],
+      to['location'],
+      pace,
+    );
+  }
+
+  static int? _distanceMeters(
+    Map<String, dynamic> from,
+    Map<String, dynamic> to,
+  ) {
+    final fromPoint = GeoapifyPlanner._coordinateMap(from['location']);
+    final toPoint = GeoapifyPlanner._coordinateMap(to['location']);
+    if (fromPoint == null || toPoint == null) return null;
+    return (GeoapifyPlanner._haversineKm(
+              fromPoint['latitude']!,
+              fromPoint['longitude']!,
+              toPoint['latitude']!,
+              toPoint['longitude']!,
+            ) *
+            1000)
+        .round();
+  }
+
+  static void _addOrderSuggestions(
+    List<Map<String, dynamic>> stops,
+    String pace,
+  ) {
+    for (var index = 0; index + 1 < stops.length; index++) {
+      final current = stops[index];
+      final next = stops[index + 1];
+      final currentWindow = _openingWindow('${current['openingHours'] ?? ''}');
+      final nextWindow = _openingWindow('${next['openingHours'] ?? ''}');
+
+      if (nextWindow != null && currentWindow != null) {
+        if (nextWindow.closes + 30 < currentWindow.closes) {
+          _addNote(
+            next,
+            'This stop closes earlier than the previous one. Moving it earlier may be safer.',
+          );
+        } else if (nextWindow.opens + 60 < currentWindow.opens) {
+          _addNote(
+            next,
+            'This stop opens earlier than the previous one. It may work better earlier in the route.',
+          );
+        }
+      }
+
+      final saving = _swapSavingMinutes(stops, index, pace);
+      if (saving >= 10) {
+        _addNote(
+          current,
+          'Switching this with the next stop may save about $saving minutes of travel.',
+        );
+        _addNote(
+          next,
+          'Consider moving this before the previous stop to reduce route distance.',
+        );
+      }
+    }
+  }
+
+  static int _swapSavingMinutes(
+    List<Map<String, dynamic>> stops,
+    int index,
+    String pace,
+  ) {
+    final previous = index == 0 ? null : stops[index - 1];
+    final current = stops[index];
+    final next = stops[index + 1];
+    final after = index + 2 < stops.length ? stops[index + 2] : null;
+
+    final currentCost =
+        (previous == null ? 0 : _travelMinutes(previous, current, pace)) +
+        _travelMinutes(current, next, pace) +
+        (after == null ? 0 : _travelMinutes(next, after, pace));
+    final swappedCost =
+        (previous == null ? 0 : _travelMinutes(previous, next, pace)) +
+        _travelMinutes(next, current, pace) +
+        (after == null ? 0 : _travelMinutes(current, after, pace));
+
+    return currentCost - swappedCost;
+  }
+
+  static void _addNote(Map<String, dynamic> stop, String note) {
+    final notes = List<String>.from(stop['scheduleNotes'] ?? const <String>[]);
+    if (!notes.contains(note)) notes.add(note);
+    stop['scheduleNotes'] = notes;
+    stop['scheduleStatus'] = notes.isEmpty ? 'ok' : 'caution';
+  }
+
+  static String? _openingNote({
+    required _OpeningWindow? window,
+    required int arrival,
+    required int departure,
+  }) {
+    if (window == null || window.open24Hours) return null;
+
+    if (arrival < window.opens) {
+      return 'Arrives before opening at ${formatTime(window.opens)}. Move this stop later or start later.';
+    }
+    if (arrival >= window.closes) {
+      return 'Likely closed by arrival. It closes at ${formatTime(window.closes)}.';
+    }
+    if (departure > window.closes) {
+      return 'Visit may run past closing at ${formatTime(window.closes)}. Move earlier or shorten the stop.';
+    }
+    if (window.closes - departure <= 30) {
+      return 'Tight closing buffer. This stop closes at ${formatTime(window.closes)}.';
+    }
+    return null;
+  }
+
+  static _OpeningWindow? _openingWindow(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+    final lower = text.toLowerCase();
+    if (lower.contains('24/7') || lower.contains('24 hours')) {
+      return const _OpeningWindow(opens: 0, closes: 24 * 60, open24Hours: true);
+    }
+    if (lower.contains('closed')) return null;
+
+    final normalized = text
+        .replaceAll('\u2013', '-')
+        .replaceAll('\u2014', '-')
+        .replaceAll('\u2012', '-')
+        .replaceAll('\u202f', ' ')
+        .replaceAll('.', ':');
+    final matches = RegExp(
+      r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?',
+      caseSensitive: false,
+    ).allMatches(normalized).toList();
+    if (matches.length < 2) return null;
+
+    final first = _parseTimeMatch(matches[0], null);
+    var second = _parseTimeMatch(
+      matches[1],
+      matches[1].group(3) ?? matches[0].group(3),
+    );
+    if (first == null || second == null) return null;
+
+    var opens = first;
+    var closes = second;
+    if (closes <= opens) closes += 24 * 60;
+
+    if (matches[0].group(3) == null &&
+        matches[1].group(3)?.toLowerCase() == 'pm' &&
+        opens < 12 * 60 &&
+        opens + 12 * 60 < closes) {
+      opens += 12 * 60;
+    }
+
+    return _OpeningWindow(opens: opens, closes: closes);
+  }
+
+  static int? _parseTimeMatch(RegExpMatch match, String? fallbackMeridiem) {
+    var hour = int.tryParse(match.group(1) ?? '');
+    final minute = int.tryParse(match.group(2) ?? '0') ?? 0;
+    final meridiem = (match.group(3) ?? fallbackMeridiem ?? '').toLowerCase();
+    if (hour == null || hour > 24 || minute > 59) return null;
+
+    if (meridiem == 'pm' && hour < 12) hour += 12;
+    if (meridiem == 'am' && hour == 12) hour = 0;
+    if (hour == 24) hour = 0;
+    return hour * 60 + minute;
+  }
+}
+
+class _OpeningWindow {
+  const _OpeningWindow({
+    required this.opens,
+    required this.closes,
+    this.open24Hours = false,
+  });
+
+  final int opens;
+  final int closes;
+  final bool open24Hours;
+}
+
+class ItineraryTimelineSummary extends StatelessWidget {
+  const ItineraryTimelineSummary({super.key, required this.schedule});
+
+  final ItineraryScheduleResult schedule;
+
+  @override
+  Widget build(BuildContext context) {
+    if (schedule.stops.isEmpty) return const SizedBox.shrink();
+
+    return ExplorerCard(
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: ExplorerColors.navySoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.timeline_rounded,
+              color: ExplorerColors.navy,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Suggested Day Timeline',
+                  style: TextStyle(
+                    color: ExplorerColors.navy,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${ItinerarySchedulePlanner.formatTime(schedule.startMinutes)} - '
+                  '${ItinerarySchedulePlanner.formatTime(schedule.endMinutes)} '
+                  '(${(schedule.totalEstimatedMinutes / 60).toStringAsFixed(1)} hours planned)',
+                  style: const TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ScheduleNoteList extends StatelessWidget {
+  const ScheduleNoteList({super.key, required this.notes});
+
+  final List<String> notes;
+
+  @override
+  Widget build(BuildContext context) {
+    if (notes.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: ExplorerColors.warningSoft,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: ExplorerColors.gold),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: notes.take(3).map((note) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: ExplorerColors.goldDark,
+                  size: 15,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    note,
+                    style: const TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}

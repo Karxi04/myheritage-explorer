@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,8 +20,6 @@ import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
 import '../core/services.dart';
 
-
-
 part 'home/traveler_home_page.dart';
 part 'daily_planner/daily_planner_page.dart';
 part 'daily_planner/review_ml_model.dart';
@@ -30,6 +28,7 @@ part 'daily_planner/my_itineraries_page.dart';
 part 'daily_planner/itinerary_detail_page.dart';
 part 'daily_planner/itinerary_share_helper.dart';
 part 'daily_planner/itinerary_image_resolver.dart';
+part 'daily_planner/itinerary_schedule_planner.dart';
 part 'daily_planner/itinerary_edit_page.dart';
 part 'cultural/cultural_tasks_page.dart';
 part 'safety/safety_page.dart';
@@ -44,6 +43,3 @@ part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
-
-
-

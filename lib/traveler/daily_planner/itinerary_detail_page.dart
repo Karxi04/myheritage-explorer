@@ -131,16 +131,17 @@ class ItineraryDetailPage extends StatelessWidget {
             (item) => Map<String, dynamic>.from(item),
           ),
         );
+        final schedule = ItinerarySchedulePlanner.plan(
+          stops: stops,
+          pace: '${itinerary['travelPace'] ?? 'Balanced'}',
+          availableHours:
+              (itinerary['availableHours'] as num?)?.toDouble() ?? 4,
+          preferredStartMinutes: (itinerary['suggestedStartMinutes'] as num?)
+              ?.round(),
+        );
+        final scheduledStops = schedule.stops;
         final createdAt = asDate(itinerary['createdAt']);
-        final totalMinutes =
-            (itinerary['totalEstimatedMinutes'] as num?)?.round() ??
-            stops.fold<int>(
-              0,
-              (total, stop) =>
-                  total +
-                  ((stop['durationMinutes'] as num?)?.round() ?? 60) +
-                  ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
-            );
+        final totalMinutes = schedule.totalEstimatedMinutes;
         final canModify = ItineraryShareHelper.canCurrentUserManage(itinerary);
 
         return Scaffold(
@@ -190,7 +191,7 @@ class ItineraryDetailPage extends StatelessWidget {
                                 _ItinerarySummaryItem(
                                   icon: Icons.route_outlined,
                                   label: 'Stops',
-                                  value: '${stops.length}',
+                                  value: '${scheduledStops.length}',
                                 ),
                                 _ItinerarySummaryItem(
                                   icon: Icons.schedule_outlined,
@@ -241,13 +242,15 @@ class ItineraryDetailPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 18),
+                      ItineraryTimelineSummary(schedule: schedule),
+                      const SizedBox(height: 18),
                       const ExplorerSectionTitle(
                         'Saved Route',
                         subtitle:
                             'Tap a stop to view place details and reviews.',
                       ),
                       const SizedBox(height: 10),
-                      if (stops.isEmpty)
+                      if (scheduledStops.isEmpty)
                         const ExplorerCard(
                           child: ExplorerEmptyState(
                             title: 'No saved stops',
@@ -258,10 +261,10 @@ class ItineraryDetailPage extends StatelessWidget {
                         )
                       else
                         _PreparedItineraryRoute(
-                          stops: stops,
+                          stops: scheduledStops,
                           onResolved: (resolvedStops) => _saveResolvedImages(
                             reference,
-                            stops,
+                            scheduledStops,
                             resolvedStops,
                           ),
                         ),
@@ -570,6 +573,10 @@ class _SavedItineraryStopCard extends StatelessWidget {
     final reviewCount = (stop['inAppReviewCount'] as num?)?.round() ?? 0;
     final travelMinutes = (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
     final visitMinutes = (stop['durationMinutes'] as num?)?.round() ?? 60;
+    final timeLabel = '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+    final scheduleNotes = List<String>.from(
+      stop['scheduleNotes'] ?? const <String>[],
+    );
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -639,6 +646,7 @@ class _SavedItineraryStopCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
+                        '${timeLabel.isEmpty ? '' : '$timeLabel - '}'
                         '${stop['category'] ?? 'Place'} - $visitMinutes minutes',
                         style: const TextStyle(
                           color: ExplorerColors.goldDark,
@@ -682,6 +690,10 @@ class _SavedItineraryStopCard extends StatelessWidget {
                             ),
                         ],
                       ),
+                      if (scheduleNotes.isNotEmpty) ...[
+                        const SizedBox(height: 9),
+                        ScheduleNoteList(notes: scheduleNotes),
+                      ],
                     ],
                   ),
                 ),
