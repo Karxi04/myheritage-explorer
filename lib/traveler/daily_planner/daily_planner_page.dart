@@ -1172,6 +1172,13 @@ class GeoapifyPlanner {
           }
 
           final plannerCategories = _vendorCategories(data);
+          final vendorTags = List<String>.from(
+            data['tags'] ?? const <String>[],
+          ).where((item) => item.trim().isNotEmpty).toList();
+          final combinedTags = <String>{
+            ...plannerCategories,
+            ...vendorTags,
+          }.toList();
           final category = plannerCategories.firstWhere(
             (item) => item != 'Local Business',
             orElse: () => 'Local Business',
@@ -1184,6 +1191,11 @@ class GeoapifyPlanner {
           };
 
           final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
+          final storedImageCandidates = List<String>.from(
+            data['imageCandidates'] ?? const <String>[],
+          ).where((url) => url.trim().isNotEmpty).toList();
+          final website =
+              '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
           final mapPreview = location == null
               ? ''
               : ItineraryImageResolver.staticMapPreview(
@@ -1207,7 +1219,7 @@ class GeoapifyPlanner {
               vendorAddress: '${data['shopLocation'] ?? ''}',
             ),
             'category': category,
-            'tags': plannerCategories,
+            'tags': combinedTags,
             'durationMinutes': duration,
             'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
             'score': (data['score'] as num?)?.toDouble() ?? 0,
@@ -1215,6 +1227,7 @@ class GeoapifyPlanner {
             'fallbackImageUrl': mapPreview,
             'mapPreviewUrl': mapPreview,
             'imageCandidates': [
+              ...storedImageCandidates,
               if (imageUrl.isNotEmpty) imageUrl,
               if (mapPreview.isNotEmpty) mapPreview,
             ],
@@ -1223,7 +1236,7 @@ class GeoapifyPlanner {
                 : 'map_preview',
             'dataCompletenessScore': _dataCompletenessScore(
               address: '${data['shopLocation'] ?? area}',
-              website: '${data['website'] ?? ''}',
+              website: website,
               phone: '${data['contactNumber'] ?? ''}',
               openingHours: '${data['businessHours'] ?? ''}',
               imageType: imageUrl.isNotEmpty
@@ -1234,7 +1247,7 @@ class GeoapifyPlanner {
             ),
             'matchedInterest': category,
             'phone': '${data['contactNumber'] ?? ''}',
-            'website': '${data['website'] ?? ''}',
+            'website': website,
             'openingHours': '${data['businessHours'] ?? ''}',
             'location': location,
             'mapUrl': '${data['mapUrl'] ?? ''}',
@@ -2753,10 +2766,15 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       );
 
       if (!mounted) return;
+      final schedule = ItinerarySchedulePlanner.plan(
+        stops: resolvedPlaces,
+        pace: pace,
+        availableHours: availableHours,
+      );
       setState(() {
-        results = resolvedPlaces;
-        totalEstimatedMinutes = generated.totalEstimatedMinutes;
-        remainingMinutes = generated.remainingMinutes;
+        results = schedule.stops;
+        totalEstimatedMinutes = schedule.totalEstimatedMinutes;
+        remainingMinutes = schedule.remainingMinutes;
       });
 
       final uid = AppServices.auth.currentUser?.uid;
@@ -2810,14 +2828,23 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     };
   }
 
+  ItineraryScheduleResult _currentSchedule() {
+    return ItinerarySchedulePlanner.plan(
+      stops: results,
+      pace: pace,
+      availableHours: availableHours,
+    );
+  }
+
   Future<void> save() async {
     if (results.isEmpty) return;
     final uid = AppServices.auth.currentUser!.uid;
     try {
       showMessage(context, 'Preparing itinerary images...');
+      final schedule = _currentSchedule();
 
       final resolvedStops = await Future.wait(
-        results.asMap().entries.map((entry) async {
+        schedule.stops.asMap().entries.map((entry) async {
           final data = await ItineraryImageResolver.resolveStop(
             Map<String, dynamic>.from(entry.value),
           );
@@ -2889,8 +2916,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         'interests': selectedInterests.toList(),
         'travelPace': pace,
         'placeSource': 'Registered MyHeritage vendors in Penang',
-        'totalEstimatedMinutes': totalEstimatedMinutes,
-        'remainingMinutes': remainingMinutes,
+        'suggestedStartMinutes': schedule.startMinutes,
+        'suggestedEndMinutes': schedule.endMinutes,
+        'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+        'remainingMinutes': schedule.remainingMinutes,
         'stops': resolvedStops,
         'status': 'saved',
         'createdAt': FieldValue.serverTimestamp(),
@@ -2918,6 +2947,11 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final schedule = _currentSchedule();
+    final scheduledResults = schedule.stops;
+    final displayTotalMinutes = schedule.totalEstimatedMinutes;
+    final displayRemainingMinutes = schedule.remainingMinutes;
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
@@ -3109,9 +3143,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       ),
                       IconButton(
                         tooltip: 'Share itinerary link',
-                        onPressed: () => ItineraryShareHelper.openShareDialog(
-                          context,
-                          {
+                        onPressed: () {
+                          final shareSchedule = _currentSchedule();
+                          ItineraryShareHelper.openShareDialog(context, {
                             'title':
                                 '${GeoapifyPlanner._normalisePenangArea(area.text)} Cultural Day',
                             'area': GeoapifyPlanner._normalisePenangArea(
@@ -3121,11 +3155,14 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             'budgetLevel': budgetLevel,
                             'interests': selectedInterests.toList(),
                             'travelPace': pace,
-                            'totalEstimatedMinutes': totalEstimatedMinutes,
-                            'remainingMinutes': remainingMinutes,
-                            'stops': results,
-                          },
-                        ),
+                            'suggestedStartMinutes': shareSchedule.startMinutes,
+                            'suggestedEndMinutes': shareSchedule.endMinutes,
+                            'totalEstimatedMinutes':
+                                shareSchedule.totalEstimatedMinutes,
+                            'remainingMinutes': shareSchedule.remainingMinutes,
+                            'stops': shareSchedule.stops,
+                          });
+                        },
                         icon: const Icon(Icons.link_rounded),
                       ),
                     ],
@@ -3134,8 +3171,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           if (results.isNotEmpty && totalEstimatedMinutes > 0) ...[
             const SizedBox(height: 7),
             Text(
-              '${(totalEstimatedMinutes / 60).toStringAsFixed(1)} hours '
-              'planned - $remainingMinutes minutes remaining',
+              '${(displayTotalMinutes / 60).toStringAsFixed(1)} hours '
+              'planned - $displayRemainingMinutes minutes remaining',
               style: const TextStyle(
                 color: ExplorerColors.muted,
                 fontSize: 11,
@@ -3144,6 +3181,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             ),
           ],
           const SizedBox(height: 10),
+          if (scheduledResults.isNotEmpty) ...[
+            ItineraryTimelineSummary(schedule: schedule),
+            const SizedBox(height: 10),
+          ],
           if (loading)
             const ExplorerCard(
               child: Center(
@@ -3163,7 +3204,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               ),
             )
           else
-            ...results.asMap().entries.map(
+            ...scheduledResults.asMap().entries.map(
               (entry) => Padding(
                 padding: const EdgeInsets.only(bottom: 11),
                 child: _placeCard(context, entry.value, entry.key + 1),
@@ -3195,6 +3236,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     final task = data['culturalTask'] is Map
         ? Map<String, dynamic>.from(data['culturalTask'] as Map)
         : null;
+    final scheduleNotes = List<String>.from(
+      data['scheduleNotes'] ?? const <String>[],
+    );
+    final timeLabel = '${data['suggestedTimeLabel'] ?? ''}'.trim();
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -3253,6 +3298,27 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   ],
                 ),
                 const SizedBox(height: 7),
+                if (timeLabel.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule_outlined,
+                        size: 15,
+                        color: ExplorerColors.goldDark,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        timeLabel,
+                        style: const TextStyle(
+                          color: ExplorerColors.goldDark,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                ],
                 Text(
                   '${data['description'] ?? data['formattedAddress'] ?? ''}',
                   maxLines: 3,
@@ -3289,6 +3355,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       ),
                     ],
                   ),
+                ],
+                if (scheduleNotes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  ScheduleNoteList(notes: scheduleNotes),
                 ],
                 const SizedBox(height: 11),
                 Wrap(

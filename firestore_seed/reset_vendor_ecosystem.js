@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
@@ -30,104 +31,6 @@ const defaultPassword = String(
   process.env.SEED_VENDOR_PASSWORD || 'Vendor123!',
 );
 
-const areas = [
-  { name: 'George Town', lat: 5.4141, lng: 100.3288 },
-  { name: 'Air Itam', lat: 5.4028, lng: 100.2784 },
-  { name: 'Batu Ferringhi', lat: 5.4700, lng: 100.2453 },
-  { name: 'Tanjung Bungah', lat: 5.4645, lng: 100.2964 },
-  { name: 'Tanjung Tokong', lat: 5.4580, lng: 100.3060 },
-  { name: 'Teluk Bahang', lat: 5.4594, lng: 100.2142 },
-  { name: 'Balik Pulau', lat: 5.3500, lng: 100.2330 },
-  { name: 'Bayan Lepas', lat: 5.2975, lng: 100.2590 },
-  { name: 'Bayan Baru', lat: 5.3234, lng: 100.2850 },
-  { name: 'Sungai Ara', lat: 5.3210, lng: 100.2670 },
-  { name: 'Jelutong', lat: 5.3900, lng: 100.3140 },
-  { name: 'Gelugor', lat: 5.3650, lng: 100.3000 },
-  { name: 'Pulau Tikus', lat: 5.4320, lng: 100.3100 },
-  { name: 'Gurney', lat: 5.4385, lng: 100.3090 },
-  { name: 'Butterworth', lat: 5.3990, lng: 100.3630 },
-  { name: 'Bukit Mertajam', lat: 5.3655, lng: 100.4580 },
-  { name: 'Seberang Jaya', lat: 5.3970, lng: 100.4020 },
-  { name: 'Kepala Batas', lat: 5.5150, lng: 100.4260 },
-  { name: 'Nibong Tebal', lat: 5.1650, lng: 100.4780 },
-  { name: 'Simpang Ampat', lat: 5.2800, lng: 100.4770 },
-];
-
-const categoryDefinitions = [
-  {
-    category: 'Food',
-    plannerCategories: ['Food', 'Local Business'],
-    names: ['Nyonya Kitchen', 'Penang Flavours', 'Heritage Hawker', 'Spice Table', 'Island Eats'],
-    highlight: 'local Penang dishes, clear menu information and a welcoming dining experience',
-    task: 'Photograph one local Penang dish and describe the cultural ingredient or preparation method.',
-    photoTarget: 'local_food',
-    voucher: 'RM10 Dining Discount',
-  },
-  {
-    category: 'Cafe',
-    plannerCategories: ['Food', 'Local Business'],
-    names: ['Kopi Corner', 'Island Brew House', 'Heritage Coffee Room', 'Penang Bean Lab', 'Local Roast Cafe'],
-    highlight: 'locally inspired drinks, comfortable seating and friendly counter service',
-    task: 'Photograph a locally inspired drink and identify the ingredient connected to Penang.',
-    photoTarget: 'local_drink',
-    voucher: 'Free Local Drink Upgrade',
-  },
-  {
-    category: 'Craft',
-    plannerCategories: ['Culture', 'Local Business'],
-    names: ['Batik & Craft Studio', 'Island Artisan House', 'Penang Handmade Gallery', 'Heritage Craft Corner', 'Local Maker Studio'],
-    highlight: 'handmade products, local materials and explanations of the making process',
-    task: 'Photograph a handmade item and explain the local craft technique used to create it.',
-    photoTarget: 'local_craft',
-    voucher: '15% Craft Purchase Discount',
-  },
-  {
-    category: 'Workshop',
-    plannerCategories: ['Culture', 'Art', 'Local Business'],
-    names: ['Cultural Workshop', 'Creative Heritage Lab', 'Penang Maker Class', 'Artisan Learning Space', 'Community Craft Workshop'],
-    highlight: 'guided hands-on activities, clear instructions and cultural learning',
-    task: 'Complete one workshop step, photograph the result and describe what you learned.',
-    photoTarget: 'workshop_result',
-    voucher: 'Workshop Fee Rebate',
-  },
-  {
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
-    names: ['Heritage Story House', 'Penang History Studio', 'Local Heritage Centre', 'Old Town Culture Shop', 'Living Heritage Gallery'],
-    highlight: 'local history, heritage interpretation and place-based storytelling',
-    task: 'Photograph a heritage feature and write one fact learned from the vendor.',
-    photoTarget: 'heritage_feature',
-    voucher: 'Heritage Souvenir Discount',
-  },
-  {
-    category: 'Nature',
-    plannerCategories: ['Nature', 'Local Business'],
-    names: ['Eco Experience Hub', 'Penang Nature Guide', 'Island Green Adventure', 'Local Eco Discovery', 'Penang Outdoor Studio'],
-    highlight: 'nature education, responsible tourism and guided local outdoor experiences',
-    task: 'Photograph one plant, landscape or conservation feature and explain why it should be protected.',
-    photoTarget: 'nature_feature',
-    voucher: 'Eco Experience Discount',
-  },
-  {
-    category: 'Retail',
-    plannerCategories: ['Local Business'],
-    names: ['Penang Local Products', 'Island Souvenir Market', 'Community Product House', 'Local Made Store', 'Penang Gift Corner'],
-    highlight: 'locally produced goods, transparent pricing and helpful product explanations',
-    task: 'Photograph a locally made product and identify where or how it was produced.',
-    photoTarget: 'local_product',
-    voucher: 'RM8 Local Product Discount',
-  },
-  {
-    category: 'Culture',
-    plannerCategories: ['Culture', 'Heritage', 'Local Business'],
-    names: ['Cultural Experience House', 'Penang Tradition Centre', 'Community Culture Studio', 'Island Heritage Experience', 'Local Culture Gallery'],
-    highlight: 'community traditions, cultural demonstrations and respectful visitor learning',
-    task: 'Photograph a cultural object or demonstration and describe its meaning respectfully.',
-    photoTarget: 'cultural_object',
-    voucher: 'Cultural Experience Reward',
-  },
-];
-
 const reviewerNames = [
   'Aina Rahman', 'Daniel Lim', 'Nur Izzati', 'Marcus Lee', 'Siti Hajar',
   'Wei Jian', 'Farah Nadia', 'Harith Iskandar', 'Mei Ling', 'Jason Tan',
@@ -135,17 +38,352 @@ const reviewerNames = [
   'Kavitha Raj', 'Muhammad Aqil', 'Chloe Ng', 'Raymond Goh', 'Nadia Azman',
 ];
 
-const branchLabels = [
-  '',
-  'Central',
-  'Harbour',
-  'Garden',
-  'Market',
-  'Courtyard',
-  'Old Town',
-  'Seaside',
-  'Village',
-  'Hill',
+const realVendorTypes = {
+  heritage: {
+    category: 'Heritage',
+    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
+    highlight: 'real heritage interpretation, preserved architecture and visitor-friendly cultural storytelling',
+    task: 'Photograph one heritage detail and write one fact learned at this real Penang place.',
+    photoTarget: 'heritage_feature',
+    voucher: 'Heritage Visit Reward',
+  },
+  culture: {
+    category: 'Culture',
+    plannerCategories: ['Culture', 'Heritage', 'Local Business'],
+    highlight: 'real cultural displays, local stories and respectful visitor learning',
+    task: 'Photograph a cultural object or exhibit and describe its meaning respectfully.',
+    photoTarget: 'cultural_object',
+    voucher: 'Cultural Experience Reward',
+  },
+  nature: {
+    category: 'Nature',
+    plannerCategories: ['Nature', 'Local Business'],
+    highlight: 'real nature education, conservation learning and guided outdoor visitor experiences',
+    task: 'Photograph one plant, landscape or conservation feature and explain why it should be protected.',
+    photoTarget: 'nature_feature',
+    voucher: 'Eco Experience Discount',
+  },
+  food: {
+    category: 'Food',
+    plannerCategories: ['Food', 'Local Business'],
+    highlight: 'real Penang food, established local service and map-searchable dining locations',
+    task: 'Photograph one local Penang dish and describe the cultural ingredient or preparation method.',
+    photoTarget: 'local_food',
+    voucher: 'RM10 Dining Discount',
+  },
+  cafe: {
+    category: 'Cafe',
+    plannerCategories: ['Food', 'Culture', 'Local Business'],
+    highlight: 'real cafe service, heritage setting and locally inspired drinks or desserts',
+    task: 'Photograph a locally inspired drink or dessert and identify its Penang connection.',
+    photoTarget: 'local_drink',
+    voucher: 'Free Local Drink Upgrade',
+  },
+  craft: {
+    category: 'Craft',
+    plannerCategories: ['Culture', 'Art', 'Local Business'],
+    highlight: 'real handmade products, local materials and a clear making or retail experience',
+    task: 'Photograph a handmade item and explain the local craft technique used to create it.',
+    photoTarget: 'local_craft',
+    voucher: '15% Craft Purchase Discount',
+  },
+  retail: {
+    category: 'Retail',
+    plannerCategories: ['Local Business', 'Food'],
+    highlight: 'real locally produced goods, transparent pricing and helpful product explanations',
+    task: 'Photograph a locally made product and identify where or how it was produced.',
+    photoTarget: 'local_product',
+    voucher: 'RM8 Local Product Discount',
+  },
+};
+
+const realVendorPlaces = [
+  {
+    businessName: 'Pinang Peranakan Mansion',
+    type: 'heritage',
+    areaName: 'George Town',
+    address: '29 Church Street, 10200 George Town, Penang, Malaysia',
+    lat: 5.41758,
+    lng: 100.34262,
+    phone: '+604-264 2929',
+    website: 'https://www.pinangperanakanmansion.com.my/',
+    businessHours: 'Mon-Sun 09:30-17:30',
+    budget: 'Medium',
+    tags: ['peranakan', 'museum', 'heritage', 'mansion'],
+  },
+  {
+    businessName: 'Cheong Fatt Tze - The Blue Mansion',
+    type: 'heritage',
+    areaName: 'George Town',
+    address: '14 Leith Street, 10200 George Town, Penang, Malaysia',
+    lat: 5.42157,
+    lng: 100.33407,
+    phone: '+604-262 0006',
+    website: 'https://www.cheongfatttzemansion.com/',
+    businessHours: 'Mon-Sun 11:00-18:00',
+    budget: 'High',
+    tags: ['blue mansion', 'heritage', 'architecture', 'museum'],
+  },
+  {
+    businessName: 'Leong San Tong Khoo Kongsi',
+    type: 'heritage',
+    areaName: 'George Town',
+    address: '18 Cannon Square, 10200 George Town, Penang, Malaysia',
+    lat: 5.4165,
+    lng: 100.3373,
+    phone: '+604-261 4609',
+    website: 'https://www.khookongsi.com.my/',
+    businessHours: 'Mon-Sun 09:00-17:00',
+    budget: 'Medium',
+    tags: ['clan house', 'temple', 'heritage', 'museum'],
+  },
+  {
+    businessName: 'Wonderfood Museum Penang',
+    type: 'culture',
+    areaName: 'George Town',
+    address: '49 Lebuh Pantai, 10200 George Town, Penang, Malaysia',
+    lat: 5.4172,
+    lng: 100.3419,
+    phone: '+604-251 9095',
+    website: 'https://www.facebook.com/Wonderfoodmuseum',
+    businessHours: 'Mon-Sun 09:00-18:00',
+    budget: 'Medium',
+    tags: ['food museum', 'culture', 'family', 'photo spot'],
+  },
+  {
+    businessName: 'Fort Cornwallis',
+    type: 'heritage',
+    areaName: 'George Town',
+    address: 'Jalan Tun Syed Sheh Barakbah, 10200 George Town, Penang, Malaysia',
+    lat: 5.4206,
+    lng: 100.3439,
+    phone: '+604-263 9855',
+    website: 'https://mypenang.gov.my/',
+    businessHours: 'Mon-Sun 09:00-22:00',
+    budget: 'Low',
+    tags: ['fort', 'history', 'heritage', 'colonial'],
+  },
+  {
+    businessName: 'Chew Jetty',
+    type: 'heritage',
+    areaName: 'George Town',
+    address: 'Pengkalan Weld, 10300 George Town, Penang, Malaysia',
+    lat: 5.4138,
+    lng: 100.3406,
+    phone: '',
+    website: 'https://mypenang.gov.my/',
+    businessHours: 'Mon-Sun 09:00-21:00',
+    budget: 'Low',
+    tags: ['clan jetty', 'waterfront', 'heritage', 'village'],
+  },
+  {
+    businessName: 'Kek Lok Si Temple',
+    type: 'heritage',
+    areaName: 'Air Itam',
+    address: 'Kek Lok Si Temple, 11500 Air Itam, Penang, Malaysia',
+    lat: 5.3999,
+    lng: 100.2732,
+    phone: '+604-828 3317',
+    website: 'https://kekloksitemple.com/',
+    businessHours: 'Mon-Sun 08:30-17:30',
+    budget: 'Low',
+    tags: ['temple', 'buddhist', 'heritage', 'air itam'],
+  },
+  {
+    businessName: 'The Habitat Penang Hill',
+    type: 'nature',
+    areaName: 'Air Itam',
+    address: 'Penang Hill, Jalan Stesen Bukit Bendera, Air Itam, 11300 Penang, Malaysia',
+    lat: 5.424,
+    lng: 100.2698,
+    phone: '+6019-645 7741',
+    website: 'https://www.thehabitat.my/',
+    businessHours: 'Mon-Sun 09:00-17:30',
+    budget: 'High',
+    tags: ['rainforest', 'canopy walk', 'nature', 'penang hill'],
+  },
+  {
+    businessName: 'Entopia by Penang Butterfly Farm',
+    type: 'nature',
+    areaName: 'Teluk Bahang',
+    address: '830 Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia',
+    lat: 5.4477,
+    lng: 100.215,
+    phone: '+604-888 8111',
+    website: 'https://www.entopia.com/',
+    businessHours: 'Mon-Sun 09:00-18:00',
+    budget: 'High',
+    tags: ['butterfly', 'nature', 'family', 'teluk bahang'],
+  },
+  {
+    businessName: 'Tropical Spice Garden',
+    type: 'nature',
+    areaName: 'Teluk Bahang',
+    address: 'Lot 595 Mukim 2, Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia',
+    lat: 5.4637,
+    lng: 100.2387,
+    phone: '+604-881 3799',
+    website: 'https://tropicalspicegarden.com/',
+    businessHours: 'Mon-Thu 09:00-16:30; Fri-Sun 09:00-18:00',
+    budget: 'Medium',
+    tags: ['spice garden', 'nature', 'plants', 'cafe'],
+  },
+  {
+    businessName: 'Tropical Fruit Farm',
+    type: 'nature',
+    areaName: 'Teluk Bahang',
+    address: '18th Mile Stone, Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia',
+    lat: 5.415081,
+    lng: 100.216906,
+    phone: '+6012-497 1931',
+    website: 'https://tropicalfruitfarm.com.my/',
+    businessHours: 'Mon-Sun 09:00-17:00',
+    budget: 'Medium',
+    tags: ['fruit farm', 'nature', 'local product', 'tour'],
+  },
+  {
+    businessName: 'ESCAPE Penang',
+    type: 'nature',
+    areaName: 'Teluk Bahang',
+    address: '828 Jalan Teluk Bahang, 11050 Penang, Malaysia',
+    lat: 5.4494,
+    lng: 100.2146,
+    phone: '+6017-797 7529',
+    website: 'https://www.escape.my/park/pg',
+    businessHours: 'Tue-Sun 10:00-18:00',
+    budget: 'High',
+    tags: ['outdoor', 'theme park', 'water park', 'adventure'],
+  },
+  {
+    businessName: 'Penang Batik Factory',
+    type: 'craft',
+    areaName: 'Teluk Bahang',
+    address: '669 Mk. 2, Teluk Bahang, 11050 Penang, Malaysia',
+    lat: 5.4525,
+    lng: 100.2157,
+    phone: '+604-885 1284',
+    website: 'https://www.penangbatik.com.my/',
+    businessHours: 'Mon-Sun 09:00-17:30',
+    budget: 'Medium',
+    tags: ['batik', 'craft', 'showroom', 'handmade'],
+  },
+  {
+    businessName: 'Craft Batik',
+    type: 'craft',
+    areaName: 'Teluk Bahang',
+    address: '651 Mk. 2, Teluk Bahang, 11050 Penang, Malaysia',
+    lat: 5.4522,
+    lng: 100.2149,
+    phone: '+6019-423 1953',
+    website: 'https://craftbatik.com.my/',
+    businessHours: 'Mon-Sun 08:30-17:00',
+    budget: 'Medium',
+    tags: ['batik', 'craft', 'handmade', 'textile'],
+  },
+  {
+    businessName: 'Hin Bus Depot',
+    type: 'culture',
+    areaName: 'George Town',
+    address: '31A Jalan Gurdwara, 10300 George Town, Penang, Malaysia',
+    lat: 5.4116,
+    lng: 100.3262,
+    phone: '',
+    website: 'https://hinbusdepot.com/',
+    businessHours: 'Mon-Sun 10:00-22:00',
+    budget: 'Low',
+    tags: ['art', 'market', 'workshop', 'community'],
+  },
+  {
+    businessName: 'Jawi House Cafe Gallery',
+    type: 'food',
+    areaName: 'George Town',
+    address: '85 Lebuh Armenian, 10200 George Town, Penang, Malaysia',
+    lat: 5.4163,
+    lng: 100.3377,
+    phone: '+604-261 3680',
+    website: 'https://www.jawihouse.com/',
+    businessHours: 'Sun-Mon 11:00-21:30; Wed-Sat 11:00-21:30',
+    budget: 'Medium',
+    tags: ['jawi peranakan', 'cafe', 'gallery', 'food'],
+  },
+  {
+    businessName: 'ChinaHouse Penang',
+    type: 'cafe',
+    areaName: 'George Town',
+    address: '153 & 155 Beach Street, 10300 George Town, Penang, Malaysia',
+    lat: 5.4149,
+    lng: 100.3409,
+    phone: '+604-263 7299',
+    website: 'https://chinahouse.com.my/',
+    businessHours: 'Sun-Thu 09:00-24:00; Fri-Sat 09:00-01:00',
+    budget: 'Medium',
+    tags: ['cafe', 'gallery', 'bakery', 'heritage building'],
+  },
+  {
+    businessName: 'Tek Sen Restaurant',
+    type: 'food',
+    areaName: 'George Town',
+    address: '18 & 20 Carnarvon Street, 10100 George Town, Penang, Malaysia',
+    lat: 5.4153,
+    lng: 100.335,
+    phone: '+6012-981 5117',
+    website: 'https://ericatengkz.wixsite.com/tek-sen',
+    businessHours: 'Mon 12:00-15:00 18:00-21:00; Wed-Sun 12:00-15:00 18:00-21:00',
+    budget: 'Medium',
+    tags: ['restaurant', 'local food', 'george town', 'heritage shophouse'],
+  },
+  {
+    businessName: 'Hameediyah Restaurant',
+    type: 'food',
+    areaName: 'George Town',
+    address: '164A Lebuh Campbell, 10020 George Town, Penang, Malaysia',
+    lat: 5.4188,
+    lng: 100.3338,
+    phone: '+604-261 1095',
+    website: 'https://www.facebook.com/OLDESTNASIKANDARINMALAYSIA',
+    businessHours: 'Mon-Sun 10:00-22:00',
+    budget: 'Low',
+    tags: ['nasi kandar', 'murtabak', 'heritage food', 'restaurant'],
+  },
+  {
+    businessName: 'Penang Road Famous Teochew Chendul',
+    type: 'food',
+    areaName: 'George Town',
+    address: '27 & 29 Lebuh Keng Kwee, 10100 George Town, Penang, Malaysia',
+    lat: 5.4183,
+    lng: 100.331,
+    phone: '+604-262 6002',
+    website: 'https://chendul.my/',
+    businessHours: 'Mon-Sun 09:00-18:30',
+    budget: 'Low',
+    tags: ['dessert', 'chendul', 'street food', 'local food'],
+  },
+  {
+    businessName: 'Ghee Hiang Macalister Road',
+    type: 'retail',
+    areaName: 'George Town',
+    address: '216 Jalan Macalister, 10400 George Town, Penang, Malaysia',
+    lat: 5.4178,
+    lng: 100.3196,
+    phone: '+604-227 2222',
+    website: 'https://ghee-hiang.com/',
+    businessHours: 'Sun-Thu 09:00-19:00; Fri-Sat 09:00-21:00',
+    budget: 'Medium',
+    tags: ['tau sar piah', 'sesame oil', 'local product', 'souvenir'],
+  },
+  {
+    businessName: 'Chowrasta Market',
+    type: 'retail',
+    areaName: 'George Town',
+    address: 'Jalan Penang, 10000 George Town, Penang, Malaysia',
+    lat: 5.4201,
+    lng: 100.3314,
+    phone: '',
+    website: 'https://mypenang.gov.my/',
+    businessHours: 'Mon-Sun 06:30-18:00',
+    budget: 'Low',
+    tags: ['market', 'local product', 'food', 'souvenir'],
+  },
 ];
 
 function normalize(value) {
@@ -154,20 +392,6 @@ function normalize(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function seededRandom(index, salt = 0) {
-  const x = Math.sin((index + 1) * 12.9898 + salt * 78.233) * 43758.5453;
-  return x - Math.floor(x);
-}
-
-function coordinateFor(index, area) {
-  const latJitter = (seededRandom(index, 1) - 0.5) * 0.018;
-  const lngJitter = (seededRandom(index, 2) - 0.5) * 0.018;
-  return {
-    lat: Number((area.lat + latJitter).toFixed(6)),
-    lng: Number((area.lng + lngJitter).toFixed(6)),
-  };
 }
 
 function staticMapUrl(lat, lng) {
@@ -185,8 +409,109 @@ function staticMapUrl(lat, lng) {
   return `https://maps.geoapify.com/v1/staticmap?${params.toString()}`;
 }
 
-function googleMapUrl(lat, lng) {
-  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+function googleMapSearchUrl(businessName, address, lat, lng) {
+  const query = [businessName, address].filter(Boolean).join(', ') ||
+    `${lat},${lng}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function openStreetMapUrl(lat, lng) {
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
+}
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'MyHeritageExplorer/1.0 real vendor map seed',
+        },
+      },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => {
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`HTTP ${response.statusCode} for ${url}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(body));
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+    request.setTimeout(12000, () => {
+      request.destroy(new Error('Geoapify lookup timed out'));
+    });
+    request.on('error', reject);
+  });
+}
+
+async function resolveRealVendorPlace(place) {
+  if (!geoapifyKey) {
+    return {
+      lat: place.lat,
+      lng: place.lng,
+      address: place.address,
+      mapProvider: 'fallback_manual',
+      mapMatchedName: place.businessName,
+      mapPlaceId: '',
+    };
+  }
+
+  const params = new URLSearchParams({
+    text: `${place.businessName}, ${place.address}`,
+    filter: 'countrycode:my',
+    limit: '5',
+    format: 'json',
+    apiKey: geoapifyKey,
+  });
+  const url = `https://api.geoapify.com/v1/geocode/search?${params.toString()}`;
+
+  try {
+    const decoded = await fetchJson(url);
+    const results = Array.isArray(decoded.results) ? decoded.results : [];
+    const selected = results.find((item) => {
+      const text = [
+        item.formatted,
+        item.name,
+        item.city,
+        item.county,
+        item.state,
+      ].join(' ').toLowerCase();
+      return text.includes('penang') || text.includes('pulau pinang');
+    }) || results[0];
+
+    if (!selected || typeof selected.lat !== 'number' ||
+        typeof selected.lon !== 'number') {
+      throw new Error('No usable Geoapify result');
+    }
+
+    return {
+      lat: Number(selected.lat.toFixed(6)),
+      lng: Number(selected.lon.toFixed(6)),
+      address: selected.formatted || place.address,
+      mapProvider: 'geoapify',
+      mapMatchedName: selected.name || place.businessName,
+      mapPlaceId: selected.place_id || '',
+    };
+  } catch (error) {
+    console.warn(`Map lookup fallback used for ${place.businessName}: ${error.message}`);
+    return {
+      lat: place.lat,
+      lng: place.lng,
+      address: place.address,
+      mapProvider: 'fallback_manual',
+      mapMatchedName: place.businessName,
+      mapPlaceId: '',
+    };
+  }
 }
 
 function serialize(value) {
@@ -208,66 +533,97 @@ function serialize(value) {
   return value;
 }
 
-async function backupCollection(collectionRef) {
-  const snapshot = await collectionRef.get();
-  const output = [];
-  for (const doc of snapshot.docs) {
-    const subcollections = await doc.ref.listCollections();
-    const children = {};
-    for (const subcollection of subcollections) {
-      children[subcollection.id] = await backupCollection(subcollection);
-    }
-    output.push({
-      id: doc.id,
-      data: serialize(doc.data()),
-      subcollections: children,
-    });
-  }
-  return output;
-}
+async function backupAndDeleteSeededVendorUsers() {
+  const snapshot = await db.collection('users')
+    .where('role', '==', 'vendor')
+    .get();
+  const seededVendorDocs = snapshot.docs.filter((doc) => {
+    const data = doc.data();
+    return data.seededForTesting === true ||
+      String(data.source || '').includes('vendor_seed') ||
+      String(data.email || '').endsWith('@myheritage.test');
+  });
 
-async function deleteCollection(collectionRef) {
-  while (true) {
-    const snapshot = await collectionRef.limit(250).get();
-    if (snapshot.empty) break;
+  if (seededVendorDocs.length === 0) return 0;
 
-    for (const doc of snapshot.docs) {
-      const subcollections = await doc.ref.listCollections();
-      for (const subcollection of subcollections) {
-        await deleteCollection(subcollection);
-      }
-    }
+  const backup = seededVendorDocs.map((doc) => ({
+    id: doc.id,
+    data: serialize(doc.data()),
+  }));
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(
+    __dirname,
+    `backup_seeded_vendor_users_${timestamp}.json`,
+  );
+  fs.writeFileSync(backupPath, JSON.stringify(backup, null, 2), 'utf8');
+  console.log(`Seeded vendor user-profile backup written to ${backupPath}`);
 
+  for (let start = 0; start < seededVendorDocs.length; start += 250) {
     const batch = db.batch();
-    for (const doc of snapshot.docs) batch.delete(doc.ref);
+    for (const doc of seededVendorDocs.slice(start, start + 250)) {
+      batch.delete(doc.ref);
+    }
     await batch.commit();
   }
+
+  return seededVendorDocs.length;
 }
 
-async function backupAndCleanExceptAccountCollections() {
-  const preservedCollections = new Set(['users', 'admins', 'travelers']);
-  const collections = await db.listCollections();
-  const targets = collections.filter(
-    (collection) => !preservedCollections.has(collection.id),
-  );
+async function backupAndDeleteSeededVendorEcosystemDocs() {
+  const targets = [
+    {
+      collection: 'vendors',
+      matches: (data) => data.seededForTesting === true ||
+        String(data.source || '').includes('vendor_seed') ||
+        String(data.email || '').endsWith('@myheritage.test'),
+    },
+    {
+      collection: 'reviews',
+      matches: (data) => data.seededForTesting === true ||
+        String(data.source || '') === 'vendor_seed',
+    },
+    {
+      collection: 'cultural_tasks',
+      matches: (data) => data.seededForTesting === true ||
+        String(data.createdBy || '') === 'system_seed',
+    },
+    {
+      collection: 'vouchers',
+      matches: (data) => data.seededForTesting === true,
+    },
+  ];
   const backup = {};
+  const counts = {};
 
-  for (const collection of targets) {
-    console.log(`Backing up ${collection.id}...`);
-    backup[collection.id] = await backupCollection(collection);
+  for (const target of targets) {
+    const snapshot = await db.collection(target.collection).get();
+    const docs = snapshot.docs.filter((doc) => target.matches(doc.data()));
+    counts[target.collection] = docs.length;
+    backup[target.collection] = docs.map((doc) => ({
+      id: doc.id,
+      data: serialize(doc.data()),
+    }));
+
+    if (docs.length === 0) continue;
+    console.log(`Deleting ${docs.length} seeded docs from ${target.collection}...`);
+    for (let start = 0; start < docs.length; start += 250) {
+      const batch = db.batch();
+      for (const doc of docs.slice(start, start + 250)) {
+        batch.delete(doc.ref);
+      }
+      await batch.commit();
+    }
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = path.join(__dirname, `backup_before_vendor_reset_${timestamp}.json`);
+  const backupPath = path.join(
+    __dirname,
+    `backup_seeded_vendor_ecosystem_${timestamp}.json`,
+  );
   fs.writeFileSync(backupPath, JSON.stringify(backup, null, 2), 'utf8');
-  console.log(`Backup written to ${backupPath}`);
+  console.log(`Seeded vendor ecosystem backup written to ${backupPath}`);
 
-  for (const collection of targets) {
-    console.log(`Deleting ${collection.id}...`);
-    await deleteCollection(collection);
-  }
-
-  return targets.map((collection) => collection.id);
+  return counts;
 }
 
 async function ensureVendorAuth(email, displayName) {
@@ -496,71 +852,88 @@ async function seedVendorEcosystem() {
   const expiry = Timestamp.fromDate(new Date(now.getTime() + 240 * 86400000));
   const deadline = Timestamp.fromDate(new Date(now.getTime() + 180 * 86400000));
 
-  for (let index = 0; index < 120; index += 1) {
-    const definition = categoryDefinitions[index % categoryDefinitions.length];
-    const area = areas[index % areas.length];
-    const coordinate = coordinateFor(index, area);
-    const nameBase = definition.names[index % definition.names.length];
-    const branchLabel = branchLabels[Math.floor(index / 40)] ||
-      `Branch ${String.fromCharCode(65 + (index % 26))}`;
-    const businessName = [area.name, nameBase, branchLabel]
-      .filter(Boolean)
-      .join(' ');
+  for (let index = 0; index < realVendorPlaces.length; index += 1) {
+    const place = realVendorPlaces[index];
+    const definition = realVendorTypes[place.type] || realVendorTypes.heritage;
+    const businessName = place.businessName;
     const email = `vendor${String(index + 1).padStart(3, '0')}@myheritage.test`;
     const user = await ensureVendorAuth(email, businessName);
-    const mapPreview = staticMapUrl(coordinate.lat, coordinate.lng);
-    const address = `${10 + (index % 80)}, ${area.name} Local Street, ${area.name}, Penang, Malaysia`;
-    const phone = `04-${String(2100000 + index * 37).padStart(7, '0')}`;
-    const budget = ['Low', 'Medium', 'Medium', 'High'][index % 4];
+    const mapMatch = await resolveRealVendorPlace(place);
+    const mapPreview = staticMapUrl(mapMatch.lat, mapMatch.lng);
+    const address = mapMatch.address || place.address;
+    const phone = place.phone || '';
+    const budget = place.budget || ['Low', 'Medium', 'Medium', 'High'][index % 4];
+    const mapUrl = googleMapSearchUrl(businessName, address, mapMatch.lat, mapMatch.lng);
+    const imageCandidates = Array.isArray(place.imageCandidates)
+      ? place.imageCandidates.filter((url) => String(url).startsWith('https://'))
+      : [];
     const vendor = {
       uid: user.uid,
       businessName,
-      areaName: area.name,
+      areaName: place.areaName,
       category: definition.category,
       plannerCategories: definition.plannerCategories,
-      lat: coordinate.lat,
-      lng: coordinate.lng,
+      lat: mapMatch.lat,
+      lng: mapMatch.lng,
       address,
       phone,
       budget,
       definition,
-      imageUrl: mapPreview,
+      imageUrl: imageCandidates[0] || '',
+      imageCandidates,
+      businessHours: place.businessHours,
+      website: place.website,
+      tags: place.tags || [],
+      mapUrl,
+      mapPreview,
+      mapProvider: mapMatch.mapProvider,
+      mapMatchedName: mapMatch.mapMatchedName,
+      mapPlaceId: mapMatch.mapPlaceId,
     };
     vendors.push(vendor);
     credentials.push([email, defaultPassword, businessName, user.uid]);
 
-    await db.collection('users').doc(user.uid).set({
+    await db.collection('vendors').doc(user.uid).set({
       uid: user.uid,
       email,
       displayName: businessName,
       businessName,
-      ownerName: `Owner ${String(index + 1).padStart(3, '0')}`,
+      ownerName: `${businessName} Manager`,
       businessCategory: definition.category,
       plannerCategories: definition.plannerCategories,
+      tags: vendor.tags,
       contactNumber: phone,
       shopLocation: address,
-      businessHours: index % 3 === 0
-        ? 'Mon-Sun 09:00-21:00'
-        : 'Tue-Sun 10:00-19:00',
-      businessDescription: `${businessName} is a registered MyHeritage vendor offering ${definition.highlight}.`,
+      businessHours: place.businessHours,
+      businessDescription: `${businessName} is a real map-searchable Penang vendor/place offering ${definition.highlight}.`,
       role: 'vendor',
       status: 'active',
       vendorStatus: 'verified',
       emailVerified: true,
-      verificationDocumentUrl: 'seeded-admin-verification',
-      location: new GeoPoint(coordinate.lat, coordinate.lng),
-      latitude: coordinate.lat,
-      longitude: coordinate.lng,
+      verificationDocumentUrl: 'seeded-real-map-vendor-verification',
+      location: new GeoPoint(mapMatch.lat, mapMatch.lng),
+      latitude: mapMatch.lat,
+      longitude: mapMatch.lng,
       state: 'Penang',
       country: 'Malaysia',
-      mapUrl: googleMapUrl(coordinate.lat, coordinate.lng),
-      imageUrl: mapPreview,
+      mapUrl,
+      openStreetMapUrl: openStreetMapUrl(mapMatch.lat, mapMatch.lng),
+      website: place.website,
+      websiteUrl: place.website,
+      mapProvider: mapMatch.mapProvider,
+      mapMatchedName: mapMatch.mapMatchedName,
+      mapPlaceId: mapMatch.mapPlaceId,
+      mapVerified: true,
+      source: 'real_map_vendor_seed',
+      imageUrl: imageCandidates[0] || '',
+      imageCandidates,
       fallbackImageUrl: mapPreview,
       mapPreviewUrl: mapPreview,
-      imageType: 'map_preview',
+      imageType: imageCandidates.length ? 'real_place_photo' : '',
       budgetLevel: budget,
       seededForTesting: true,
       seededVendorNumber: index + 1,
+      migratedToThreeRoles: true,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
@@ -649,7 +1022,7 @@ async function seedVendorEcosystem() {
         category: definition.plannerCategories[0],
         locationName: vendor.businessName,
         location: new GeoPoint(vendor.lat, vendor.lng),
-        mapUrl: googleMapUrl(vendor.lat, vendor.lng),
+        mapUrl: vendor.mapUrl,
         requiredPhotoCategory: definition.photoTarget,
         rewardPoints: 80 + (index % 6) * 20,
         deadline,
@@ -673,6 +1046,7 @@ async function seedVendorEcosystem() {
         vendorName: vendor.businessName,
         vendorCategory: definition.category,
         vendorAddress: vendor.address,
+        mapUrl: vendor.mapUrl,
         title: definition.voucher,
         description: `Reward available only at ${vendor.businessName}.`,
         terms: 'One redemption per traveler. Present the in-app QR code before payment.',
@@ -702,6 +1076,7 @@ async function seedVendorEcosystem() {
           vendorName: vendor.businessName,
           vendorCategory: definition.category,
           vendorAddress: vendor.address,
+          mapUrl: vendor.mapUrl,
           title: `Bonus Reward at ${vendor.businessName}`,
           description: 'A second vendor reward for travelers who earn additional cultural-task points.',
           terms: 'Subject to inventory. One claim per account.',
@@ -746,8 +1121,10 @@ async function main() {
   const collections = (await db.listCollections()).map((item) => item.id);
   console.log('Current top-level collections:');
   console.log(collections.length ? collections.join(', ') : '(none)');
-  console.log('Account collections preserved: users, admins, travelers.');
-  console.log('Vendor profiles will be reseeded in vendors/.');
+  console.log('Existing traveler/admin/member data is preserved.');
+  console.log('Only seeded vendor ecosystem docs are replaced.');
+  console.log('Old seeded vendor user-docs will be removed from users/.');
+  console.log('Real map-matched vendor profiles will be reseeded in vendors/.');
 
   if (!confirmed) {
     console.log('');
@@ -757,15 +1134,20 @@ async function main() {
   }
 
   if (!geoapifyKey) {
-    console.warn('Warning: GEOAPIFY_API_KEY is empty. Vendors will still have coordinates, but seeded imageUrl values will be blank.');
+    console.warn('Warning: GEOAPIFY_API_KEY is empty. Real vendors will use curated fallback coordinates instead of live map matching.');
   }
 
-  const deletedCollections = await backupAndCleanExceptAccountCollections();
+  const deletedSeededDocs = await backupAndDeleteSeededVendorEcosystemDocs();
+  const deletedVendorUsers = await backupAndDeleteSeededVendorUsers();
   const result = await seedVendorEcosystem();
 
   console.log('');
   console.log('Vendor-only Penang ecosystem created successfully.');
-  console.log(`Collections removed before seeding: ${deletedCollections.join(', ') || '(none)'}`);
+  console.log('Seeded docs removed before reseeding:');
+  for (const [collection, count] of Object.entries(deletedSeededDocs)) {
+    console.log(`- ${collection}: ${count}`);
+  }
+  console.log(`Old seeded vendor user-docs removed: ${deletedVendorUsers}`);
   console.log(`Registered/verified vendors: ${result.vendors}`);
   console.log(`Valid vendor reviews: ${result.validReviews}`);
   console.log(`Flagged vendor reviews: ${result.flaggedReviews}`);

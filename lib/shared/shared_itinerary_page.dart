@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../core/explorer_ui.dart';
+import '../traveler/traveler_pages.dart';
 
 class SharedItineraryPage extends StatelessWidget {
   const SharedItineraryPage({super.key, this.shareId, this.encodedItinerary})
@@ -15,7 +16,9 @@ class SharedItineraryPage extends StatelessWidget {
     if (raw.isEmpty) return null;
     try {
       var encoded = raw;
-      while (encoded.length % 4 != 0) encoded += '=';
+      while (encoded.length % 4 != 0) {
+        encoded += '=';
+      }
       final decoded = jsonDecode(utf8.decode(base64Url.decode(encoded)));
       if (decoded is! Map) return null;
       final data = Map<String, dynamic>.from(decoded);
@@ -127,7 +130,11 @@ class _SharedItineraryContent extends StatelessWidget {
   const _SharedItineraryContent({required this.itinerary});
   final Map<String, dynamic> itinerary;
 
-  Widget _preview(String imageUrl, {double? width, double height = 96}) {
+  Widget _previewStop(
+    Map<String, dynamic>? stop, {
+    double? width,
+    double height = 96,
+  }) {
     final fallback = Container(
       width: width,
       height: height,
@@ -138,13 +145,11 @@ class _SharedItineraryContent extends StatelessWidget {
         size: 30,
       ),
     );
-    if (imageUrl.trim().isEmpty) return fallback;
-    return Image.network(
-      imageUrl,
+    if (stop == null) return fallback;
+    return ItineraryPlaceImage(
+      stop: stop,
       width: width,
       height: height,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
     );
   }
 
@@ -155,16 +160,16 @@ class _SharedItineraryContent extends StatelessWidget {
         (item) => Map<String, dynamic>.from(item),
       ),
     );
-    final totalMinutes =
-        (itinerary['totalEstimatedMinutes'] as num?)?.round() ??
-        stops.fold<int>(
-          0,
-          (total, stop) =>
-              total +
-              ((stop['durationMinutes'] as num?)?.round() ?? 60) +
-              ((stop['travelMinutesBefore'] as num?)?.round() ?? 0),
-        );
-    final cover = stops.isEmpty ? '' : '${stops.first['imageUrl'] ?? ''}';
+    final schedule = ItinerarySchedulePlanner.plan(
+      stops: stops,
+      pace: '${itinerary['travelPace'] ?? 'Balanced'}',
+      availableHours: (itinerary['availableHours'] as num?)?.toDouble() ?? 4,
+      preferredStartMinutes: (itinerary['suggestedStartMinutes'] as num?)
+          ?.round(),
+    );
+    final scheduledStops = schedule.stops;
+    final totalMinutes = schedule.totalEstimatedMinutes;
+    final coverStop = scheduledStops.isEmpty ? null : scheduledStops.first;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -187,7 +192,7 @@ class _SharedItineraryContent extends StatelessWidget {
                       child: SizedBox(
                         width: double.infinity,
                         height: 220,
-                        child: _preview(cover, height: 220),
+                        child: _previewStop(coverStop, height: 220),
                       ),
                     ),
                     Padding(
@@ -215,7 +220,7 @@ class _SharedItineraryContent extends StatelessWidget {
                           const SizedBox(height: 5),
                           Text(
                             '${itinerary['area'] ?? 'Penang'} • '
-                            '${stops.length} stops • '
+                            '${scheduledStops.length} stops • '
                             '${(totalMinutes / 60).toStringAsFixed(1)} hours',
                             style: const TextStyle(
                               color: ExplorerColors.muted,
@@ -229,20 +234,25 @@ class _SharedItineraryContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
+              ItineraryTimelineSummary(schedule: schedule),
+              const SizedBox(height: 18),
               const ExplorerSectionTitle(
                 'Itinerary Route',
                 subtitle: 'Every saved place includes an image or map preview.',
               ),
               const SizedBox(height: 10),
-              ...stops.asMap().entries.map((entry) {
+              ...scheduledStops.asMap().entries.map((entry) {
                 final stop = entry.value;
-                final imageUrl = '${stop['imageUrl'] ?? ''}';
                 final travel =
                     (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
                 final duration =
                     (stop['durationMinutes'] as num?)?.round() ?? 60;
                 final rating = (stop['rating'] as num?)?.toDouble() ?? 0;
                 final reviewCount = (stop['reviewCount'] as num?)?.round() ?? 0;
+                final timeLabel = '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+                final scheduleNotes = List<String>.from(
+                  stop['scheduleNotes'] ?? const <String>[],
+                );
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 11),
@@ -257,7 +267,7 @@ class _SharedItineraryContent extends StatelessWidget {
                           child: SizedBox(
                             width: double.infinity,
                             height: 180,
-                            child: _preview(imageUrl, height: 180),
+                            child: _previewStop(stop, height: 180),
                           ),
                         ),
                         Padding(
@@ -290,9 +300,10 @@ class _SharedItineraryContent extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${stop['category'] ?? 'Place'} • '
+                                      '${timeLabel.isEmpty ? '' : '$timeLabel - '}'
+                                      '${stop['category'] ?? 'Place'} - '
                                       '$duration minutes'
-                                      '${travel > 0 ? ' • $travel minutes travel' : ''}',
+                                      '${travel > 0 ? ' - $travel minutes travel' : ''}',
                                       style: const TextStyle(
                                         color: ExplorerColors.goldDark,
                                         fontSize: 10,
@@ -338,6 +349,10 @@ class _SharedItineraryContent extends StatelessWidget {
                                           ),
                                         ],
                                       ),
+                                    ],
+                                    if (scheduleNotes.isNotEmpty) ...[
+                                      const SizedBox(height: 9),
+                                      ScheduleNoteList(notes: scheduleNotes),
                                     ],
                                   ],
                                 ),

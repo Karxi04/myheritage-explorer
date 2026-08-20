@@ -19,6 +19,18 @@ class ItineraryShareHelper {
   static String previewImageForStop(Map<String, dynamic> stop) =>
       ItineraryImageResolver.previewImageForStop(stop);
 
+  static double _availableHoursFor(Map<String, dynamic> itinerary) {
+    final explicit = (itinerary['availableHours'] as num?)?.toDouble();
+    if (explicit != null && explicit > 0) return explicit;
+
+    final totalMinutes = (itinerary['totalEstimatedMinutes'] as num?)?.round();
+    if (totalMinutes != null && totalMinutes > 0) {
+      return max(1, totalMinutes / 60);
+    }
+
+    return 4;
+  }
+
   static bool canCurrentUserManage(Map<String, dynamic> itinerary) {
     final user = AppServices.auth.currentUser;
     if (user == null) return false;
@@ -48,7 +60,10 @@ class ItineraryShareHelper {
     final stop = await ItineraryImageResolver.resolveStop(rawStop);
     final coordinates = _coordinatesFor(stop);
     final previewImage = previewImageForStop(stop);
-    return <String, dynamic>{
+    final imageCandidates = ItineraryImageResolver.imageCandidatesFor(
+      stop,
+    ).take(6).toList();
+    final publicStop = <String, dynamic>{
       'name': _shortText(stop['name'], 100),
       'description': _shortText(stop['description']),
       'formattedAddress': _shortText(
@@ -60,11 +75,23 @@ class ItineraryShareHelper {
       'imageUrl': previewImage,
       'fallbackImageUrl':
           '${stop['fallbackImageUrl'] ?? stop['mapPreviewUrl'] ?? ''}',
+      'imageCandidates': imageCandidates,
       'imageType':
           '${stop['imageType'] ?? (previewImage.isEmpty ? '' : 'map_preview')}',
       'durationMinutes': (stop['durationMinutes'] as num?)?.round() ?? 60,
       'travelMinutesBefore':
           (stop['travelMinutesBefore'] as num?)?.round() ?? 0,
+      'routeDistanceMetersBefore':
+          (stop['routeDistanceMetersBefore'] as num?)?.round(),
+      'openingHours': _shortText(stop['openingHours'], 80),
+      'suggestedStartMinutes':
+          (stop['suggestedStartMinutes'] as num?)?.round(),
+      'suggestedEndMinutes': (stop['suggestedEndMinutes'] as num?)?.round(),
+      'suggestedTimeLabel': _shortText(stop['suggestedTimeLabel'], 40),
+      'scheduleStatus': _shortText(stop['scheduleStatus'], 20),
+      'scheduleNotes': List<String>.from(
+        stop['scheduleNotes'] ?? const <String>[],
+      ).map((note) => _shortText(note, 180)).take(4).toList(),
       'rating':
           ((stop['inAppAverageRating'] as num?) ?? (stop['score'] as num?) ?? 0)
               .toDouble(),
@@ -73,8 +100,9 @@ class ItineraryShareHelper {
       'culturalTaskRewardPoints':
           (stop['culturalTaskRewardPoints'] as num?)?.round() ?? 0,
       'mapUrl': _shortText(stop['mapUrl'], 350),
-      if (coordinates != null) 'location': coordinates,
     };
+    if (coordinates != null) publicStop['location'] = coordinates;
+    return publicStop;
   }
 
   static Future<Map<String, dynamic>> _publicItineraryPayload(
@@ -87,22 +115,35 @@ class ItineraryShareHelper {
         (item) => Map<String, dynamic>.from(item),
       ),
     );
+    final availableHours = _availableHoursFor(itinerary);
+    final schedule = ItinerarySchedulePlanner.plan(
+      stops: stops,
+      pace: '${itinerary['travelPace'] ?? 'Balanced'}',
+      availableHours: availableHours,
+      preferredStartMinutes: (itinerary['suggestedStartMinutes'] as num?)
+          ?.round(),
+    );
 
     return <String, dynamic>{
       'shareId': shareId,
       'visibility': 'public',
       'title': _shortText(itinerary['title'] ?? 'Shared Penang Itinerary', 120),
       'area': _shortText(itinerary['area'] ?? 'Penang', 80),
-      'availableHours': itinerary['availableHours'],
+      'availableHours': availableHours,
       'budgetLevel': _shortText(itinerary['budgetLevel'], 30),
       'travelPace': _shortText(itinerary['travelPace'], 30),
       'interests': List<String>.from(
         itinerary['interests'] ?? const <String>[],
       ),
-      'totalEstimatedMinutes': itinerary['totalEstimatedMinutes'],
-      'remainingMinutes': itinerary['remainingMinutes'],
+      'suggestedStartMinutes': schedule.startMinutes,
+      'suggestedEndMinutes': schedule.endMinutes,
+      'timelineLabel':
+          '${ItinerarySchedulePlanner.formatTime(schedule.startMinutes)} - '
+          '${ItinerarySchedulePlanner.formatTime(schedule.endMinutes)}',
+      'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+      'remainingMinutes': schedule.remainingMinutes,
       'originalCreatedAt': createdAt?.toIso8601String(),
-      'stops': await Future.wait(stops.map(_publicStop)),
+      'stops': await Future.wait(schedule.stops.map(_publicStop)),
     };
   }
 

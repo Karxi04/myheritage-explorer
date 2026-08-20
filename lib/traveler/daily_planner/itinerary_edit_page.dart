@@ -39,6 +39,21 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
     return false;
   }
 
+  ItineraryScheduleResult _scheduleStops(List<Map<String, dynamic>> values) {
+    return ItinerarySchedulePlanner.plan(
+      stops: values,
+      pace: '${widget.itinerary['travelPace'] ?? 'Balanced'}',
+      availableHours:
+          (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
+      preferredStartMinutes: (widget.itinerary['suggestedStartMinutes'] as num?)
+          ?.round(),
+    );
+  }
+
+  void _rescheduleStops() {
+    stops = _scheduleStops(stops).stops;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -47,6 +62,7 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         (item) => Map<String, dynamic>.from(item),
       ),
     );
+    _rescheduleStops();
   }
 
   Future<void> addStop() async {
@@ -136,6 +152,7 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           'activeVouchers': detailed['activeVouchers'],
           'activeVoucherCount': detailed['activeVoucherCount'],
         });
+        _rescheduleStops();
       });
       showMessage(context, '${detailed['name']} added to the itinerary.');
     } on TimeoutException {
@@ -179,8 +196,9 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 
     setState(() => saving = true);
     try {
+      final schedule = _scheduleStops(stops);
       final updatedStops = await Future.wait(
-        stops.asMap().entries.map((entry) async {
+        schedule.stops.asMap().entries.map((entry) async {
           final resolved = await ItineraryImageResolver.resolveStop(
             Map<String, dynamic>.from(entry.value),
           );
@@ -201,6 +219,10 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           .doc(widget.itineraryId)
           .update({
             'stops': updatedStops,
+            'suggestedStartMinutes': schedule.startMinutes,
+            'suggestedEndMinutes': schedule.endMinutes,
+            'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+            'remainingMinutes': schedule.remainingMinutes,
             'updatedAt': FieldValue.serverTimestamp(),
           });
       if (mounted) {
@@ -222,6 +244,9 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    final schedule = _scheduleStops(stops);
+    final scheduledStops = schedule.stops;
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       floatingActionButton: FloatingActionButton.extended(
@@ -267,101 +292,134 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                       subtitle: 'Add a place to start building your route.',
                       icon: Icons.route_outlined,
                     )
-                  : ReorderableListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
-                      itemCount: stops.length,
-                      onReorder: (oldIndex, newIndex) {
-                        setState(() {
-                          if (newIndex > oldIndex) newIndex -= 1;
-                          final item = stops.removeAt(oldIndex);
-                          stops.insert(newIndex, item);
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        final stop = stops[index];
-                        return Padding(
-                          key: ValueKey('${stop['placeId']}_$index'),
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: ExplorerCard(
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(11),
-                                  child: SizedBox(
-                                    width: 58,
-                                    height: 58,
-                                    child: ItineraryPlaceImage(
-                                      stop: stop,
-                                      width: 58,
-                                      height: 58,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                CircleAvatar(
-                                  radius: 19,
-                                  backgroundColor: ExplorerColors.goldSoft,
-                                  foregroundColor: ExplorerColors.goldDark,
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
+                  : Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                          child: ItineraryTimelineSummary(schedule: schedule),
+                        ),
+                        Expanded(
+                          child: ReorderableListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                            itemCount: scheduledStops.length,
+                            onReorder: (oldIndex, newIndex) {
+                              setState(() {
+                                if (newIndex > oldIndex) newIndex -= 1;
+                                final item = stops.removeAt(oldIndex);
+                                stops.insert(newIndex, item);
+                                _rescheduleStops();
+                              });
+                            },
+                            itemBuilder: (context, index) {
+                              final stop = scheduledStops[index];
+                              final scheduleNotes = List<String>.from(
+                                stop['scheduleNotes'] ?? const <String>[],
+                              );
+                              final timeLabel =
+                                  '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+
+                              return Padding(
+                                key: ValueKey('${_stopIdentity(stop)}_$index'),
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: ExplorerCard(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        '${stop['name'] ?? ''}',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.navy,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                      Row(
+                                        children: [
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              11,
+                                            ),
+                                            child: SizedBox(
+                                              width: 58,
+                                              height: 58,
+                                              child: ItineraryPlaceImage(
+                                                stop: stop,
+                                                width: 58,
+                                                height: 58,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          CircleAvatar(
+                                            radius: 19,
+                                            backgroundColor:
+                                                ExplorerColors.goldSoft,
+                                            foregroundColor:
+                                                ExplorerColors.goldDark,
+                                            child: Text(
+                                              '${index + 1}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  '${stop['name'] ?? ''}',
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.navy,
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  '${timeLabel.isEmpty ? '' : '$timeLabel - '}'
+                                                  '${stop['category'] ?? ''} - '
+                                                  '${stop['durationMinutes'] ?? 60} minutes',
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.muted,
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Remove stop',
+                                            onPressed: stops.length <= 1
+                                                ? () => showMessage(
+                                                    context,
+                                                    'Cannot remove the only location. '
+                                                    'Delete the full itinerary instead.',
+                                                    error: true,
+                                                  )
+                                                : () => setState(() {
+                                                    stops.removeAt(index);
+                                                    _rescheduleStops();
+                                                  }),
+                                            icon: const Icon(
+                                              Icons.remove_circle_outline,
+                                              color: ExplorerColors.danger,
+                                            ),
+                                          ),
+                                          const Icon(
+                                            Icons.drag_indicator_rounded,
+                                            color: ExplorerColors.muted,
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        '${stop['category'] ?? ''} • '
-                                        '${stop['durationMinutes'] ?? 60} minutes',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.muted,
-                                          fontSize: 10,
-                                        ),
-                                      ),
+                                      if (scheduleNotes.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        ScheduleNoteList(notes: scheduleNotes),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Remove stop',
-                                  onPressed: stops.length <= 1
-                                      ? () => showMessage(
-                                          context,
-                                          'Cannot remove the only location. '
-                                          'Delete the full itinerary instead.',
-                                          error: true,
-                                        )
-                                      : () => setState(
-                                          () => stops.removeAt(index),
-                                        ),
-                                  icon: const Icon(
-                                    Icons.remove_circle_outline,
-                                    color: ExplorerColors.danger,
-                                  ),
-                                ),
-                                const Icon(
-                                  Icons.drag_indicator_rounded,
-                                  color: ExplorerColors.muted,
-                                ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
             ),
           ],
