@@ -9,20 +9,207 @@ class CompanionPage extends StatefulWidget {
 
 class _CompanionPageState extends State<CompanionPage> {
   final Set<String> _sendingSosGroupIds = <String>{};
+  final Set<String> _respondingInvitationIds = <String>{};
+
+  StreamSubscription<Position>? _liveLocationSubscription;
+  bool _liveSharingStarted = false;
+  String? _cachedDisplayName;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resumeLiveLocationSharingIfEnabled();
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveLocationSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<String> _currentDisplayName() async {
+    if (_cachedDisplayName != null && _cachedDisplayName!.trim().isNotEmpty) {
+      return _cachedDisplayName!;
+    }
+
+    final user = AppServices.auth.currentUser;
+    if (user == null) {
+      throw Exception('Please sign in first.');
+    }
+
+    final profile = await AppServices.travelerRef(user.uid).get();
+    final data = profile.data();
+
+    final displayName =
+    '${data?['displayName'] ?? user.displayName ?? ''}'.trim();
+
+    if (displayName.isEmpty) {
+      throw Exception(
+        'Your traveler profile does not contain a display name.',
+      );
+    }
+
+    _cachedDisplayName = displayName;
+    return displayName;
+  }
 
   Future<String> _createUniqueGroupCode() async {
     for (var attempt = 0; attempt < 12; attempt++) {
       final code = randomCode().toUpperCase();
+
       final existing = await AppServices.db
           .collection('travel_groups')
           .where('code', isEqualTo: code)
           .limit(1)
           .get();
 
-      if (existing.docs.isEmpty) return code;
+      if (existing.docs.isEmpty) {
+        return code;
+      }
     }
 
-    throw Exception('Unable to generate a unique group code. Please try again.');
+    throw Exception(
+      'Unable to generate a unique group code. Please try again.',
+    );
+  }
+
+  Future<bool> _confirmLocationSharing(
+      BuildContext context, {
+        required String title,
+        required String message,
+        String actionLabel = 'Allow Location & Continue',
+      }) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.location_on_outlined,
+          color: ExplorerColors.navy,
+          size: 42,
+        ),
+        title: Text(title),
+        content: Text(
+          message,
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.my_location),
+            label: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+
+    return accepted == true;
+  }
+
+  Future<void> _resumeLiveLocationSharingIfEnabled() async {
+    if (_liveSharingStarted) return;
+
+    final user = AppServices.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final groups = await AppServices.db
+          .collection('travel_groups')
+          .where('memberIds', arrayContains: user.uid)
+          .get();
+
+      for (final group in groups.docs) {
+        final locationDocument =
+        await group.reference.collection('locations').doc(user.uid).get();
+
+        if (locationDocument.data()?['sharingEnabled'] == true) {
+          _startLiveLocationSharing();
+          break;
+        }
+      }
+    } catch (error) {
+      debugPrint('Unable to resume companion location sharing: $error');
+    }
+  }
+
+  void _startLiveLocationSharing() {
+    if (_liveSharingStarted) return;
+
+    _liveSharingStarted = true;
+
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 15,
+    );
+
+    _liveLocationSubscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+              (position) {
+            _publishLocationToJoinedGroups(position);
+          },
+          onError: (Object error) {
+            debugPrint('Companion live location stream error: $error');
+          },
+        );
+  }
+
+  Future<void> _publishLocationToJoinedGroups(Position position) async {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final displayName = await _currentDisplayName();
+
+      final groups = await AppServices.db
+          .collection('travel_groups')
+          .where('memberIds', arrayContains: user.uid)
+          .get();
+
+      if (groups.docs.isEmpty) return;
+
+      final batch = AppServices.db.batch();
+
+      for (final groupDocument in groups.docs) {
+        final group = groupDocument.data();
+
+        if ('${group['status'] ?? ''}' != 'active') {
+          continue;
+        }
+
+        final leaderId = '${group['leaderId'] ?? ''}';
+        final isLeader = leaderId == user.uid;
+
+        final locationReference =
+        groupDocument.reference.collection('locations').doc(user.uid);
+
+        batch.set(
+          locationReference,
+          {
+            'userId': user.uid,
+            'displayName': displayName,
+            'role': isLeader ? 'leader' : 'member',
+            'location': GeoPoint(position.latitude, position.longitude),
+            'approvedViewerIds':
+            isLeader ? [user.uid] : [user.uid, leaderId],
+            'sharingEnabled': true,
+            'sosActive': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+    } catch (error) {
+      debugPrint('Unable to publish companion live location: $error');
+    }
   }
 
   Future<void> createGroup(BuildContext context) async {
@@ -66,7 +253,7 @@ class _CompanionPageState extends State<CompanionPage> {
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.group_add_outlined),
-            label: const Text('Create Group'),
+            label: const Text('Continue'),
           ),
         ],
       ),
@@ -74,6 +261,7 @@ class _CompanionPageState extends State<CompanionPage> {
 
     final groupName = nameController.text.trim();
     final description = descriptionController.text.trim();
+
     nameController.dispose();
     descriptionController.dispose();
 
@@ -81,7 +269,11 @@ class _CompanionPageState extends State<CompanionPage> {
 
     if (groupName.isEmpty) {
       if (context.mounted) {
-        showMessage(context, 'Please enter a group name.', error: true);
+        showMessage(
+          context,
+          'Please enter a group name.',
+          error: true,
+        );
       }
       return;
     }
@@ -89,19 +281,56 @@ class _CompanionPageState extends State<CompanionPage> {
     final user = AppServices.auth.currentUser;
     if (user == null) return;
 
+    final locationAccepted = await _confirmLocationSharing(
+      context,
+      title: 'Location Required',
+      message:
+      'Your location is required so you can appear on the Group Map as the group leader. '
+          'The location will be stored only for this travel group.',
+      actionLabel: 'Allow Location & Create',
+    );
+
+    if (!locationAccepted) return;
+
     try {
+      final position = await determinePosition();
+      final displayName = await _currentDisplayName();
       final code = await _createUniqueGroupCode();
 
-      await AppServices.db.collection('travel_groups').add({
+      final groupReference = AppServices.db.collection('travel_groups').doc();
+      final locationReference =
+      groupReference.collection('locations').doc(user.uid);
+
+      final batch = AppServices.db.batch();
+
+      batch.set(groupReference, {
         'name': groupName,
         'description': description,
         'code': code,
         'leaderId': user.uid,
         'memberIds': [user.uid],
+        'memberNames': {
+          user.uid: displayName,
+        },
         'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      batch.set(locationReference, {
+        'userId': user.uid,
+        'displayName': displayName,
+        'role': 'leader',
+        'location': GeoPoint(position.latitude, position.longitude),
+        'approvedViewerIds': [user.uid],
+        'sharingEnabled': true,
+        'sosActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      _startLiveLocationSharing();
 
       if (!context.mounted) return;
 
@@ -149,6 +378,7 @@ class _CompanionPageState extends State<CompanionPage> {
             TextButton.icon(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: code));
+
                 if (dialogContext.mounted) {
                   showMessage(dialogContext, 'Group code copied.');
                 }
@@ -195,9 +425,11 @@ class _CompanionPageState extends State<CompanionPage> {
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
               textInputAction: TextInputAction.done,
+              maxLength: 6,
               decoration: const InputDecoration(
                 labelText: 'Group Code',
                 hintText: 'ABC123',
+                counterText: '',
                 prefixIcon: Icon(Icons.key_outlined),
               ),
               onSubmitted: (_) => Navigator.pop(dialogContext, true),
@@ -212,7 +444,7 @@ class _CompanionPageState extends State<CompanionPage> {
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.login),
-            label: const Text('Join Group'),
+            label: const Text('Continue'),
           ),
         ],
       ),
@@ -225,7 +457,11 @@ class _CompanionPageState extends State<CompanionPage> {
 
     if (code.isEmpty) {
       if (context.mounted) {
-        showMessage(context, 'Please enter a group code.', error: true);
+        showMessage(
+          context,
+          'Please enter a group code.',
+          error: true,
+        );
       }
       return;
     }
@@ -247,24 +483,76 @@ class _CompanionPageState extends State<CompanionPage> {
 
       final groupDocument = snapshot.docs.first;
       final group = groupDocument.data();
+
+      final groupName = '${group['name'] ?? 'Travel Group'}';
+      final leaderId = '${group['leaderId'] ?? ''}';
+
+      if (leaderId.isEmpty) {
+        throw Exception('This group has no valid group leader.');
+      }
+
+      final locationAccepted = await _confirmLocationSharing(
+        context,
+        title: 'Join $groupName?',
+        message:
+        'Location sharing is required before joining this travel group. '
+            'Your current and updated location will be shared with the group leader '
+            'while the Companion feature is active.',
+        actionLabel: 'Join & Share Location',
+      );
+
+      if (!locationAccepted) return;
+
+      final position = await determinePosition();
+      final displayName = await _currentDisplayName();
+
       final memberIds = List<String>.from(
         group['memberIds'] ?? const <String>[],
       );
 
-      if (memberIds.contains(user.uid)) {
-        throw Exception('You are already a member of this travel group.');
-      }
+      final locationReference =
+      groupDocument.reference.collection('locations').doc(user.uid);
 
-      await groupDocument.reference.update({
+      final batch = AppServices.db.batch();
+
+      batch.update(groupDocument.reference, {
         'memberIds': FieldValue.arrayUnion([user.uid]),
+        'memberNames.${user.uid}': displayName,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      batch.set(
+        locationReference,
+        {
+          'userId': user.uid,
+          'displayName': displayName,
+          'role': leaderId == user.uid ? 'leader' : 'member',
+          'location': GeoPoint(position.latitude, position.longitude),
+          'approvedViewerIds':
+          leaderId == user.uid ? [user.uid] : [user.uid, leaderId],
+          'sharingEnabled': true,
+          'sosActive': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+
+      _startLiveLocationSharing();
+
       if (context.mounted) {
-        showMessage(
-          context,
-          'Joined ${group['name'] ?? 'travel group'} successfully.',
-        );
+        if (memberIds.contains(user.uid)) {
+          showMessage(
+            context,
+            'Your location sharing was refreshed for $groupName.',
+          );
+        } else {
+          showMessage(
+            context,
+            'Joined $groupName successfully.',
+          );
+        }
       }
     } catch (error) {
       if (context.mounted) {
@@ -277,11 +565,238 @@ class _CompanionPageState extends State<CompanionPage> {
     }
   }
 
+  Future<void> _acceptInvitation(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> invitation,
+      ) async {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return;
+
+    if (_respondingInvitationIds.contains(invitation.id)) return;
+
+    final data = invitation.data();
+
+    if ('${data['memberId'] ?? ''}' != user.uid) {
+      showMessage(
+        context,
+        'This invitation does not belong to your account.',
+        error: true,
+      );
+      return;
+    }
+
+    final groupName = '${data['groupName'] ?? 'Travel Group'}';
+
+    final locationAccepted = await _confirmLocationSharing(
+      context,
+      title: 'Accept Invitation?',
+      message:
+      'To join $groupName, location sharing is required. '
+          'Your current and updated location will be visible to the group leader '
+          'while the Companion feature is active.',
+      actionLabel: 'Accept & Share Location',
+    );
+
+    if (!locationAccepted) return;
+
+    setState(() {
+      _respondingInvitationIds.add(invitation.id);
+    });
+
+    try {
+      final position = await determinePosition();
+      final displayName = await _currentDisplayName();
+
+      final groupId = '${data['groupId'] ?? ''}';
+
+      if (groupId.isEmpty) {
+        throw Exception('This invitation has no valid travel group.');
+      }
+
+      final groupReference =
+      AppServices.db.collection('travel_groups').doc(groupId);
+
+      final groupSnapshot = await groupReference.get();
+
+      if (!groupSnapshot.exists) {
+        throw Exception('This travel group no longer exists.');
+      }
+
+      final group = groupSnapshot.data() ?? const <String, dynamic>{};
+
+      if ('${group['status'] ?? ''}' != 'active') {
+        throw Exception('This travel group is no longer active.');
+      }
+
+      final leaderId = '${group['leaderId'] ?? ''}';
+
+      if (leaderId.isEmpty) {
+        throw Exception('This travel group has no valid group leader.');
+      }
+
+      final locationReference =
+      groupReference.collection('locations').doc(user.uid);
+
+      final batch = AppServices.db.batch();
+
+      batch.update(groupReference, {
+        'memberIds': FieldValue.arrayUnion([user.uid]),
+        'memberNames.${user.uid}': displayName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      batch.set(
+        locationReference,
+        {
+          'userId': user.uid,
+          'displayName': displayName,
+          'role': 'member',
+          'location': GeoPoint(position.latitude, position.longitude),
+          'approvedViewerIds': [user.uid, leaderId],
+          'sharingEnabled': true,
+          'sosActive': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      batch.update(invitation.reference, {
+        'status': 'accepted',
+        'memberName': displayName,
+        'respondedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      await AppServices.notify(
+        userId: leaderId,
+        title: '$displayName accepted your invitation',
+        message: '$displayName joined $groupName and enabled location sharing.',
+        type: 'companion_group',
+        referenceId: groupId,
+      );
+
+      _startLiveLocationSharing();
+
+      if (context.mounted) {
+        showMessage(
+          context,
+          'You joined $groupName successfully.',
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _respondingInvitationIds.remove(invitation.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _rejectInvitation(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> invitation,
+      ) async {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return;
+
+    if (_respondingInvitationIds.contains(invitation.id)) return;
+
+    final data = invitation.data();
+
+    if ('${data['memberId'] ?? ''}' != user.uid) {
+      return;
+    }
+
+    final groupName = '${data['groupName'] ?? 'Travel Group'}';
+    final leaderId = '${data['leaderId'] ?? ''}';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reject Invitation?'),
+        content: Text(
+          'You will not be added to $groupName and your location will not be shared.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ExplorerColors.danger,
+            ),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _respondingInvitationIds.add(invitation.id);
+    });
+
+    try {
+      await invitation.reference.update({
+        'status': 'rejected',
+        'respondedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (leaderId.isNotEmpty) {
+        final displayName = await _currentDisplayName();
+
+        await AppServices.notify(
+          userId: leaderId,
+          title: '$displayName declined the invitation',
+          message: '$displayName declined the invitation to $groupName.',
+          type: 'companion_group',
+          referenceId: '${data['groupId'] ?? ''}',
+        );
+      }
+
+      if (context.mounted) {
+        showMessage(
+          context,
+          'Invitation rejected.',
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _respondingInvitationIds.remove(invitation.id);
+        });
+      }
+    }
+  }
+
   Future<String> _displayName(String uid) async {
     try {
       final profile = await AppServices.travelerRef(uid).get();
       final data = profile.data() ?? const <String, dynamic>{};
-      return '${data['displayName'] ?? data['fullName'] ?? data['name'] ?? uid}';
+
+      return '${data['displayName'] ?? uid}';
     } catch (_) {
       return uid;
     }
@@ -299,7 +814,11 @@ class _CompanionPageState extends State<CompanionPage> {
     final leaderId = '${group['leaderId'] ?? ''}';
 
     if (leaderId.isEmpty) {
-      showMessage(context, 'This group has no group leader.', error: true);
+      showMessage(
+        context,
+        'This group has no group leader.',
+        error: true,
+      );
       return;
     }
 
@@ -323,7 +842,7 @@ class _CompanionPageState extends State<CompanionPage> {
         ),
         title: const Text('Send Emergency SOS?'),
         content: const Text(
-          'Your latest GPS location and timestamp will be sent only to your group leader.',
+          'Your latest GPS location and timestamp will be sent to your group leader.',
           textAlign: TextAlign.center,
         ),
         actions: [
@@ -345,7 +864,9 @@ class _CompanionPageState extends State<CompanionPage> {
 
     if (confirmed != true) return;
 
-    setState(() => _sendingSosGroupIds.add(groupId));
+    setState(() {
+      _sendingSosGroupIds.add(groupId);
+    });
 
     try {
       final position = await determinePosition();
@@ -359,6 +880,7 @@ class _CompanionPageState extends State<CompanionPage> {
 
       final existing = existingSnapshot.docs.where((document) {
         final data = document.data();
+
         return data['senderId'] == uid && data['status'] == 'active';
       }).toList();
 
@@ -394,13 +916,19 @@ class _CompanionPageState extends State<CompanionPage> {
           .doc(groupId)
           .collection('locations')
           .doc(uid)
-          .set({
-        'userId': uid,
-        'location': GeoPoint(position.latitude, position.longitude),
-        'approvedViewerIds': [uid, leaderId],
-        'sosActive': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+          .set(
+        {
+          'userId': uid,
+          'displayName': senderName,
+          'role': 'member',
+          'location': GeoPoint(position.latitude, position.longitude),
+          'approvedViewerIds': [uid, leaderId],
+          'sharingEnabled': true,
+          'sosActive': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
 
       await AppServices.notify(
         userId: leaderId,
@@ -444,7 +972,9 @@ class _CompanionPageState extends State<CompanionPage> {
       }
     } finally {
       if (mounted) {
-        setState(() => _sendingSosGroupIds.remove(groupId));
+        setState(() {
+          _sendingSosGroupIds.remove(groupId);
+        });
       }
     }
   }
@@ -489,7 +1019,9 @@ class _CompanionPageState extends State<CompanionPage> {
 
     if (uid == null) {
       return const Scaffold(
-        body: Center(child: Text('Please sign in first.')),
+        body: Center(
+          child: Text('Please sign in first.'),
+        ),
       );
     }
 
@@ -515,97 +1047,260 @@ class _CompanionPageState extends State<CompanionPage> {
             .collection('travel_groups')
             .where('memberIds', arrayContains: uid)
             .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
+        builder: (context, groupSnapshot) {
+          if (groupSnapshot.hasError) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  'Unable to load your travel groups.\n${snapshot.error}',
+                  'Unable to load your travel groups.\n${groupSnapshot.error}',
                   textAlign: TextAlign.center,
                 ),
               ),
             );
           }
 
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+          if (!groupSnapshot.hasData) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
-          final groups = snapshot.data!.docs.toList()
+          final groups = groupSnapshot.data!.docs.toList()
             ..sort((a, b) {
               final first = asDate(a.data()['updatedAt']) ??
                   asDate(a.data()['createdAt']) ??
                   DateTime(2000);
+
               final second = asDate(b.data()['updatedAt']) ??
                   asDate(b.data()['createdAt']) ??
                   DateTime(2000);
+
               return second.compareTo(first);
             });
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-            children: [
-              const ExplorerPageHeader(
-                title: 'Companion',
-                subtitle: 'Stay connected and travel safely with your group.',
-              ),
-              const SizedBox(height: 16),
-              Row(
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: AppServices.db
+                .collection('group_invitations')
+                .where('memberId', isEqualTo: uid)
+                .snapshots(),
+            builder: (context, invitationSnapshot) {
+              final invitations = (invitationSnapshot.data?.docs ?? [])
+                  .where((document) {
+                return document.data()['status'] == 'pending';
+              })
+                  .toList()
+                ..sort((a, b) {
+                  final first =
+                      asDate(a.data()['createdAt']) ?? DateTime(2000);
+                  final second =
+                      asDate(b.data()['createdAt']) ?? DateTime(2000);
+
+                  return second.compareTo(first);
+                });
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
-                  Expanded(
-                    child: ExplorerQuickAction(
-                      label: 'Create Group',
-                      icon: Icons.group_add_outlined,
-                      onTap: () => createGroup(context),
-                    ),
+                  const ExplorerPageHeader(
+                    title: 'Companion',
+                    subtitle:
+                    'Stay connected and travel safely with your group.',
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ExplorerQuickAction(
-                      label: 'Join Group',
-                      icon: Icons.login,
-                      gold: true,
-                      onTap: () => joinGroup(context),
-                    ),
+
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ExplorerQuickAction(
+                          label: 'Create Group',
+                          icon: Icons.group_add_outlined,
+                          onTap: () => createGroup(context),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ExplorerQuickAction(
+                          label: 'Join Group',
+                          icon: Icons.login,
+                          gold: true,
+                          onTap: () => joinGroup(context),
+                        ),
+                      ),
+                    ],
                   ),
+
+                  if (invitations.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    ExplorerSectionTitle(
+                      'Group Invitations',
+                      subtitle:
+                      '${invitations.length} invitation${invitations.length == 1 ? '' : 's'} waiting for your response',
+                    ),
+                    const SizedBox(height: 10),
+                    ...invitations.map(
+                          (invitation) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _buildInvitationCard(
+                          context,
+                          invitation,
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+
+                  ExplorerSectionTitle(
+                    'My Travel Groups',
+                    subtitle: groups.isEmpty
+                        ? 'Create or join a group to get started.'
+                        : '${groups.length} group${groups.length == 1 ? '' : 's'} available',
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  if (groups.isEmpty)
+                    ExplorerEmptyState(
+                      title: 'No Travel Group Yet',
+                      subtitle:
+                      'Create a private travel group or join one using the code shared by a group leader.',
+                      icon: Icons.groups_outlined,
+                      action: FilledButton.icon(
+                        onPressed: () => createGroup(context),
+                        icon: const Icon(Icons.group_add_outlined),
+                        label: const Text('Create Travel Group'),
+                      ),
+                    )
+                  else
+                    ...groups.map(
+                          (document) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildGroupCard(
+                          context,
+                          document.id,
+                          document.data(),
+                          uid,
+                        ),
+                      ),
+                    ),
                 ],
-              ),
-              const SizedBox(height: 22),
-              ExplorerSectionTitle(
-                'My Travel Groups',
-                subtitle: groups.isEmpty
-                    ? 'Create or join a group to get started.'
-                    : '${groups.length} group${groups.length == 1 ? '' : 's'} available',
-              ),
-              const SizedBox(height: 10),
-              if (groups.isEmpty)
-                ExplorerEmptyState(
-                  title: 'No Travel Group Yet',
-                  subtitle:
-                  'Create a private travel group or join one using the code shared by a group leader.',
-                  icon: Icons.groups_outlined,
-                  action: FilledButton.icon(
-                    onPressed: () => createGroup(context),
-                    icon: const Icon(Icons.group_add_outlined),
-                    label: const Text('Create Travel Group'),
-                  ),
-                )
-              else
-                ...groups.map(
-                      (document) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildGroupCard(
-                      context,
-                      document.id,
-                      document.data(),
-                      uid,
-                    ),
-                  ),
-                ),
-            ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildInvitationCard(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> invitation,
+      ) {
+    final data = invitation.data();
+
+    final groupName = '${data['groupName'] ?? 'Travel Group'}';
+    final leaderName = '${data['leaderName'] ?? 'Group Leader'}';
+    final isResponding = _respondingInvitationIds.contains(invitation.id);
+
+    return ExplorerCard(
+      radius: 12,
+      backgroundColor: ExplorerColors.goldSoft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: ExplorerColors.navy,
+                foregroundColor: Colors.white,
+                child: Icon(Icons.mark_email_unread_outlined),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      groupName,
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Invited by $leaderName',
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const ExplorerStatusBadge(
+                label: 'PENDING',
+                tone: ExplorerStatusTone.warning,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Location sharing is required if you accept this invitation. '
+                'The group leader will be able to see your location on the Group Map.',
+            style: TextStyle(
+              color: ExplorerColors.muted,
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: isResponding
+                      ? null
+                      : () => _rejectInvitation(
+                    context,
+                    invitation,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: ExplorerColors.danger,
+                  ),
+                  child: const Text('Reject'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: isResponding
+                      ? null
+                      : () => _acceptInvitation(
+                    context,
+                    invitation,
+                  ),
+                  icon: isResponding
+                      ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : const Icon(Icons.check_circle_outline),
+                  label: Text(
+                    isResponding ? 'Processing...' : 'Accept',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -619,11 +1314,11 @@ class _CompanionPageState extends State<CompanionPage> {
     final memberIds = List<String>.from(
       group['memberIds'] ?? const <String>[],
     );
+
     final isLeader = '${group['leaderId'] ?? ''}' == uid;
     final groupName = '${group['name'] ?? 'Travel Group'}';
     final description = '${group['description'] ?? ''}'.trim();
     final code = '${group['code'] ?? '-'}';
-    final status = '${group['status'] ?? 'active'}';
     final sendingSos = _sendingSosGroupIds.contains(groupId);
 
     return ExplorerCard(
@@ -688,31 +1383,25 @@ class _CompanionPageState extends State<CompanionPage> {
               ),
             ],
           ),
-          const SizedBox(height: 13),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 12),
+          Row(
             children: [
-              ExplorerStatusBadge(
-                label: 'CODE $code',
-                tone: ExplorerStatusTone.neutral,
-                icon: Icons.key_outlined,
+              Expanded(
+                child: ExplorerLabeledValue(
+                  label: 'Group Code',
+                  value: code,
+                ),
               ),
-              ExplorerStatusBadge(
-                label:
-                '${memberIds.length} MEMBER${memberIds.length == 1 ? '' : 'S'}',
-                tone: ExplorerStatusTone.neutral,
-                icon: Icons.people_outline,
-              ),
-              ExplorerStatusBadge(
-                label: status.toUpperCase(),
-                tone: status == 'active'
-                    ? ExplorerStatusTone.success
-                    : ExplorerStatusTone.neutral,
+              const SizedBox(width: 12),
+              Expanded(
+                child: ExplorerLabeledValue(
+                  label: 'Members',
+                  value: '${memberIds.length}',
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 14),
           if (isLeader) ...[
             Row(
               children: [
@@ -727,7 +1416,7 @@ class _CompanionPageState extends State<CompanionPage> {
                     label: const Text('Group Chat'),
                   ),
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _openLeaderPage(
@@ -736,7 +1425,7 @@ class _CompanionPageState extends State<CompanionPage> {
                       group,
                       initialTab: 1,
                     ),
-                    icon: const Icon(Icons.manage_accounts_outlined),
+                    icon: const Icon(Icons.groups_outlined),
                     label: const Text('Members'),
                   ),
                 ),
@@ -754,19 +1443,16 @@ class _CompanionPageState extends State<CompanionPage> {
                       initialTab: 0,
                     ),
                     icon: const Icon(Icons.map_outlined),
-                    label: const Text('Map'),
+                    label: const Text('Group Map'),
                   ),
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: _LeaderSosButton(
-                    groupId: groupId,
-                    onPressed: () => _openLeaderPage(
-                      context,
-                      groupId,
-                      group,
-                      initialTab: 2,
-                    ),
+                  child: _leaderSosButton(
+                    context,
+                    groupId,
+                    group,
+                    uid,
                   ),
                 ),
               ],
@@ -785,7 +1471,7 @@ class _CompanionPageState extends State<CompanionPage> {
                     label: const Text('Group Chat'),
                   ),
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: sendingSos
@@ -797,38 +1483,19 @@ class _CompanionPageState extends State<CompanionPage> {
                     ),
                     style: FilledButton.styleFrom(
                       backgroundColor: ExplorerColors.danger,
-                      foregroundColor: Colors.white,
                     ),
                     icon: sendingSos
                         ? const SizedBox(
-                      width: 17,
-                      height: 17,
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
                       ),
                     )
                         : const Icon(Icons.sos_rounded),
-                    label: Text(sendingSos ? 'Sending...' : 'SOS'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Row(
-              children: [
-                Icon(
-                  Icons.shield_outlined,
-                  size: 14,
-                  color: ExplorerColors.muted,
-                ),
-                SizedBox(width: 5),
-                Expanded(
-                  child: Text(
-                    'SOS shares your latest GPS location only with the group leader.',
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 9.5,
+                    label: Text(
+                      sendingSos ? 'Sending...' : 'SOS',
                     ),
                   ),
                 ),
@@ -839,29 +1506,13 @@ class _CompanionPageState extends State<CompanionPage> {
       ),
     );
   }
-}
 
-class _LeaderSosButton extends StatelessWidget {
-  const _LeaderSosButton({
-    required this.groupId,
-    required this.onPressed,
-  });
-
-  final String groupId;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser?.uid;
-
-    if (uid == null) {
-      return OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.notification_important_outlined),
-        label: const Text('SOS Alerts'),
-      );
-    }
-
+  Widget _leaderSosButton(
+      BuildContext context,
+      String groupId,
+      Map<String, dynamic> group,
+      String uid,
+      ) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: AppServices.db
           .collection('sos_alerts')
@@ -870,15 +1521,23 @@ class _LeaderSosButton extends StatelessWidget {
       builder: (context, snapshot) {
         final activeCount = (snapshot.data?.docs ?? []).where((document) {
           final data = document.data();
+
           return data['leaderId'] == uid && data['status'] == 'active';
         }).length;
 
         return OutlinedButton.icon(
-          onPressed: onPressed,
+          onPressed: () => _openLeaderPage(
+            context,
+            groupId,
+            group,
+            initialTab: 2,
+          ),
           style: activeCount > 0
               ? OutlinedButton.styleFrom(
             foregroundColor: ExplorerColors.danger,
-            side: const BorderSide(color: ExplorerColors.danger),
+            side: const BorderSide(
+              color: ExplorerColors.danger,
+            ),
           )
               : null,
           icon: Icon(
@@ -887,7 +1546,9 @@ class _LeaderSosButton extends StatelessWidget {
                 : Icons.notifications_none,
           ),
           label: Text(
-            activeCount > 0 ? 'SOS ($activeCount)' : 'SOS Alerts',
+            activeCount > 0
+                ? 'SOS ($activeCount)'
+                : 'SOS Alerts',
           ),
         );
       },

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -36,6 +36,7 @@ part 'safety/safety_page.dart';
 part 'safety/my_hazard_reports_page.dart';
 part 'safety/create_hazard_page.dart';
 part 'companion/companion_page.dart';
+part 'companion/companion_membership_api.dart';
 part 'companion/create_group_page.dart';
 part 'companion/join_group_page.dart';
 part 'companion/group_details_page.dart';

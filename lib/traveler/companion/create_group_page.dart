@@ -35,8 +35,14 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
 
     setState(() => _loading = true);
     try {
-      final uid = AppServices.auth.currentUser!.uid;
+      final user = AppServices.auth.currentUser!;
+      final uid = user.uid;
       final code = randomCode().toUpperCase();
+      final leaderProfile = await AppServices.travelerRef(uid).get();
+      final leaderData = leaderProfile.data() ?? const <String, dynamic>{};
+      final leaderDisplayName =
+          '${leaderData['displayName'] ?? user.displayName ?? user.email?.split('@').first ?? 'Group Leader'}'
+              .trim();
 
       final docRef = await AppServices.db.collection('travel_groups').add({
         'name': _name.text.trim(),
@@ -45,6 +51,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
         'code': code,
         'leaderId': uid,
         'memberIds': [uid],
+        'memberNames': {uid: leaderDisplayName},
         'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),

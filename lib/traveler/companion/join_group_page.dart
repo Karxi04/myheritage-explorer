@@ -20,37 +20,26 @@ class _JoinGroupPageState extends State<JoinGroupPage> {
 
     setState(() => _loading = true);
     try {
-      final snap = await AppServices.db
-          .collection('travel_groups')
-          .where('code', isEqualTo: code)
-          .where('status', isEqualTo: 'active')
-          .limit(1)
-          .get();
-
-      if (snap.docs.isEmpty) {
-        throw Exception('Invalid group code or group is no longer active.');
-      }
-
-      final groupDoc = snap.docs.first;
-      final memberIds = List<String>.from(groupDoc.data()['memberIds'] ?? []);
-      final uid = AppServices.auth.currentUser!.uid;
-
-      if (memberIds.contains(uid)) {
-        throw Exception('You are already a member of this group.');
-      }
-
-      await groupDoc.reference.update({
-        'memberIds': FieldValue.arrayUnion([uid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final result = await CompanionMembershipApi.joinGroup(code: code);
+      final groupName = '${result['groupName'] ?? 'travel group'}';
+      final alreadyMember = result['alreadyMember'] == true;
 
       if (mounted) {
-        showMessage(context, 'Joined group successfully.');
-        Navigator.pop(context); // Return to Companion Home
+        showMessage(
+          context,
+          alreadyMember
+              ? 'You are already a member of $groupName. Member details were refreshed.'
+              : 'Joined $groupName successfully.',
+        );
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        showMessage(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+        showMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);

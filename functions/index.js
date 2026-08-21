@@ -805,3 +805,10 @@ exports.generateDailyItinerary = onRequest(
     }
   },
 );
+
+// Companion group membership operations run on the trusted backend so
+// clients do not need permission to read another traveler's private profile.
+const companionMembership = require('./companion_membership');
+exports.addTravelGroupMemberByEmail =
+  companionMembership.addTravelGroupMemberByEmail;
+exports.joinTravelGroup = companionMembership.joinTravelGroup;
