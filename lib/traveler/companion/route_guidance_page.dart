@@ -27,6 +27,7 @@ class _RouteGuidancePageState extends State<RouteGuidancePage> {
 
   double _distance = 0;
   int _minutes = 0;
+  bool _resolvingSos = false;
 
   @override
   void initState() {
@@ -41,23 +42,252 @@ class _RouteGuidancePageState extends State<RouteGuidancePage> {
     super.dispose();
   }
 
+  Future<void> _foundCompanion() async {
+    if (_resolvingSos) return;
+
+    setState(() {
+      _resolvingSos = true;
+    });
+
+    try {
+      final currentUser =
+          AppServices.auth.currentUser;
+
+      if (currentUser == null) {
+        throw Exception(
+          'Please sign in first.',
+        );
+      }
+
+      final alertRef = AppServices.db
+          .collection('sos_alerts')
+          .doc(widget.alertId);
+
+      final alertSnapshot =
+      await alertRef.get();
+
+      if (!alertSnapshot.exists) {
+        throw Exception(
+          'SOS alert could not be found.',
+        );
+      }
+
+      final alert =
+          alertSnapshot.data() ??
+              const <String, dynamic>{};
+
+      final groupId =
+          '${alert['groupId'] ?? ''}';
+
+      final senderId =
+          '${alert['senderId'] ?? widget.senderId}';
+
+      final batch =
+      AppServices.db.batch();
+
+      // ===============================
+      // RESOLVE SOS ALERT
+      // ===============================
+
+      batch.update(
+        alertRef,
+        {
+          'status': 'resolved',
+          'resolvedAt':
+          FieldValue.serverTimestamp(),
+          'resolvedBy':
+          currentUser.uid,
+        },
+      );
+
+      // ===============================
+      // REMOVE SOS STATE FROM MAP
+      // ===============================
+
+      if (groupId.isNotEmpty &&
+          senderId.isNotEmpty) {
+        final locationRef =
+        AppServices.db
+            .collection('travel_groups')
+            .doc(groupId)
+            .collection('locations')
+            .doc(senderId);
+
+        batch.set(
+          locationRef,
+          {
+            'sosActive': false,
+            'updatedAt':
+            FieldValue.serverTimestamp(),
+          },
+          SetOptions(
+            merge: true,
+          ),
+        );
+      }
+
+      await batch.commit();
+
+      // Optional notification to member
+      if (senderId.isNotEmpty) {
+        await AppServices.notify(
+          userId: senderId,
+          title: 'SOS resolved',
+          message:
+          'Your group leader found you and marked the SOS alert as resolved.',
+          type: 'sos_resolved',
+          referenceId:
+          widget.alertId,
+        );
+      }
+
+      if (!mounted) return;
+
+      showMessage(
+        context,
+        'SOS resolved successfully.',
+      );
+
+      Navigator.pop(context);
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _resolvingSos = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fitRoute() async {
+    final controller =
+        _mapController;
+
+    final currentPosition =
+        _myPosition;
+
+    if (controller == null ||
+        currentPosition == null) {
+      return;
+    }
+
+    final leader = LatLng(
+      currentPosition.latitude,
+      currentPosition.longitude,
+    );
+
+    final member = LatLng(
+      widget.targetLat,
+      widget.targetLng,
+    );
+
+    final minLat = min(
+      leader.latitude,
+      member.latitude,
+    );
+
+    final maxLat = max(
+      leader.latitude,
+      member.latitude,
+    );
+
+    final minLng = min(
+      leader.longitude,
+      member.longitude,
+    );
+
+    final maxLng = max(
+      leader.longitude,
+      member.longitude,
+    );
+
+    if (minLat == maxLat &&
+        minLng == maxLng) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          leader,
+          17,
+        ),
+      );
+
+      return;
+    }
+
+    await controller.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(
+            minLat,
+            minLng,
+          ),
+          northeast: LatLng(
+            maxLat,
+            maxLng,
+          ),
+        ),
+        80,
+      ),
+    );
+  }
+
   Future<void> _startTracking() async {
     try {
-      _myPosition = await determinePosition();
-      _calculateGuidance();
-      
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
-      ).listen((pos) {
-        if (mounted) {
-          setState(() {
-            _myPosition = pos;
-            _calculateGuidance();
-          });
-        }
+      final initialPosition =
+      await determinePosition();
+
+      if (!mounted) return;
+
+      setState(() {
+        _myPosition =
+            initialPosition;
+
+        _calculateGuidance();
       });
-    } catch (e) {
-      if (mounted) showMessage(context, 'Unable to get your location.', error: true);
+
+      _fitRoute();
+
+      _positionStream =
+          Geolocator.getPositionStream(
+            locationSettings:
+            const LocationSettings(
+              accuracy:
+              LocationAccuracy.high,
+              distanceFilter: 10,
+            ),
+          ).listen(
+                (position) {
+              if (!mounted) return;
+
+              setState(() {
+                _myPosition =
+                    position;
+
+                _calculateGuidance();
+              });
+
+              _fitRoute();
+            },
+          );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Unable to get your location.',
+          error: true,
+        );
+      }
     }
   }
 
@@ -117,7 +347,16 @@ class _RouteGuidancePageState extends State<RouteGuidancePage> {
             markers: markers,
             polylines: polylines,
             myLocationEnabled: true,
-            onMapCreated: (controller) => _mapController = controller,
+            onMapCreated: (controller) {
+              _mapController = controller;
+
+              WidgetsBinding.instance
+                  .addPostFrameCallback(
+                    (_) {
+                  _fitRoute();
+                },
+              );
+            },
           ),
           Positioned(
             top: 16,
@@ -163,10 +402,38 @@ class _RouteGuidancePageState extends State<RouteGuidancePage> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: () => Navigator.pop(context),
-                    style: FilledButton.styleFrom(backgroundColor: ExplorerColors.success),
-                    icon: const Icon(Icons.check),
-                    label: const Text('I found them'),
+                    onPressed: _resolvingSos
+                        ? null
+                        : _foundCompanion,
+
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                      ExplorerColors.success,
+                      padding:
+                      const EdgeInsets.symmetric(
+                        vertical: 15,
+                      ),
+                    ),
+
+                    icon: _resolvingSos
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child:
+                      CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(
+                      Icons.check_circle_outline,
+                    ),
+
+                    label: Text(
+                      _resolvingSos
+                          ? 'Resolving SOS...'
+                          : 'I Found Them',
+                    ),
                   ),
                 ),
               ],

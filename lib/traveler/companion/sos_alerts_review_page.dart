@@ -48,7 +48,9 @@ class _SosAlertsReviewPageState extends State<SosAlertsReviewPage> {
               final data = docs[index].data();
               final alertId = docs[index].id;
               final senderName = data['senderName'] ?? 'Unknown Member';
-              final timestamp = asDate(data['timestamp']);
+              final timestamp =
+                  asDate(data['lastTriggeredAt']) ??
+                      asDate(data['createdAt']);
               final timeStr = timestamp != null ? DateFormat.jm().format(timestamp) : 'Just now';
 
               return ExplorerCard(
@@ -104,16 +106,34 @@ class _SosAlertsReviewPageState extends State<SosAlertsReviewPage> {
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: () {
+                              final location =
+                              data['location'];
+
+                              if (location is! GeoPoint) {
+                                showMessage(
+                                  context,
+                                  'SOS location is unavailable.',
+                                  error: true,
+                                );
+                                return;
+                              }
+
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => RouteGuidancePage(
-                                    senderId: data['senderId'],
-                                    senderName: senderName,
-                                    alertId: alertId,
-                                    targetLat: (data['latitude'] as num).toDouble(),
-                                    targetLng: (data['longitude'] as num).toDouble(),
-                                  ),
+                                  builder: (_) =>
+                                      RouteGuidancePage(
+                                        senderId:
+                                        '${data['senderId'] ?? ''}',
+                                        senderName:
+                                        senderName,
+                                        alertId:
+                                        alertId,
+                                        targetLat:
+                                        location.latitude,
+                                        targetLng:
+                                        location.longitude,
+                                      ),
                                 ),
                               );
                             },

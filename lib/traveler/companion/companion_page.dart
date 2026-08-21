@@ -7,11 +7,42 @@ class CompanionPage extends StatefulWidget {
   State<CompanionPage> createState() => _CompanionPageState();
 }
 
+
+
 class _CompanionPageState extends State<CompanionPage> {
   final Set<String> _sendingSosGroupIds = <String>{};
   final Set<String> _respondingInvitationIds = <String>{};
 
+// Live member location
   StreamSubscription<Position>? _liveLocationSubscription;
+
+// Real-time SOS listener for leader
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _leaderSosSubscription;
+
+  // Real-time private location request listener
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _privateLocationRequestSubscription;
+
+// Prevent the same request from popping up repeatedly
+  final Set<String> _handledPrivateLocationRequestIds =
+  <String>{};
+
+// Queue location requests if multiple users request at once
+  final List<DocumentSnapshot<Map<String, dynamic>>>
+  _pendingPrivateLocationRequests =
+  <DocumentSnapshot<Map<String, dynamic>>>[];
+
+  bool _showingPrivateLocationRequest = false;
+
+// Prevent same SOS trigger from showing repeatedly
+  final Set<String> _handledSosEvents = <String>{};
+
+// Queue multiple SOS alerts
+  final List<DocumentSnapshot<Map<String, dynamic>>>
+  _pendingLeaderSosAlerts = [];
+
+  bool _showingSosPopup = false;
   bool _liveSharingStarted = false;
   String? _cachedDisplayName;
 
@@ -21,13 +52,22 @@ class _CompanionPageState extends State<CompanionPage> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _resumeLiveLocationSharingIfEnabled();
+
+      // Listen for SOS alerts sent to this user
+      _startLeaderSosListener();
+
+      _startPrivateLocationRequestListener();
     });
   }
 
   @override
   void dispose() {
     _liveLocationSubscription?.cancel();
+    _leaderSosSubscription?.cancel();
+
     super.dispose();
+
+    _privateLocationRequestSubscription?.cancel();
   }
 
   Future<void> _showMembersList(
@@ -164,7 +204,7 @@ class _CompanionPageState extends State<CompanionPage> {
                       itemCount:
                       memberIds.length,
                       separatorBuilder:
-                          (_, __) =>
+                          (_, _) =>
                       const SizedBox(
                         height: 9,
                       ),
@@ -264,7 +304,30 @@ class _CompanionPageState extends State<CompanionPage> {
 
                             // READ-ONLY:
                             // no remove / edit button.
-                            trailing: null,
+                            trailing: isCurrentUser
+                                ? null
+                                : OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(sheetContext).pop();
+
+                                Future.microtask(() {
+                                  if (!mounted) return;
+
+                                  openCompanionPrivateChat(
+                                    this.context,
+                                    otherUserId: memberId,
+                                    otherUserName: memberName,
+                                  );
+                                });
+                              },
+                              icon: const Icon(
+                                Icons.chat_bubble_outline,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Message',
+                              ),
+                            ),
                           ),
                         );
                       },
@@ -276,6 +339,902 @@ class _CompanionPageState extends State<CompanionPage> {
           },
         );
       },
+    );
+  }
+
+  void _startLeaderSosListener() {
+    final user = AppServices.auth.currentUser;
+
+    if (user == null) return;
+
+    _leaderSosSubscription?.cancel();
+
+    _leaderSosSubscription = AppServices.db
+        .collection('sos_alerts')
+        .where(
+      'leaderId',
+      isEqualTo: user.uid,
+    )
+        .snapshots()
+        .listen(
+          (snapshot) {
+            for (final change in snapshot.docChanges) {
+              final document = change.doc;
+
+              final data =
+                  document.data() ??
+                      const <String, dynamic>{};
+
+              // Only active SOS alerts
+              if (data['status'] != 'active') {
+            continue;
+          }
+
+          final senderId =
+              '${data['senderId'] ?? ''}';
+
+          // Leader should never receive own SOS
+          if (senderId == user.uid) {
+            continue;
+          }
+
+          final triggerCount =
+              (data['triggerCount'] as num?)
+                  ?.toInt() ??
+                  1;
+
+          // One popup for each SOS trigger
+          final eventKey =
+              '${document.id}:$triggerCount';
+
+          if (_handledSosEvents.contains(
+            eventKey,
+          )) {
+            continue;
+          }
+
+          _handledSosEvents.add(
+            eventKey,
+          );
+
+          _pendingLeaderSosAlerts.add(
+            document,
+          );
+        }
+
+        _showNextLeaderSosAlert();
+      },
+      onError: (error) {
+        debugPrint(
+          'Leader SOS listener error: $error',
+        );
+      },
+    );
+  }
+
+  Future<void> _showNextLeaderSosAlert() async {
+    if (!mounted) return;
+
+    if (_showingSosPopup) {
+      return;
+    }
+
+    if (_pendingLeaderSosAlerts.isEmpty) {
+      return;
+    }
+
+    _showingSosPopup = true;
+
+    final alert =
+    _pendingLeaderSosAlerts.removeAt(0);
+
+    try {
+      await _showLeaderSosPopup(
+        alert,
+      );
+    } finally {
+      _showingSosPopup = false;
+
+      if (_pendingLeaderSosAlerts.isNotEmpty &&
+          mounted) {
+        Future.microtask(
+          _showNextLeaderSosAlert,
+        );
+      }
+    }
+  }
+
+  Future<void> _showLeaderSosPopup(
+      DocumentSnapshot<Map<String, dynamic>>
+      alertDocument,
+      ) async {
+    if (!mounted) return;
+
+    final data =
+        alertDocument.data() ??
+            const <String, dynamic>{};
+
+    final senderId =
+        '${data['senderId'] ?? ''}';
+
+    final senderName =
+        '${data['senderName'] ?? 'Group Member'}';
+
+    final groupId =
+        '${data['groupId'] ?? ''}';
+
+    final groupName =
+        '${data['groupName'] ?? 'Travel Group'}';
+
+    final location = data['location'];
+
+    if (location is! GeoPoint) {
+      debugPrint(
+        'SOS ${alertDocument.id} has no valid GeoPoint.',
+      );
+      return;
+    }
+
+    final targetLatitude =
+        location.latitude;
+
+    final targetLongitude =
+        location.longitude;
+
+    // ==========================================
+    // CALCULATE LEADER → MEMBER DISTANCE
+    // ==========================================
+
+    double? distanceMeters;
+    int? estimatedMinutes;
+
+    try {
+      final leaderPosition =
+      await determinePosition();
+
+      distanceMeters =
+          Geolocator.distanceBetween(
+            leaderPosition.latitude,
+            leaderPosition.longitude,
+            targetLatitude,
+            targetLongitude,
+          );
+
+      // Approx. walking speed:
+      // 4.5 km/h ≈ 75 metres/minute
+      estimatedMinutes =
+          (distanceMeters / 75).ceil();
+    } catch (error) {
+      debugPrint(
+        'Unable to calculate SOS distance: $error',
+      );
+    }
+
+    if (!mounted) return;
+
+    String distanceText;
+
+    if (distanceMeters == null) {
+      distanceText = 'Unavailable';
+    } else if (distanceMeters < 1000) {
+      distanceText =
+      '${distanceMeters.round()} m';
+    } else {
+      distanceText =
+      '${(distanceMeters / 1000).toStringAsFixed(2)} km';
+    }
+
+    final triggeredAt =
+        asDate(data['lastTriggeredAt']) ??
+            asDate(data['createdAt']);
+
+    final timeText = triggeredAt == null
+        ? 'Just now'
+        : DateFormat.jm().format(
+      triggeredAt,
+    );
+
+    final action =
+    await showDialog<String>(
+      context: context,
+
+      // Emergency alert should require action
+      barrierDismissible: false,
+
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding:
+          const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius:
+            BorderRadius.circular(18),
+          ),
+          child: Container(
+            padding:
+            const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color:
+              ExplorerColors.dangerSoft,
+              borderRadius:
+              BorderRadius.circular(18),
+              border: Border.all(
+                color:
+                ExplorerColors.danger,
+                width: 1.5,
+              ),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize:
+                MainAxisSize.min,
+                crossAxisAlignment:
+                CrossAxisAlignment.start,
+                children: [
+                  // ===========================
+                  // HEADER
+                  // ===========================
+
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons
+                            .warning_amber_rounded,
+                        color:
+                        ExplorerColors.danger,
+                        size: 27,
+                      ),
+
+                      const SizedBox(
+                        width: 8,
+                      ),
+
+                      const Expanded(
+                        child: Text(
+                          'SOS ALERT',
+                          style: TextStyle(
+                            color:
+                            ExplorerColors
+                                .danger,
+                            fontSize: 18,
+                            fontWeight:
+                            FontWeight.w900,
+                          ),
+                        ),
+                      ),
+
+                      Container(
+                        padding:
+                        const EdgeInsets
+                            .symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration:
+                        BoxDecoration(
+                          color: Colors.white,
+                          borderRadius:
+                          BorderRadius
+                              .circular(
+                            20,
+                          ),
+                        ),
+                        child: Text(
+                          timeText,
+                          style:
+                          const TextStyle(
+                            color:
+                            ExplorerColors
+                                .danger,
+                            fontSize: 10,
+                            fontWeight:
+                            FontWeight
+                                .w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(
+                    height: 16,
+                  ),
+
+                  const Text(
+                    'GROUP MEMBER IN DISTRESS',
+                    style: TextStyle(
+                      color:
+                      ExplorerColors.muted,
+                      fontSize: 9,
+                      fontWeight:
+                      FontWeight.w800,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+
+                  const SizedBox(
+                    height: 4,
+                  ),
+
+                  Text(
+                    senderName,
+                    style: const TextStyle(
+                      color:
+                      ExplorerColors.danger,
+                      fontSize: 19,
+                      fontWeight:
+                      FontWeight.w900,
+                    ),
+                  ),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // ===========================
+                  // LOCATION
+                  // ===========================
+
+                  Container(
+                    width: double.infinity,
+                    padding:
+                    const EdgeInsets.all(
+                      12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                      BorderRadius.circular(
+                        10,
+                      ),
+                      border: Border.all(
+                        color:
+                        const Color(
+                          0xFFF2C6C1,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons
+                                  .location_on_outlined,
+                              color:
+                              ExplorerColors
+                                  .danger,
+                              size: 17,
+                            ),
+                            SizedBox(
+                              width: 5,
+                            ),
+                            Text(
+                              'LAST KNOWN LOCATION',
+                              style:
+                              TextStyle(
+                                color:
+                                ExplorerColors
+                                    .muted,
+                                fontSize: 9,
+                                fontWeight:
+                                FontWeight
+                                    .w800,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(
+                          height: 5,
+                        ),
+
+                        Text(
+                          '${targetLatitude.toStringAsFixed(5)}, '
+                              '${targetLongitude.toStringAsFixed(5)}',
+                          style:
+                          const TextStyle(
+                            color:
+                            ExplorerColors
+                                .navy,
+                            fontWeight:
+                            FontWeight
+                                .w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(
+                    height: 12,
+                  ),
+
+                  // ===========================
+                  // DISTANCE + TIME
+                  // ===========================
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding:
+                          const EdgeInsets
+                              .all(12),
+                          decoration:
+                          BoxDecoration(
+                            color: Colors.white,
+                            borderRadius:
+                            BorderRadius
+                                .circular(
+                              10,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(
+                                Icons
+                                    .route_outlined,
+                                color:
+                                ExplorerColors
+                                    .navy,
+                              ),
+                              const SizedBox(
+                                height: 5,
+                              ),
+                              Text(
+                                distanceText,
+                                style:
+                                const TextStyle(
+                                  color:
+                                  ExplorerColors
+                                      .navy,
+                                  fontSize: 17,
+                                  fontWeight:
+                                  FontWeight
+                                      .w900,
+                                ),
+                              ),
+                              const Text(
+                                'DISTANCE',
+                                style:
+                                TextStyle(
+                                  color:
+                                  ExplorerColors
+                                      .muted,
+                                  fontSize: 8,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(
+                        width: 10,
+                      ),
+
+                      Expanded(
+                        child: Container(
+                          padding:
+                          const EdgeInsets
+                              .all(12),
+                          decoration:
+                          BoxDecoration(
+                            color: Colors.white,
+                            borderRadius:
+                            BorderRadius
+                                .circular(
+                              10,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(
+                                Icons
+                                    .schedule_outlined,
+                                color:
+                                ExplorerColors
+                                    .navy,
+                              ),
+                              const SizedBox(
+                                height: 5,
+                              ),
+                              Text(
+                                estimatedMinutes ==
+                                    null
+                                    ? '--'
+                                    : '$estimatedMinutes min',
+                                style:
+                                const TextStyle(
+                                  color:
+                                  ExplorerColors
+                                      .navy,
+                                  fontSize: 17,
+                                  fontWeight:
+                                  FontWeight
+                                      .w900,
+                                ),
+                              ),
+                              const Text(
+                                'EST. WALK',
+                                style:
+                                TextStyle(
+                                  color:
+                                  ExplorerColors
+                                      .muted,
+                                  fontSize: 8,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(
+                    height: 16,
+                  ),
+
+                  // ===========================
+                  // ACCEPT ROUTE
+                  // ===========================
+
+                  SizedBox(
+                    width:
+                    double.infinity,
+                    child:
+                    FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(
+                          dialogContext,
+                          'route',
+                        );
+                      },
+                      style:
+                      FilledButton
+                          .styleFrom(
+                        backgroundColor:
+                        ExplorerColors
+                            .danger,
+                        padding:
+                        const EdgeInsets
+                            .symmetric(
+                          vertical: 14,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons
+                            .navigation_outlined,
+                      ),
+                      label: const Text(
+                        'Accept and View Route',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    height: 9,
+                  ),
+
+                  // ===========================
+                  // CONTACT MEMBER
+                  // ===========================
+
+                  SizedBox(
+                    width:
+                    double.infinity,
+                    child:
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(
+                          dialogContext,
+                          'chat',
+                        );
+                      },
+                      style:
+                      OutlinedButton
+                          .styleFrom(
+                        foregroundColor:
+                        ExplorerColors
+                            .danger,
+                        side:
+                        const BorderSide(
+                          color:
+                          ExplorerColors
+                              .danger,
+                        ),
+                        padding:
+                        const EdgeInsets
+                            .symmetric(
+                          vertical: 14,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons
+                            .chat_bubble_outline,
+                      ),
+                      label: const Text(
+                        'Contact Companion',
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    height: 12,
+                  ),
+
+                  const Center(
+                    child: Text(
+                      'Action is required immediately to ensure group safety.',
+                      textAlign:
+                      TextAlign.center,
+                      style: TextStyle(
+                        color:
+                        ExplorerColors.muted,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    // ==========================================
+    // LEADER ACCEPTS ROUTE
+    // ==========================================
+
+    if (action == 'route') {
+      try {
+        await alertDocument.reference.update({
+          'acceptedAt':
+          FieldValue.serverTimestamp(),
+          'acceptedBy':
+          AppServices
+              .auth.currentUser?.uid,
+        });
+      } catch (error) {
+        debugPrint(
+          'Unable to acknowledge SOS: $error',
+        );
+      }
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              RouteGuidancePage(
+                senderId: senderId,
+                senderName: senderName,
+                alertId:
+                alertDocument.id,
+                targetLat:
+                targetLatitude,
+                targetLng:
+                targetLongitude,
+              ),
+        ),
+      );
+    }
+
+    // ==========================================
+    // CONTACT COMPANION
+    // ==========================================
+
+    if (action == 'chat') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              GroupChatPage(
+                groupId: groupId,
+                groupName: groupName,
+              ),
+        ),
+      );
+    }
+  }
+
+  void _startPrivateLocationRequestListener() {
+    final user = AppServices.auth.currentUser;
+
+    if (user == null) return;
+
+    _privateLocationRequestSubscription?.cancel();
+
+    _privateLocationRequestSubscription =
+        AppServices.db
+            .collection('location_requests')
+            .where(
+          'targetId',
+          isEqualTo: user.uid,
+        )
+            .snapshots()
+            .listen(
+              (snapshot) {
+            for (final change
+            in snapshot.docChanges) {
+              final document =
+                  change.doc;
+
+              final data =
+                  document.data() ??
+                      const <String, dynamic>{};
+
+              // Only handle PRIVATE requests
+              if (data['requestType'] !=
+                  'private') {
+                continue;
+              }
+
+              if (data['status'] !=
+                  'pending') {
+                continue;
+              }
+
+              // Do not show same request twice
+              if (_handledPrivateLocationRequestIds
+                  .contains(document.id)) {
+                continue;
+              }
+
+              _handledPrivateLocationRequestIds
+                  .add(document.id);
+
+              _pendingPrivateLocationRequests
+                  .add(document);
+            }
+
+            _showNextPrivateLocationRequest();
+          },
+          onError: (error) {
+            debugPrint(
+              'Private location request listener error: $error',
+            );
+          },
+        );
+  }
+
+  Future<void>
+  _showNextPrivateLocationRequest() async {
+    if (!mounted) return;
+
+    if (_showingPrivateLocationRequest) {
+      return;
+    }
+
+    if (_pendingPrivateLocationRequests
+        .isEmpty) {
+      return;
+    }
+
+    _showingPrivateLocationRequest = true;
+
+    final request =
+    _pendingPrivateLocationRequests
+        .removeAt(0);
+
+    try {
+      await _showPrivateLocationRequestPrompt(
+        request,
+      );
+    } finally {
+      _showingPrivateLocationRequest =
+      false;
+
+      if (_pendingPrivateLocationRequests
+          .isNotEmpty &&
+          mounted) {
+        Future.microtask(
+          _showNextPrivateLocationRequest,
+        );
+      }
+    }
+  }
+
+  Future<void>
+  _showPrivateLocationRequestPrompt(
+      DocumentSnapshot<Map<String, dynamic>>
+      requestDocument,
+      ) async {
+    if (!mounted) return;
+
+    final data =
+        requestDocument.data() ??
+            const <String, dynamic>{};
+
+    if (data['requestType'] != 'private' ||
+        data['status'] != 'pending') {
+      return;
+    }
+
+    final requesterName =
+        '${data['requesterName'] ?? 'Another traveler'}';
+
+    final action =
+    await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) =>
+          AlertDialog(
+            icon: const Icon(
+              Icons.location_searching,
+              color: ExplorerColors.navy,
+              size: 42,
+            ),
+
+            title: const Text(
+              'Location Request',
+            ),
+
+            content: Text(
+              '$requesterName is requesting your current location.\n\n'
+                  'Do you want to share it? '
+                  'Your current GPS position will be '
+                  'shared one time only with '
+                  '$requesterName.',
+              textAlign: TextAlign.center,
+            ),
+
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    'reject',
+                  );
+                },
+                child: const Text(
+                  'Reject',
+                  style: TextStyle(
+                    color:
+                    ExplorerColors.danger,
+                  ),
+                ),
+              ),
+
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    'share',
+                  );
+                },
+                icon: const Icon(
+                  Icons.location_on_outlined,
+                ),
+                label: const Text(
+                  'Share Location',
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (!mounted ||
+        action == null) {
+      return;
+    }
+
+    await respondToPrivateLocationRequest(
+      context,
+      requestDocument,
+      shareLocation:
+      action == 'share',
     );
   }
 
@@ -530,6 +1489,7 @@ class _CompanionPageState extends State<CompanionPage> {
     final user = AppServices.auth.currentUser;
     if (user == null) return;
 
+    if (!context.mounted) return;
     final locationAccepted = await _confirmLocationSharing(
       context,
       title: 'Location Required',
@@ -740,6 +1700,7 @@ class _CompanionPageState extends State<CompanionPage> {
         throw Exception('This group has no valid group leader.');
       }
 
+      if (!context.mounted) return;
       final locationAccepted = await _confirmLocationSharing(
         context,
         title: 'Join $groupName?',
@@ -1398,6 +2359,71 @@ class _CompanionPageState extends State<CompanionPage> {
                       ),
                     ),
                   ],
+
+                  const SizedBox(height: 24),
+
+                  const ExplorerSectionTitle(
+                    'Private Chats',
+                    subtitle:
+                    'One-to-one messages with optional private location sharing.',
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  ExplorerCard(
+                    radius: 12,
+                    backgroundColor:
+                    ExplorerColors.navySoft,
+
+                    child: ListTile(
+                      contentPadding:
+                      EdgeInsets.zero,
+
+                      leading: const CircleAvatar(
+                        backgroundColor:
+                        ExplorerColors.navy,
+                        foregroundColor:
+                        Colors.white,
+                        child: Icon(
+                          Icons.lock_outline,
+                        ),
+                      ),
+
+                      title: const Text(
+                        'Private Messages',
+                        style: TextStyle(
+                          color:
+                          ExplorerColors.navy,
+                          fontWeight:
+                          FontWeight.w800,
+                        ),
+                      ),
+
+                      subtitle: const Text(
+                        'Chat privately with another traveler '
+                            'and request a one-time current location.',
+                        style: TextStyle(
+                          color:
+                          ExplorerColors.muted,
+                          fontSize: 10,
+                          height: 1.35,
+                        ),
+                      ),
+
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                      ),
+
+                      onTap: () =>
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                              const PrivateChatsPage(),
+                            ),
+                          ),
+                    ),
+                  ),
 
                   const SizedBox(height: 24),
 

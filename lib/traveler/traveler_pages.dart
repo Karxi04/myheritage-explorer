@@ -54,3 +54,5 @@ part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
+part 'companion/private_chats_page.dart';
+part 'companion/private_chat_page.dart';

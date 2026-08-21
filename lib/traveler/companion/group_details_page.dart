@@ -1830,15 +1830,33 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
                               child:
                               FilledButton.icon(
                                 onPressed: () {
-                                  _tabController
-                                      .animateTo(0);
+                                  final location = data['location'];
+
+                                  if (location is! GeoPoint) {
+                                    showMessage(
+                                      context,
+                                      'SOS location is unavailable.',
+                                      error: true,
+                                    );
+                                    return;
+                                  }
+
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => RouteGuidancePage(
+                                        senderId: senderId,
+                                        senderName: senderName,
+                                        alertId: alert.id,
+                                        targetLat: location.latitude,
+                                        targetLng: location.longitude,
+                                      ),
+                                    ),
+                                  );
                                 },
-                                style:
-                                FilledButton
-                                    .styleFrom(
+                                style: FilledButton.styleFrom(
                                   backgroundColor:
-                                  ExplorerColors
-                                      .navy,
+                                  ExplorerColors.navy,
                                 ),
                                 icon: const Icon(
                                   Icons.map_outlined,
