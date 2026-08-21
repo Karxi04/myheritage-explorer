@@ -5,147 +5,311 @@ class GroupDetailsPage extends StatefulWidget {
     super.key,
     required this.groupId,
     required this.group,
+    this.initialTab = 0,
   });
 
   final String groupId;
   final Map<String, dynamic> group;
 
+  /// 0 = Group Map, 1 = Members, 2 = SOS Alerts
+  final int initialTab;
+
   @override
   State<GroupDetailsPage> createState() => _GroupDetailsPageState();
 }
 
-class _GroupDetailsPageState extends State<GroupDetailsPage> {
+class _GroupDetailsPageState extends State<GroupDetailsPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
   bool addingMember = false;
-  bool sendingSos = false;
+  bool updatingLocation = false;
 
   DocumentReference<Map<String, dynamic>> get _groupRef =>
       AppServices.db.collection('travel_groups').doc(widget.groupId);
 
+  Future<void> requestLocation(String memberKey) async {
+    final uid = AppServices.auth.currentUser!.uid;
+    final targetUid = await _resolveTravelerUid(memberKey);
+
+    final requestSnapshot = await AppServices.db
+        .collection('location_requests')
+        .where('groupId', isEqualTo: widget.groupId)
+        .get();
+
+    final existing = requestSnapshot.docs.where((document) {
+      final data = document.data();
+
+      return data['requesterId'] == uid &&
+          data['targetId'] == targetUid &&
+          data['status'] == 'pending';
+    });
+
+    if (existing.isNotEmpty) {
+      if (mounted) {
+        showMessage(
+          context,
+          'A request is already pending.',
+        );
+      }
+      return;
+    }
+
+    await AppServices.db.collection('location_requests').add({
+      'groupId': widget.groupId,
+      'requesterId': uid,
+      'targetId': targetUid,
+      'status': 'pending',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await AppServices.notify(
+      userId: targetUid,
+      title: 'Location sharing request',
+      message:
+      'A companion requested your location in ${widget.group['name'] ?? 'the group'}.',
+      type: 'location_request',
+      referenceId: widget.groupId,
+    );
+
+    if (mounted) {
+      showMessage(
+        context,
+        'Location request sent.',
+      );
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final safeInitialTab = widget.initialTab.clamp(0, 2).toInt();
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: safeInitialTab,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _travelerProfile(String memberKey) async {
+    try {
+      // Current data structure: travelers/{FirebaseAuthUid}
+      final directProfile = await AppServices.db
+          .collection('travelers')
+          .doc(memberKey)
+          .get();
+
+      if (directProfile.exists) {
+        return directProfile.data();
+      }
+
+      // Compatibility with older traveler records whose document ID is not UID.
+      final byUid = await AppServices.db
+          .collection('travelers')
+          .where('uid', isEqualTo: memberKey)
+          .limit(1)
+          .get();
+
+      if (byUid.docs.isNotEmpty) {
+        return byUid.docs.first.data();
+      }
+
+      return null;
+    } catch (error) {
+      debugPrint('Error loading traveler profile for $memberKey: $error');
+      return null;
+    }
+  }
+
+  Future<String> _resolveTravelerUid(String memberKey) async {
+    final profile = await _travelerProfile(memberKey);
+    final storedUid = '${profile?['uid'] ?? ''}'.trim();
+
+    if (storedUid.isNotEmpty) {
+      return storedUid;
+    }
+
+    return memberKey;
+  }
+
+  String _nameFromProfile(Map<String, dynamic>? data) {
+    if (data == null) return '';
+
+    return '${data['displayName'] ?? ''}'.trim();
+  }
+
   Future<String> _displayName(String uid) async {
     try {
-      final profile = await AppServices.travelerRef(uid).get();
-      final data = profile.data() ?? const <String, dynamic>{};
-      return '${data['displayName'] ?? data['fullName'] ?? data['name'] ?? uid}';
-    } catch (_) {
-      return uid;
+      // First try the normal structure:
+      // travelers/{Firebase Auth UID}
+      final profile = await AppServices.db
+          .collection('travelers')
+          .doc(uid)
+          .get();
+
+      if (profile.exists) {
+        final data = profile.data();
+
+        final displayName =
+        '${data?['displayName'] ?? ''}'.trim();
+
+        if (displayName.isNotEmpty) {
+          return displayName;
+        }
+      }
+
+      // Fallback in case the Firestore document ID
+      // is different from the Firebase Auth UID
+      final query = await AppServices.db
+          .collection('travelers')
+          .where('uid', isEqualTo: uid)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        final data = query.docs.first.data();
+
+        final displayName =
+        '${data['displayName'] ?? ''}'.trim();
+
+        if (displayName.isNotEmpty) {
+          return displayName;
+        }
+      }
+
+      return 'Unknown User';
+    } catch (error) {
+      debugPrint(
+        'Failed to retrieve displayName for $uid: $error',
+      );
+
+      return 'Unknown User';
     }
   }
 
   Future<void> _copyGroupCode(Map<String, dynamic> group) async {
     final code = '${group['code'] ?? ''}'.trim();
     if (code.isEmpty) return;
+
     await Clipboard.setData(ClipboardData(text: code));
-    if (mounted) showMessage(context, 'Group code copied.');
+
+    if (mounted) {
+      showMessage(context, 'Group code copied.');
+    }
   }
 
   Future<String?> _askForMemberEmail() async {
-    var enteredEmail = '';
+    final emailController = TextEditingController();
 
-    return showDialog<String>(
+    final result = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        void submit() {
-          final normalizedEmail = enteredEmail.trim().toLowerCase();
-
-          if (normalizedEmail.isEmpty) {
-            showMessage(
-              dialogContext,
-              'Please enter the traveler’s registered email address.',
-              error: true,
-            );
-            return;
-          }
-
-          FocusScope.of(dialogContext).unfocus();
-          Navigator.of(dialogContext).pop(normalizedEmail);
-        }
-
-        return AlertDialog(
-          title: const Text('Add Group Member'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Enter the traveler’s registered email address.',
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                autofocus: true,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.done,
-                autocorrect: false,
-                enableSuggestions: false,
-                onChanged: (value) => enteredEmail = value,
-                onFieldSubmitted: (_) => submit(),
-                decoration: const InputDecoration(
-                  labelText: 'Traveler Email',
-                  hintText: 'traveler@example.com',
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                FocusScope.of(dialogContext).unfocus();
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Group Member'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the registered email address of the traveler you want to add.',
+              style: TextStyle(color: ExplorerColors.muted),
             ),
-            FilledButton.icon(
-              onPressed: submit,
-              icon: const Icon(Icons.person_add_alt_1_outlined),
-              label: const Text('Add Member'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: emailController,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.done,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: 'Traveler Email',
+                hintText: 'traveler@example.com',
+                prefixIcon: Icon(Icons.email_outlined),
+              ),
+              onSubmitted: (_) {
+                Navigator.pop(
+                  dialogContext,
+                  emailController.text.trim().toLowerCase(),
+                );
+              },
             ),
           ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              emailController.text.trim().toLowerCase(),
+            ),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            label: const Text('Add Member'),
+          ),
+        ],
+      ),
     );
+
+    emailController.dispose();
+    return result;
   }
 
   Future<void> addMember(Map<String, dynamic> group) async {
-    final uid = AppServices.auth.currentUser!.uid;
-    if ('${group['leaderId'] ?? ''}' != uid) {
-      showMessage(
-        context,
-        'Only the group leader can add members.',
-        error: true,
-      );
+    final uid = AppServices.auth.currentUser?.uid;
+
+    if (uid == null || '${group['leaderId'] ?? ''}' != uid) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Only the group leader can add members.',
+          error: true,
+        );
+      }
       return;
     }
 
     final normalizedEmail = await _askForMemberEmail();
+
     if (!mounted ||
         normalizedEmail == null ||
-        normalizedEmail.isEmpty) {
+        normalizedEmail.trim().isEmpty) {
       return;
     }
 
-    // Wait until the dialog route and keyboard are fully removed before the
-    // Firestore stream rebuilds the members section.
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    if (!mounted) return;
-
     setState(() => addingMember = true);
+
     try {
-      final users = await AppServices.db
+      final travelers = await AppServices.db
           .collection('travelers')
           .where('email', isEqualTo: normalizedEmail)
           .limit(1)
           .get();
 
-      if (users.docs.isEmpty) {
+      if (travelers.docs.isEmpty) {
         throw Exception(
           'No registered traveler was found for that email address.',
         );
       }
 
-      final memberDocument = users.docs.first;
+      final memberDocument = travelers.docs.first;
       final member = memberDocument.data();
-      final memberId = memberDocument.id;
+      final memberDocumentId = memberDocument.id;
+      final memberUid =
+          '${member['uid'] ?? memberDocument.id}';
+
+      if (memberUid.isEmpty) {
+        throw Exception('The traveler account has no valid user ID.');
+      }
+
       final memberIds = List<String>.from(
         group['memberIds'] ?? const <String>[],
       );
@@ -153,23 +317,26 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       if ('${member['status'] ?? ''}' != 'active') {
         throw Exception('This traveler account is not active.');
       }
+
       if ('${member['role'] ?? ''}' != 'traveler') {
         throw Exception('Only traveler accounts can join a travel group.');
       }
-      if (memberIds.contains(memberId)) {
+
+      if (memberIds.contains(memberUid) ||
+          memberIds.contains(memberDocumentId)) {
         throw Exception('This traveler is already a group member.');
       }
 
       await _groupRef.update({
-        'memberIds': FieldValue.arrayUnion([memberId]),
+        'memberIds': FieldValue.arrayUnion([memberUid]),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
       await AppServices.notify(
-        userId: memberId,
+        userId: memberUid,
         title: 'Added to a travel group',
         message:
-            'You were added to ${group['name'] ?? 'a travel group'} by the group leader.',
+        'You were added to ${group['name'] ?? 'a travel group'} by the group leader.',
         type: 'companion_group',
         referenceId: widget.groupId,
       );
@@ -177,7 +344,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       if (mounted) {
         showMessage(
           context,
-          '${member['displayName'] ?? normalizedEmail} was added.',
+          '${_nameFromProfile(member).isNotEmpty ? _nameFromProfile(member) : normalizedEmail} was added.',
         );
       }
     } catch (error) {
@@ -194,20 +361,29 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Future<void> removeMember(
-    Map<String, dynamic> group,
-    String memberId,
-  ) async {
-    final uid = AppServices.auth.currentUser!.uid;
-    if ('${group['leaderId'] ?? ''}' != uid || memberId == uid) return;
+      Map<String, dynamic> group,
+      String memberId,
+      ) async {
+    final uid = AppServices.auth.currentUser?.uid;
 
-    final name = await _displayName(memberId);
+    if (uid == null ||
+        '${group['leaderId'] ?? ''}' != uid ||
+        memberId == uid) {
+      return;
+    }
+
+    final memberName = await _displayName(memberId);
+    final memberUid = await _resolveTravelerUid(memberId);
+
     if (!mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove member?'),
-        content: Text('$name will be removed from this travel group.'),
+        title: const Text('Remove Member?'),
+        content: Text(
+          '$memberName will be removed from ${group['name'] ?? 'this travel group'}.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -215,58 +391,46 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ExplorerColors.danger,
+            ),
             child: const Text('Remove'),
           ),
         ],
       ),
     );
+
     if (confirmed != true) return;
 
-    await _groupRef.update({
-      'memberIds': FieldValue.arrayRemove([memberId]),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    await _groupRef.collection('locations').doc(memberId).delete();
-    await AppServices.notify(
-      userId: memberId,
-      title: 'Removed from travel group',
-      message: 'You were removed from ${group['name'] ?? 'the group'}.',
-      type: 'companion_group',
-      referenceId: widget.groupId,
-    );
-    if (mounted) showMessage(context, '$name was removed.');
-  }
-
-  Future<void> shareLocation(Map<String, dynamic> group) async {
     try {
-      final position = await determinePosition();
-      final uid = AppServices.auth.currentUser!.uid;
-      final approvedRequests = await AppServices.db
-          .collection('location_requests')
-          .where('targetId', isEqualTo: uid)
-          .get();
-      final approvedViewerIds = <String>{uid};
-
-      for (final request in approvedRequests.docs) {
-        if (request.data()['groupId'] == widget.groupId &&
-            request.data()['status'] == 'approved') {
-          approvedViewerIds.add('${request.data()['requesterId']}');
-        }
-      }
-
-      final leaderId = '${group['leaderId'] ?? ''}';
-      if (leaderId.isNotEmpty && leaderId == uid) {
-        approvedViewerIds.add(uid);
-      }
-
-      await _groupRef.collection('locations').doc(uid).set({
-        'userId': uid,
-        'location': GeoPoint(position.latitude, position.longitude),
-        'approvedViewerIds': approvedViewerIds.toList(),
+      await _groupRef.update({
+        'memberIds': FieldValue.arrayRemove([memberId]),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // Location documents should use the Firebase Auth UID.
+      try {
+        await _groupRef.collection('locations').doc(memberUid).delete();
+      } catch (_) {}
+
+      // Also remove an old location document if this group stored a legacy
+      // traveler document ID instead of the Firebase Auth UID.
+      if (memberUid != memberId) {
+        try {
+          await _groupRef.collection('locations').doc(memberId).delete();
+        } catch (_) {}
+      }
+
+      await AppServices.notify(
+        userId: memberUid,
+        title: 'Removed from travel group',
+        message: 'You were removed from ${group['name'] ?? 'the group'}.',
+        type: 'companion_group',
+        referenceId: widget.groupId,
+      );
+
       if (mounted) {
-        showMessage(context, 'Your latest location was shared.');
+        showMessage(context, '$memberName was removed.');
       }
     } catch (error) {
       if (mounted) {
@@ -279,82 +443,25 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     }
   }
 
-  Future<void> sendSos(Map<String, dynamic> group) async {
-    final uid = AppServices.auth.currentUser!.uid;
-    final leaderId = '${group['leaderId'] ?? ''}';
+  Future<void> _updateLeaderLocation() async {
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid == null || updatingLocation) return;
 
-    if (leaderId.isEmpty) {
-      showMessage(context, 'This group has no leader.', error: true);
-      return;
-    }
-    if (uid == leaderId) {
-      showMessage(
-        context,
-        'The SOS button is for group members. Member alerts are delivered to you as the leader.',
-      );
-      return;
-    }
+    setState(() => updatingLocation = true);
 
-    setState(() => sendingSos = true);
     try {
       final position = await determinePosition();
-      final senderName = await _displayName(uid);
-      final groupName = '${group['name'] ?? 'Travel Group'}';
 
-      final existingSnapshot = await AppServices.db
-          .collection('sos_alerts')
-          .where('groupId', isEqualTo: widget.groupId)
-          .get();
-      final existing = existingSnapshot.docs.where((document) {
-        final data = document.data();
-        return data['senderId'] == uid && data['status'] == 'active';
-      }).toList();
-
-      DocumentReference<Map<String, dynamic>> alertReference;
-      if (existing.isNotEmpty) {
-        alertReference = existing.first.reference;
-        await alertReference.update({
-          'location': GeoPoint(position.latitude, position.longitude),
-          'lastTriggeredAt': FieldValue.serverTimestamp(),
-          'triggerCount': FieldValue.increment(1),
-        });
-      } else {
-        alertReference = await AppServices.db.collection('sos_alerts').add({
-          'groupId': widget.groupId,
-          'groupName': groupName,
-          'senderId': uid,
-          'senderName': senderName,
-          'leaderId': leaderId,
-          'recipientId': leaderId,
-          'recipientIds': [leaderId],
-          'location': GeoPoint(position.latitude, position.longitude),
-          'status': 'active',
-          'triggerCount': 1,
-          'createdAt': FieldValue.serverTimestamp(),
-          'lastTriggeredAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      // Make the SOS sender visible only to the sender and group leader.
       await _groupRef.collection('locations').doc(uid).set({
         'userId': uid,
         'location': GeoPoint(position.latitude, position.longitude),
-        'approvedViewerIds': [uid, leaderId],
-        'sosActive': true,
+        'approvedViewerIds': [uid],
+        'sosActive': false,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // The notification is intentionally written only for the leader.
-      await AppServices.notify(
-        userId: leaderId,
-        title: 'SOS alert from $senderName',
-        message: '$senderName needs help in $groupName. Open the group map to view the latest location.',
-        type: 'sos',
-        referenceId: alertReference.id,
-      );
-
       if (mounted) {
-        showMessage(context, 'SOS alert sent only to the group leader.');
+        showMessage(context, 'Your latest location was updated.');
       }
     } catch (error) {
       if (mounted) {
@@ -365,63 +472,51 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         );
       }
     } finally {
-      if (mounted) setState(() => sendingSos = false);
+      if (mounted) setState(() => updatingLocation = false);
     }
   }
 
   Future<void> resolveSos(
-    DocumentReference<Map<String, dynamic>> reference,
-    String senderId,
-  ) async {
-    await reference.update({
-      'status': 'resolved',
-      'resolvedAt': FieldValue.serverTimestamp(),
-      'resolvedBy': AppServices.auth.currentUser?.uid,
-    });
-    await _groupRef.collection('locations').doc(senderId).set({
-      'sosActive': false,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    if (mounted) showMessage(context, 'SOS alert marked as resolved.');
-  }
+      DocumentReference<Map<String, dynamic>> alertReference,
+      String senderId,
+      ) async {
+    try {
+      await alertReference.update({
+        'status': 'resolved',
+        'resolvedAt': FieldValue.serverTimestamp(),
+        'resolvedBy': AppServices.auth.currentUser?.uid,
+      });
 
-  Future<void> requestLocation(String targetId) async {
-    final uid = AppServices.auth.currentUser!.uid;
-    final requestSnapshot = await AppServices.db
-        .collection('location_requests')
-        .where('groupId', isEqualTo: widget.groupId)
-        .get();
-    final existing = requestSnapshot.docs.where((document) {
-      final data = document.data();
-      return data['requesterId'] == uid &&
-          data['targetId'] == targetId &&
-          data['status'] == 'pending';
-    });
-    if (existing.isNotEmpty) {
-      if (mounted) showMessage(context, 'A request is already pending.');
-      return;
+      if (senderId.isNotEmpty) {
+        await _groupRef.collection('locations').doc(senderId).set({
+          'sosActive': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      if (mounted) {
+        showMessage(context, 'SOS alert marked as resolved.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
     }
-
-    await AppServices.db.collection('location_requests').add({
-      'groupId': widget.groupId,
-      'requesterId': uid,
-      'targetId': targetId,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    await AppServices.notify(
-      userId: targetId,
-      title: 'Location sharing request',
-      message: 'A companion requested your location in ${widget.group['name'] ?? 'the group'}.',
-      type: 'location_request',
-      referenceId: widget.groupId,
-    );
-    if (mounted) showMessage(context, 'Location request sent.');
   }
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
+    final uid = AppServices.auth.currentUser?.uid;
+
+    if (uid == null) {
+      return const Scaffold(
+        body: Center(child: Text('Please sign in first.')),
+      );
+    }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _groupRef.snapshots(),
@@ -434,478 +529,722 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         }
 
         final group = groupSnapshot.data?.data() ?? widget.group;
-        final memberIds = List<String>.from(
-          group['memberIds'] ?? const <String>[],
-        );
-        final isLeader = '${group['leaderId'] ?? ''}' == uid;
+        final leaderId = '${group['leaderId'] ?? ''}';
+        final isLeader = leaderId == uid;
+
+        if (!isLeader) {
+          return Scaffold(
+            backgroundColor: ExplorerColors.background,
+            appBar: AppBar(title: const Text('Group Management')),
+            body: const ExplorerEmptyState(
+              title: 'Leader Access Only',
+              subtitle:
+              'Only the group leader can manage members, view the group map, and review SOS alerts.',
+              icon: Icons.lock_outline,
+            ),
+          );
+        }
+
+        final groupName = '${group['name'] ?? 'Travel Group'}';
 
         return Scaffold(
           backgroundColor: ExplorerColors.background,
           appBar: AppBar(
-            title: Text('${group['name'] ?? 'Group Details'}'),
-            actions: [
-              if (isLeader)
-                IconButton(
-                  tooltip: 'Add member',
-                  onPressed: addingMember ? null : () => addMember(group),
-                  icon: addingMember
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.person_add_alt_1_outlined),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  groupName,
+                  style: const TextStyle(
+                    color: ExplorerColors.navy,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
+                Text(
+                  'Group Code: ${group['code'] ?? '-'}',
+                  style: const TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Copy group code',
+                onPressed: () => _copyGroupCode(group),
+                icon: const Icon(Icons.copy_outlined),
+              ),
+            ],
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(icon: Icon(Icons.map_outlined), text: 'Map'),
+                Tab(icon: Icon(Icons.groups_outlined), text: 'Members'),
+                Tab(
+                  icon: Icon(Icons.notification_important_outlined),
+                  text: 'SOS',
+                ),
+              ],
+            ),
+          ),
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildMapTab(group, uid),
+              _buildMembersTab(group, uid),
+              _buildSosTab(group, uid),
             ],
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        );
+      },
+    );
+  }
+
+  Widget _buildMapTab(
+      Map<String, dynamic> group,
+      String uid,
+      ) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      children: [
+        ExplorerCard(
+          radius: 12,
+          child: Row(
             children: [
-              ExplorerCard(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Text(
+                      'Group Map',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Only locations shared with you and active SOS locations are displayed.',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: updatingLocation ? null : _updateLeaderLocation,
+                icon: updatingLocation
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.my_location),
+                label: Text(updatingLocation ? 'Updating' : 'My Location'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        SizedBox(
+          height: 430,
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _groupRef
+                .collection('locations')
+                .where('approvedViewerIds', arrayContains: uid)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return ExplorerCard(
+                  child: Center(
+                    child: Text(
+                      'Unable to load locations.\n${snapshot.error}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+
+              final documents = snapshot.data?.docs ?? [];
+              final positions = <String, LatLng>{};
+              final sosMembers = <String>{};
+
+              for (final document in documents) {
+                final data = document.data();
+                final location = data['location'];
+
+                if (location is! GeoPoint) continue;
+
+                positions[document.id] = LatLng(
+                  location.latitude,
+                  location.longitude,
+                );
+
+                if (data['sosActive'] == true) {
+                  sosMembers.add(document.id);
+                }
+              }
+
+              if (positions.isEmpty) {
+                return const ExplorerEmptyState(
+                  title: 'No Locations Available',
+                  subtitle:
+                  'Update your location or wait for a member to send an SOS alert.',
+                  icon: Icons.location_off_outlined,
+                );
+              }
+
+              final ownPosition = positions[uid];
+
+              final markers = positions.entries.map((entry) {
+                final isCurrentUser = entry.key == uid;
+                final hasSos = sosMembers.contains(entry.key);
+
+                return Marker(
+                  markerId: MarkerId(entry.key),
+                  position: entry.value,
+                  infoWindow: InfoWindow(
+                    title: isCurrentUser
+                        ? 'You - Group Leader'
+                        : hasSos
+                        ? 'SOS Companion'
+                        : 'Companion',
+                  ),
+                  icon: hasSos
+                      ? BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueRed,
+                  )
+                      : isCurrentUser
+                      ? BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueAzure,
+                  )
+                      : BitmapDescriptor.defaultMarker,
+                );
+              }).toSet();
+
+              final polylines = <Polyline>{};
+
+              if (ownPosition != null) {
+                for (final entry in positions.entries) {
+                  if (entry.key == uid) continue;
+
+                  final isSos = sosMembers.contains(entry.key);
+
+                  polylines.add(
+                    Polyline(
+                      polylineId: PolylineId('${uid}_${entry.key}'),
+                      points: [ownPosition, entry.value],
+                      width: isSos ? 6 : 4,
+                      color: isSos
+                          ? ExplorerColors.danger
+                          : ExplorerColors.navy,
+                    ),
+                  );
+                }
+              }
+
+              final initialPosition = ownPosition ?? positions.values.first;
+
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: initialPosition,
+                    zoom: 14,
+                  ),
+                  markers: markers,
+                  polylines: polylines,
+                  myLocationEnabled: false,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                ),
+              );
+            },
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _groupRef
+              .collection('locations')
+              .where('approvedViewerIds', arrayContains: uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+            final documents = snapshot.data?.docs ?? [];
+
+            final ownDocument = documents.where((document) {
+              return document.id == uid &&
+                  document.data()['location'] is GeoPoint;
+            }).toList();
+
+            if (ownDocument.isEmpty) {
+              return const ExplorerCard(
+                child: Text(
+                  'Update your location to calculate approximate distance and time to an SOS companion.',
+                  style: TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                  ),
+                ),
+              );
+            }
+
+            final ownGeo = ownDocument.first.data()['location'] as GeoPoint;
+
+            final sosDocuments = documents.where((document) {
+              return document.id != uid &&
+                  document.data()['sosActive'] == true &&
+                  document.data()['location'] is GeoPoint;
+            }).toList();
+
+            if (sosDocuments.isEmpty) {
+              return const ExplorerCard(
+                child: Text(
+                  'No active SOS companion is currently shown on the map.',
+                  style: TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                  ),
+                ),
+              );
+            }
+
+            return Column(
+              children: sosDocuments.map((document) {
+                final geo = document.data()['location'] as GeoPoint;
+
+                final distanceMeters = Geolocator.distanceBetween(
+                  ownGeo.latitude,
+                  ownGeo.longitude,
+                  geo.latitude,
+                  geo.longitude,
+                );
+
+                final distanceKm = distanceMeters / 1000;
+                const walkingSpeedKmPerHour = 4.5;
+                final approximateMinutes =
+                ((distanceKm / walkingSpeedKmPerHour) * 60).ceil();
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 9),
+                  child: ExplorerCard(
+                    backgroundColor: ExplorerColors.dangerSoft,
+                    borderColor: const Color(0xFFF6B8AE),
+                    child: Row(
                       children: [
+                        const CircleAvatar(
+                          backgroundColor: ExplorerColors.danger,
+                          foregroundColor: Colors.white,
+                          child: Icon(Icons.sos_rounded),
+                        ),
+                        const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: FutureBuilder<String>(
+                            future: _displayName(document.id),
+                            builder: (context, nameSnapshot) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    nameSnapshot.data ?? 'SOS Companion',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.danger,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Approx. ${distanceKm.toStringAsFixed(2)} km • $approximateMinutes min walking',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.muted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMembersTab(
+      Map<String, dynamic> group,
+      String uid,
+      ) {
+    final memberIds = List<String>.from(
+      group['memberIds'] ?? const <String>[],
+    );
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      children: [
+        ExplorerCard(
+          radius: 12,
+          child: Row(
+            children: [
+              Expanded(
+                child: ExplorerLabeledValue(
+                  label: 'Members',
+                  value: '${memberIds.length}',
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: addingMember ? null : () => addMember(group),
+                icon: addingMember
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.person_add_alt_1_outlined),
+                label: Text(addingMember ? 'Adding...' : 'Add Member'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        ...memberIds.map(
+              (memberId) => FutureBuilder<String>(
+            key: ValueKey('travel-group-member-$memberId'),
+            future: _displayName(memberId),
+            builder: (context, snapshot) {
+              final memberName =
+              snapshot.connectionState == ConnectionState.waiting
+                  ? 'Loading...'
+                  : snapshot.data ?? 'Unknown User';
+
+              final isCurrentUser = memberId == uid;
+
+              final isGroupLeader =
+                  memberId == '${group['leaderId'] ?? ''}';
+
+              return ExplorerCard(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+
+                  leading: CircleAvatar(
+                    backgroundColor: isGroupLeader
+                        ? ExplorerColors.goldSoft
+                        : ExplorerColors.navySoft,
+                    foregroundColor: ExplorerColors.navy,
+                    child: Icon(
+                      isGroupLeader
+                          ? Icons.workspace_premium_outlined
+                          : Icons.person_outline,
+                    ),
+                  ),
+
+                  title: Text(
+                    memberName,
+                    style: const TextStyle(
+                      color: ExplorerColors.navy,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+
+                  subtitle: Text(
+                    isGroupLeader
+                        ? 'Group Leader'
+                        : isCurrentUser
+                        ? 'You • Group Member'
+                        : 'Group Member',
+                  ),
+
+                  trailing: isCurrentUser
+                      ? null
+                      : PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'request') {
+                        requestLocation(memberId);
+                      } else if (value == 'remove') {
+                        removeMember(group, memberId);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'request',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.location_searching,
+                          ),
+                          title: Text(
+                            'Request location',
+                          ),
+                        ),
+                      ),
+
+                      if ('${group['leaderId'] ?? ''}' == uid &&
+                          !isGroupLeader)
+                        const PopupMenuItem(
+                          value: 'remove',
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.person_remove_outlined,
+                              color: ExplorerColors.danger,
+                            ),
+                            title: Text(
+                              'Remove member',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSosTab(
+      Map<String, dynamic> group,
+      String uid,
+      ) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: AppServices.db
+          .collection('sos_alerts')
+          .where('groupId', isEqualTo: widget.groupId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Unable to load SOS alerts.\n${snapshot.error}',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+
+        final alerts = (snapshot.data?.docs ?? []).where((document) {
+          final data = document.data();
+          return data['leaderId'] == uid && data['status'] == 'active';
+        }).toList()
+          ..sort((a, b) {
+            final first = asDate(a.data()['lastTriggeredAt']) ??
+                asDate(a.data()['createdAt']) ??
+                DateTime(2000);
+            final second = asDate(b.data()['lastTriggeredAt']) ??
+                asDate(b.data()['createdAt']) ??
+                DateTime(2000);
+            return second.compareTo(first);
+          });
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+          children: [
+            ExplorerCard(
+              radius: 12,
+              backgroundColor: alerts.isEmpty
+                  ? ExplorerColors.surface
+                  : ExplorerColors.dangerSoft,
+              borderColor: alerts.isEmpty
+                  ? ExplorerColors.border
+                  : const Color(0xFFF6B8AE),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: alerts.isEmpty
+                        ? ExplorerColors.navySoft
+                        : ExplorerColors.danger,
+                    foregroundColor:
+                    alerts.isEmpty ? ExplorerColors.navy : Colors.white,
+                    child: Icon(
+                      alerts.isEmpty
+                          ? Icons.shield_outlined
+                          : Icons.notification_important,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          alerts.isEmpty
+                              ? 'No Active SOS Alerts'
+                              : '${alerts.length} Active SOS Alert${alerts.length == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            color: alerts.isEmpty
+                                ? ExplorerColors.navy
+                                : ExplorerColors.danger,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        const Text(
+                          'Member SOS alerts appear here in real time.',
+                          style: TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            if (alerts.isEmpty)
+              const ExplorerEmptyState(
+                title: 'Everyone is Safe',
+                subtitle:
+                'When a member presses SOS, the alert and latest location will appear here.',
+                icon: Icons.health_and_safety_outlined,
+              )
+            else
+              ...alerts.map(
+                    (alert) {
+                  final data = alert.data();
+                  final senderId = '${data['senderId'] ?? ''}';
+                  final storedSenderName =
+                  '${data['senderName'] ?? ''}'.trim();
+                  final time = asDate(data['lastTriggeredAt']) ??
+                      asDate(data['createdAt']);
+                  final triggerCount = data['triggerCount'] ?? 1;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ExplorerCard(
+                      backgroundColor: ExplorerColors.dangerSoft,
+                      borderColor: const Color(0xFFF6B8AE),
+                      radius: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              const Text(
-                                'GROUP CODE',
-                                style: TextStyle(
-                                  color: ExplorerColors.muted,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: .6,
+                              const CircleAvatar(
+                                backgroundColor: ExplorerColors.danger,
+                                foregroundColor: Colors.white,
+                                child: Icon(Icons.sos_rounded),
+                              ),
+                              const SizedBox(width: 11),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    FutureBuilder<String>(
+                                      future: storedSenderName.isNotEmpty &&
+                                          storedSenderName != senderId
+                                          ? Future<String>.value(storedSenderName)
+                                          : _displayName(senderId),
+                                      builder: (context, nameSnapshot) {
+                                        final senderName =
+                                            nameSnapshot.data ?? 'Loading...';
+
+                                        return Text(
+                                          '$senderName needs help',
+                                          style: const TextStyle(
+                                            color: ExplorerColors.danger,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      time == null
+                                          ? 'Latest location received'
+                                          : DateFormat.yMMMd()
+                                          .add_jm()
+                                          .format(time),
+                                      style: const TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${group['code'] ?? '-'}',
-                                style: const TextStyle(
-                                  color: ExplorerColors.navy,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
+                              ExplorerStatusBadge(
+                                label: triggerCount == 1
+                                    ? 'ACTIVE'
+                                    : 'ACTIVE ×$triggerCount',
+                                tone: ExplorerStatusTone.danger,
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () {
+                                    _tabController.animateTo(0);
+                                  },
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: ExplorerColors.navy,
+                                  ),
+                                  icon: const Icon(Icons.map_outlined),
+                                  label: const Text('View on Map'),
+                                ),
+                              ),
+                              const SizedBox(width: 9),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => resolveSos(
+                                    alert.reference,
+                                    senderId,
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: ExplorerColors.danger,
+                                    side: const BorderSide(
+                                      color: ExplorerColors.danger,
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('Resolve'),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Copy group code',
-                          onPressed: () => _copyGroupCode(group),
-                          icon: const Icon(Icons.copy_outlined),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    if ('${group['description'] ?? ''}'.isNotEmpty) ...[
-                      const SizedBox(height: 7),
-                      Text(
-                        '${group['description']}',
-                        style: const TextStyle(
-                          color: ExplorerColors.muted,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () => shareLocation(group),
-                          icon: const Icon(Icons.my_location_outlined),
-                          label: const Text('Share Location'),
-                        ),
-                        if (isLeader)
-                          FilledButton.icon(
-                            onPressed: addingMember
-                                ? null
-                                : () => addMember(group),
-                            icon: const Icon(Icons.person_add_alt_1_outlined),
-                            label: const Text('Add Member'),
-                          )
-                        else
-                          FilledButton.icon(
-                            onPressed: sendingSos
-                                ? null
-                                : () => sendSos(group),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ExplorerColors.danger,
-                            ),
-                            icon: sendingSos
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.sos_rounded),
-                            label: Text(
-                              sendingSos ? 'Sending...' : 'Send SOS',
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (!isLeader) ...[
-                      const SizedBox(height: 9),
-                      const Text(
-                        'SOS sends your latest location and timestamp only to the group leader.',
-                        style: TextStyle(
-                          color: ExplorerColors.muted,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (isLeader) ...[
-                const ExplorerSectionTitle(
-                  'Active SOS Alerts',
-                  subtitle: 'Only alerts sent to you as the group leader are shown.',
-                ),
-                const SizedBox(height: 9),
-                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: AppServices.db
-                      .collection('sos_alerts')
-                      .where('groupId', isEqualTo: widget.groupId)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    final alerts = (snapshot.data?.docs ?? []).where((doc) {
-                      final data = doc.data();
-                      return data['status'] == 'active' &&
-                          data['leaderId'] == uid;
-                    }).toList()
-                      ..sort((a, b) {
-                        final first = asDate(a.data()['lastTriggeredAt']) ??
-                            asDate(a.data()['createdAt']) ??
-                            DateTime(2000);
-                        final second = asDate(b.data()['lastTriggeredAt']) ??
-                            asDate(b.data()['createdAt']) ??
-                            DateTime(2000);
-                        return second.compareTo(first);
-                      });
-
-                    if (alerts.isEmpty) {
-                      return const ExplorerCard(
-                        child: Text(
-                          'No active SOS alerts.',
-                          style: TextStyle(color: ExplorerColors.muted),
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: alerts.map((alert) {
-                        final data = alert.data();
-                        final time = asDate(data['lastTriggeredAt']) ??
-                            asDate(data['createdAt']);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 9),
-                          child: ExplorerCard(
-                            backgroundColor: const Color(0xFFFFE6E1),
-                            borderColor: const Color(0xFFF6B8AE),
-                            child: Row(
-                              children: [
-                                const CircleAvatar(
-                                  backgroundColor: ExplorerColors.danger,
-                                  foregroundColor: Colors.white,
-                                  child: Icon(Icons.crisis_alert_rounded),
-                                ),
-                                const SizedBox(width: 11),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '${data['senderName'] ?? data['senderId'] ?? 'Group member'} needs help',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.danger,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        time == null
-                                            ? 'Location received'
-                                            : 'Latest alert: ${DateFormat.yMMMd().add_jm().format(time)}',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.muted,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () => resolveSos(
-                                    alert.reference,
-                                    '${data['senderId'] ?? ''}',
-                                  ),
-                                  child: const Text('Resolve'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
-              const ExplorerSectionTitle(
-                'Group Map',
-                subtitle: 'Only approved companion locations are visible.',
-              ),
-              const SizedBox(height: 9),
-              SizedBox(
-                height: 300,
-                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _groupRef
-                      .collection('locations')
-                      .where('approvedViewerIds', arrayContains: uid)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    final docs = snapshot.data?.docs ?? [];
-                    final positions = <String, LatLng>{};
-                    final sosMembers = <String>{};
-                    for (final doc in docs) {
-                      final data = doc.data();
-                      final geo = data['location'];
-                      if (geo is GeoPoint) {
-                        positions[doc.id] =
-                            LatLng(geo.latitude, geo.longitude);
-                        if (data['sosActive'] == true) {
-                          sosMembers.add(doc.id);
-                        }
-                      }
-                    }
-
-                    final markers = positions.entries.map((entry) {
-                      return Marker(
-                        markerId: MarkerId(entry.key),
-                        position: entry.value,
-                        infoWindow: InfoWindow(
-                          title: entry.key == uid
-                              ? 'You'
-                              : sosMembers.contains(entry.key)
-                                  ? 'SOS companion'
-                                  : 'Approved companion',
-                        ),
-                      );
-                    }).toSet();
-                    final ownPosition = positions[uid];
-                    final polylines = ownPosition == null
-                        ? <Polyline>{}
-                        : positions.entries
-                            .where((entry) => entry.key != uid)
-                            .map(
-                              (entry) => Polyline(
-                                polylineId:
-                                    PolylineId('${uid}_${entry.key}'),
-                                points: [ownPosition, entry.value],
-                                width: 4,
-                              ),
-                            )
-                            .toSet();
-                    final initial = ownPosition ??
-                        (markers.isNotEmpty
-                            ? markers.first.position
-                            : const LatLng(5.4141, 100.3288));
-
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: GoogleMap(
-                        initialCameraPosition:
-                            CameraPosition(target: initial, zoom: 14),
-                        markers: markers,
-                        polylines: polylines,
-                        myLocationButtonEnabled: true,
-                        myLocationEnabled: true,
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  const Expanded(
-                    child: ExplorerSectionTitle(
-                      'Members',
-                      subtitle: 'Manage companions and location access.',
-                    ),
-                  ),
-                  if (isLeader)
-                    IconButton(
-                      tooltip: 'Add member',
-                      onPressed: addingMember ? null : () => addMember(group),
-                      icon: const Icon(Icons.person_add_alt_1_outlined),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ...memberIds.map(
-                (memberId) => FutureBuilder<
-                    DocumentSnapshot<Map<String, dynamic>>>(
-                  key: ValueKey('travel-group-member-$memberId'),
-                  future: AppServices.travelerRef(memberId).get(),
-                  builder: (context, snapshot) {
-                    final profile = snapshot.data?.data();
-                    final name =
-                        '${profile?['displayName'] ?? profile?['fullName'] ?? memberId}';
-                    final isCurrentUser = memberId == uid;
-                    final isGroupLeader =
-                        memberId == '${group['leaderId'] ?? ''}';
-
-                    return ExplorerCard(
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          backgroundColor: isGroupLeader
-                              ? ExplorerColors.goldSoft
-                              : ExplorerColors.navySoft,
-                          foregroundColor: ExplorerColors.navy,
-                          child: Icon(
-                            isGroupLeader
-                                ? Icons.workspace_premium_outlined
-                                : Icons.person_outline,
-                          ),
-                        ),
-                        title: Text(
-                          name,
-                          style: const TextStyle(
-                            color: ExplorerColors.navy,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        subtitle: Text(
-                          isGroupLeader
-                              ? 'Group leader'
-                              : isCurrentUser
-                                  ? 'You • Companion'
-                                  : 'Companion',
-                        ),
-                        trailing: isCurrentUser
-                            ? null
-                            : PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'request') {
-                                    requestLocation(memberId);
-                                  } else if (value == 'remove') {
-                                    removeMember(group, memberId);
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  const PopupMenuItem(
-                                    value: 'request',
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: Icon(Icons.location_searching),
-                                      title: Text('Request location'),
-                                    ),
-                                  ),
-                                  if (isLeader && !isGroupLeader)
-                                    const PopupMenuItem(
-                                      value: 'remove',
-                                      child: ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        leading: Icon(
-                                          Icons.person_remove_outlined,
-                                          color: ExplorerColors.danger,
-                                        ),
-                                        title: Text('Remove member'),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 18),
-              const ExplorerSectionTitle(
-                'Incoming Location Requests',
-              ),
-              const SizedBox(height: 8),
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db
-                    .collection('location_requests')
-                    .where('targetId', isEqualTo: uid)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  final requests = (snapshot.data?.docs ?? []).where(
-                    (document) =>
-                        document.data()['groupId'] == widget.groupId &&
-                        document.data()['status'] == 'pending',
-                  ).toList();
-
-                  if (requests.isEmpty) {
-                    return const ExplorerCard(
-                      child: Text(
-                        'No pending requests.',
-                        style: TextStyle(color: ExplorerColors.muted),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    children: requests.map((request) {
-                      final requesterId =
-                          '${request.data()['requesterId'] ?? ''}';
-                      return FutureBuilder<String>(
-                        future: _displayName(requesterId),
-                        builder: (context, profileSnapshot) {
-                          return ExplorerCard(
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                '${profileSnapshot.data ?? requesterId} requested your location',
-                              ),
-                              trailing: Wrap(
-                                spacing: 4,
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Reject',
-                                    onPressed: () => request.reference.update({
-                                      'status': 'rejected',
-                                      'respondedAt':
-                                          FieldValue.serverTimestamp(),
-                                    }),
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Approve',
-                                    onPressed: () async {
-                                      await request.reference.update({
-                                        'status': 'approved',
-                                        'respondedAt':
-                                            FieldValue.serverTimestamp(),
-                                      });
-                                      await shareLocation(group);
-                                    },
-                                    icon: const Icon(Icons.check_rounded),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    }).toList(),
                   );
                 },
               ),
-            ],
-          ),
+          ],
         );
       },
     );

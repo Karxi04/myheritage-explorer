@@ -121,6 +121,47 @@ class AdminManagementPage extends StatelessWidget {
 class AdminEmergencyPage extends StatelessWidget {
   const AdminEmergencyPage({super.key});
 
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            alignment: Alignment.centerLeft,
+            child: const TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              indicatorColor: ExplorerColors.gold,
+              labelColor: ExplorerColors.navy,
+              unselectedLabelColor: ExplorerColors.muted,
+              labelStyle: TextStyle(fontWeight: FontWeight.w800),
+              tabs: [
+                Tab(text: 'SOS Alerts'),
+                Tab(text: 'Location Activity'),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                _AdminSosAlertsTab(),
+                _AdminLocationActivityTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminSosAlertsTab extends StatelessWidget {
+  const _AdminSosAlertsTab();
+
   Future<void> resolve(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
@@ -142,9 +183,9 @@ class AdminEmergencyPage extends StatelessWidget {
 
         final docs = snapshot.data!.docs.toList()
           ..sort(
-            (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
+            (a, b) => (asDate(b.data()['createdAt'] ?? b.data()['timestamp']) ?? DateTime(2000))
                 .compareTo(
-              asDate(a.data()['createdAt']) ?? DateTime(2000),
+              asDate(a.data()['createdAt'] ?? a.data()['timestamp']) ?? DateTime(2000),
             ),
           );
         final active =
@@ -154,9 +195,9 @@ class AdminEmergencyPage extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           children: [
             const ExplorerAdminPageTitle(
-              title: 'Location & SOS Monitoring',
+              title: 'SOS Alert Records',
               subtitle:
-                  'Real-time oversight of explorer safety and emergency location data.',
+                  'Monitor emergency panic triggers and system resolution status.',
             ),
             const SizedBox(height: 22),
             Row(
@@ -169,14 +210,6 @@ class AdminEmergencyPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                const Expanded(
-                  child: ExplorerMetricCard(
-                    label: 'Network Health',
-                    value: '98%',
-                    icon: Icons.wifi_tethering,
-                  ),
-                ),
-                const SizedBox(width: 14),
                 Expanded(
                   child: ExplorerMetricCard(
                     label: 'Resolved Alerts',
@@ -184,16 +217,17 @@ class AdminEmergencyPage extends StatelessWidget {
                     icon: Icons.task_alt,
                   ),
                 ),
+                const SizedBox(width: 14),
+                const Spacer(),
               ],
             ),
             const SizedBox(height: 22),
-            const ExplorerSectionTitle('SOS Alerts'),
+            const ExplorerSectionTitle('System Activity Log'),
             const SizedBox(height: 10),
             if (docs.isEmpty)
               const ExplorerEmptyState(
-                title: 'No SOS alerts',
-                subtitle:
-                    'Emergency alerts sent by travelers will appear here.',
+                title: 'No SOS records',
+                subtitle: 'Panic button triggers will appear here for audit.',
                 icon: Icons.health_and_safety_outlined,
               )
             else
@@ -201,7 +235,11 @@ class AdminEmergencyPage extends StatelessWidget {
                 (doc) {
                   final data = doc.data();
                   final status = '${data['status'] ?? 'active'}';
-                  final geo = data['location'];
+                  final sender = data['senderName'] ?? data['userId'] ?? 'Traveler';
+                  final group = data['groupName'] ?? data['groupId'] ?? '-';
+                  final lat = data['latitude'];
+                  final lng = data['longitude'];
+                  
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: ExplorerCard(
@@ -236,40 +274,49 @@ class AdminEmergencyPage extends StatelessWidget {
                                   CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'SOS Alert: ${data['userId'] ?? 'Traveler'}',
+                                  'SOS ID: ${doc.id.substring(0, 8).toUpperCase()}',
                                   style: const TextStyle(
                                     color: ExplorerColors.navy,
-                                    fontSize: 15,
+                                    fontSize: 14,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Group: ${data['groupId'] ?? '-'}',
+                                  'Sender: $sender',
+                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                ),
+                                Text(
+                                  'Group: $group',
                                   style: const TextStyle(
                                     color: ExplorerColors.muted,
                                     fontSize: 11,
                                   ),
                                 ),
-                                if (geo is GeoPoint)
+                                if (lat != null && lng != null)
                                   Text(
-                                    'Coordinates: ${geo.latitude.toStringAsFixed(5)}, ${geo.longitude.toStringAsFixed(5)}',
+                                    'Location: $lat, $lng',
                                     style: const TextStyle(
                                       color: ExplorerColors.muted,
                                       fontSize: 10,
                                     ),
+                                  )
+                                else
+                                  const Text(
+                                    'Location: Unavailable',
+                                    style: TextStyle(
+                                      color: ExplorerColors.danger,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  asDate(data['createdAt']) == null
-                                      ? 'Recently triggered'
-                                      : DateFormat.yMMMd()
-                                          .add_jm()
-                                          .format(
-                                            asDate(
-                                              data['createdAt'],
-                                            )!,
-                                          ),
+                                  DateFormat.yMMMd()
+                                      .add_jm()
+                                      .format(
+                                        asDate(data['createdAt'] ?? data['timestamp']) ?? DateTime.now(),
+                                      ),
                                   style: const TextStyle(
                                     color: ExplorerColors.muted,
                                     fontSize: 10,
@@ -299,6 +346,119 @@ class AdminEmergencyPage extends StatelessWidget {
                   );
                 },
               ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AdminLocationActivityTab extends StatelessWidget {
+  const _AdminLocationActivityTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: AppServices.db.collection('location_requests').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data!.docs.toList()
+          ..sort(
+            (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
+                .compareTo(
+              asDate(a.data()['createdAt']) ?? DateTime(2000),
+            ),
+          );
+
+        return ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            const ExplorerAdminPageTitle(
+              title: 'Location Sharing Records',
+              subtitle:
+                  'Audit log of location access requests between companions.',
+            ),
+            const SizedBox(height: 22),
+            const ExplorerSectionTitle('Activity Audit Log'),
+            const SizedBox(height: 10),
+            if (docs.isEmpty)
+              const ExplorerEmptyState(
+                title: 'No activity found',
+                subtitle: 'Permission requests will appear here for monitoring.',
+                icon: Icons.history,
+              )
+            else
+              ...docs.map((doc) {
+                final data = doc.data();
+                final status = '${data['status'] ?? 'pending'}';
+                final requester = data['requesterId'] ?? 'User';
+                final target = data['targetUserId'] ?? data['targetId'] ?? 'User';
+                final group = data['groupId'] ?? '-';
+                
+                final tone = switch (status) {
+                  'approved' => ExplorerStatusTone.success,
+                  'rejected' => ExplorerStatusTone.danger,
+                  _ => ExplorerStatusTone.neutral,
+                };
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ExplorerCard(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.swap_horiz, color: ExplorerColors.navy),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Request ID: ${doc.id.substring(0, 8).toUpperCase()}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'From: $requester',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              Text(
+                                'To: $target',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              Text(
+                                'Group: $group',
+                                style: const TextStyle(fontSize: 11, color: ExplorerColors.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            ExplorerStatusBadge(
+                              label: status.toUpperCase(),
+                              tone: tone,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              DateFormat.yMMMd()
+                                  .add_jm()
+                                  .format(asDate(data['createdAt']) ?? DateTime.now()),
+                              style: const TextStyle(fontSize: 10, color: ExplorerColors.muted),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
           ],
         );
       },

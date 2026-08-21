@@ -36,7 +36,16 @@ part 'safety/safety_page.dart';
 part 'safety/my_hazard_reports_page.dart';
 part 'safety/create_hazard_page.dart';
 part 'companion/companion_page.dart';
+part 'companion/create_group_page.dart';
+part 'companion/join_group_page.dart';
 part 'companion/group_details_page.dart';
+part 'companion/manage_members_page.dart';
+part 'companion/group_chat_page.dart';
+part 'companion/group_map_page.dart';
+part 'companion/companion_location_page.dart';
+part 'companion/sos_panic_page.dart';
+part 'companion/sos_alerts_review_page.dart';
+part 'companion/route_guidance_page.dart';
 part 'rewards/rewards_page.dart';
 part 'rewards/nearby_rewards_page.dart';
 part 'rewards/voucher_wallet_page.dart';
@@ -44,6 +53,3 @@ part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
-
-
-

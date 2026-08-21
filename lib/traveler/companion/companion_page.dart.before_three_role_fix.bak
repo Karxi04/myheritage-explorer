@@ -90,6 +90,35 @@ class CompanionPage extends StatelessWidget {
       return;
     }
 
+final uid = AppServices.auth.currentUser!.uid;
+
+var travelerProfile =
+    await AppServices.travelerRef(uid).get();
+
+if (!travelerProfile.exists) {
+  await AppServices.recoverRoleProfileFromEmail(
+    'traveler',
+  );
+
+  travelerProfile =
+      await AppServices.travelerRef(uid).get();
+}
+
+if (!travelerProfile.exists) {
+  if (context.mounted) {
+    showMessage(
+      context,
+      'Your traveller profile could not be found.',
+      error: true,
+    );
+  }
+  return;
+}
+
+await snap.docs.first.reference.update({
+  'memberIds': FieldValue.arrayUnion([uid]),
+});
+
     await snap.docs.first.reference.update({
       'memberIds': FieldValue.arrayUnion([
         AppServices.auth.currentUser!.uid,

@@ -24,7 +24,7 @@ class _AdminShellState extends State<AdminShell> {
     (label: 'Vendor Management', icon: Icons.storefront_outlined),
     (label: 'Cultural Experiences', icon: Icons.account_balance_outlined),
     (label: 'Review Moderation', icon: Icons.rate_review_outlined),
-    (label: 'Emergency Logs', icon: Icons.sos_outlined),
+    (label: 'Location & SOS Records', icon: Icons.sos_outlined),
     (label: 'Safety & Hazard', icon: Icons.health_and_safety_outlined),
     (label: 'Basic Settings', icon: Icons.settings_outlined),
   ];

@@ -42,6 +42,25 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
   String answer(String text) {
     final value = text.toLowerCase();
+    
+    // Core requirements from OWK module guide
+    if (value.contains('sos')) {
+      return 'If you feel unsafe or lost, open your Companion group and press the large red SOS button. Your latest GPS location and timestamp will be sent immediately to your Group Leader.';
+    }
+    if (value.contains('join group') || value.contains('group code')) {
+      return 'To join a group, go to the Companion module, tap "Join Travel Group", and enter the 6-character code provided by your Group Leader.';
+    }
+    if (value.contains('location')) {
+      return 'To share your location, open your Companion group and tap "Share Location". Note: Being in a group does not automatically give others access; you must approve individual location requests from companions.';
+    }
+    if (value.contains('route') || value.contains('find')) {
+      return 'After a Group Leader accepts an SOS alert, the system displays route guidance, including a route line, approximate distance, and estimated travel time to reach the companion.';
+    }
+    if (value.contains('create group')) {
+      return 'Group Leaders can create a private group by tapping "Create Travel Group" in the Companion module and filling in the trip details.';
+    }
+
+    // Existing support topics
     if (value.contains('itinerary') || value.contains('planner')) {
       return 'To generate an itinerary, go to Planner, select your area, available time, interests, budget range, and travel pace. Then tap Generate Itinerary.';
     }
@@ -54,13 +73,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
     if (value.contains('hazard') || value.contains('safety')) {
       return 'Use Safety & Hazard Reporting to view verified danger zones or submit a GPS-based hazard report.';
     }
-    if (value.contains('sos')) {
-      return 'Open your Companion group and press SOS. Your latest location and timestamp will be sent to the group.';
-    }
-    if (value.contains('companion') || value.contains('group')) {
-      return 'Create a private travel group or join one using a six-character code. Members can share locations after approval.';
-    }
-    return 'I can guide you through planning, culture, safety, companion groups and rewards. Try asking “How do I claim a voucher?”';
+    
+    return 'Sorry, I can only answer basic travel and safety questions. Try asking about "SOS", "location sharing", or "joining a group".';
   }
 
   @override
