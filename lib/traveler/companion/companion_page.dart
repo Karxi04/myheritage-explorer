@@ -30,6 +30,255 @@ class _CompanionPageState extends State<CompanionPage> {
     super.dispose();
   }
 
+  Future<void> _showMembersList(
+      BuildContext context,
+      Map<String, dynamic> group,
+      ) async {
+    final currentUid =
+        AppServices.auth.currentUser?.uid;
+
+    if (currentUid == null) return;
+
+    final memberIds = List<String>.from(
+      group['memberIds'] ?? const <String>[],
+    );
+
+    final memberNames = Map<String, dynamic>.from(
+      group['memberNames'] ??
+          const <String, dynamic>{},
+    );
+
+    final leaderId =
+        '${group['leaderId'] ?? ''}';
+
+    final groupName =
+        '${group['name'] ?? 'Travel Group'}';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.45,
+          maxChildSize: 0.90,
+          expand: false,
+          builder: (
+              context,
+              scrollController,
+              ) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: ExplorerColors.background,
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(22),
+                ),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ExplorerColors.border,
+                      borderRadius:
+                      BorderRadius.circular(10),
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  Padding(
+                    padding:
+                    const EdgeInsets.symmetric(
+                      horizontal: 18,
+                    ),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor:
+                          ExplorerColors.navySoft,
+                          foregroundColor:
+                          ExplorerColors.navy,
+                          child: Icon(
+                            Icons.groups_outlined,
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                groupName,
+                                style: const TextStyle(
+                                  color:
+                                  ExplorerColors.navy,
+                                  fontSize: 18,
+                                  fontWeight:
+                                  FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                '${memberIds.length} member${memberIds.length == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  color:
+                                  ExplorerColors.muted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        IconButton(
+                          onPressed: () {
+                            Navigator.pop(
+                              sheetContext,
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.close,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  const Divider(height: 1),
+
+                  Expanded(
+                    child: ListView.separated(
+                      controller:
+                      scrollController,
+                      padding:
+                      const EdgeInsets.all(16),
+                      itemCount:
+                      memberIds.length,
+                      separatorBuilder:
+                          (_, __) =>
+                      const SizedBox(
+                        height: 9,
+                      ),
+                      itemBuilder:
+                          (context, index) {
+                        final memberId =
+                        memberIds[index];
+
+                        final isLeader =
+                            memberId ==
+                                leaderId;
+
+                        final isCurrentUser =
+                            memberId ==
+                                currentUid;
+
+                        var memberName =
+                        '${memberNames[memberId] ?? ''}'
+                            .trim();
+
+                        if (memberName.isEmpty) {
+                          memberName =
+                          isCurrentUser
+                              ? 'You'
+                              : 'Group Member';
+                        }
+
+                        return ExplorerCard(
+                          radius: 12,
+                          child: ListTile(
+                            contentPadding:
+                            EdgeInsets.zero,
+
+                            leading:
+                            CircleAvatar(
+                              backgroundColor:
+                              isLeader
+                                  ? ExplorerColors
+                                  .goldSoft
+                                  : ExplorerColors
+                                  .navySoft,
+                              foregroundColor:
+                              ExplorerColors
+                                  .navy,
+                              child: Icon(
+                                isLeader
+                                    ? Icons
+                                    .workspace_premium_outlined
+                                    : Icons
+                                    .person_outline,
+                              ),
+                            ),
+
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    memberName,
+                                    overflow:
+                                    TextOverflow
+                                        .ellipsis,
+                                    style:
+                                    const TextStyle(
+                                      color:
+                                      ExplorerColors
+                                          .navy,
+                                      fontWeight:
+                                      FontWeight
+                                          .w800,
+                                    ),
+                                  ),
+                                ),
+
+                                if (isCurrentUser) ...[
+                                  const SizedBox(
+                                    width: 6,
+                                  ),
+                                  const Text(
+                                    '(You)',
+                                    style:
+                                    TextStyle(
+                                      color:
+                                      ExplorerColors
+                                          .muted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+
+                            subtitle: Text(
+                              isLeader
+                                  ? 'Group Leader'
+                                  : 'Group Member',
+                            ),
+
+                            // READ-ONLY:
+                            // no remove / edit button.
+                            trailing: null,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<String> _currentDisplayName() async {
     if (_cachedDisplayName != null && _cachedDisplayName!.trim().isNotEmpty) {
       return _cachedDisplayName!;
@@ -1458,8 +1707,13 @@ class _CompanionPageState extends State<CompanionPage> {
               ],
             ),
           ] else ...[
+            // =========================================
+            // NORMAL MEMBER FUNCTIONS
+            // =========================================
+
             Row(
               children: [
+                // Group Chat
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _openGroupChat(
@@ -1467,39 +1721,69 @@ class _CompanionPageState extends State<CompanionPage> {
                       groupId,
                       group,
                     ),
-                    icon: const Icon(Icons.forum_outlined),
-                    label: const Text('Group Chat'),
+                    icon: const Icon(
+                      Icons.forum_outlined,
+                    ),
+                    label: const Text(
+                      'Group Chat',
+                    ),
                   ),
                 ),
+
                 const SizedBox(width: 8),
+
+                // Read-only Members list
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed: sendingSos
-                        ? null
-                        : () => _sendSos(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showMembersList(
                       context,
-                      groupId,
                       group,
                     ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ExplorerColors.danger,
+                    icon: const Icon(
+                      Icons.groups_outlined,
                     ),
-                    icon: sendingSos
-                        ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                        : const Icon(Icons.sos_rounded),
-                    label: Text(
-                      sendingSos ? 'Sending...' : 'SOS',
+                    label: const Text(
+                      'Members',
                     ),
                   ),
                 ),
               ],
+            ),
+
+            const SizedBox(height: 9),
+
+            // SOS button
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: sendingSos
+                    ? null
+                    : () => _sendSos(
+                  context,
+                  groupId,
+                  group,
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ExplorerColors.danger,
+                ),
+                icon: sendingSos
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(
+                  Icons.sos_rounded,
+                ),
+                label: Text(
+                  sendingSos
+                      ? 'Sending SOS...'
+                      : 'SOS Emergency',
+                ),
+              ),
             ),
           ],
         ],

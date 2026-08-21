@@ -50,6 +50,25 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
     super.dispose();
   }
 
+  void _openFullScreenMap({
+    required Map<String, LatLng> positions,
+    required Set<Marker> markers,
+    required Set<Polyline> polylines,
+    required LatLng initialPosition,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullScreenGroupMapPage(
+          positions: positions,
+          markers: markers,
+          polylines: polylines,
+          initialPosition: initialPosition,
+        ),
+      ),
+    );
+  }
+
   Future<String> _displayName(String uid) async {
     try {
       final profile = await AppServices.travelerRef(uid).get();
@@ -103,7 +122,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
       barrierDismissible: false,
       builder: (dialogContext) {
         void submit() {
-          final email = enteredEmail.trim().toLowerCase();
+          final email =
+          enteredEmail.trim().toLowerCase();
 
           if (email.isEmpty) {
             showMessage(
@@ -115,56 +135,91 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
           }
 
           FocusScope.of(dialogContext).unfocus();
-          Navigator.of(dialogContext).pop(email);
+
+          Navigator.of(dialogContext).pop(
+            email,
+          );
         }
 
         return AlertDialog(
-          title: const Text('Invite Group Member'),
+          scrollable: true,
+
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+
+          title: const Text(
+            'Invite Group Member',
+          ),
+
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
               const Text(
                 'Enter the registered email address of the traveler. '
-                    'The traveler must accept the invitation and allow location access before joining.',
+                    'The traveler must accept the invitation and allow '
+                    'location access before joining.',
                 style: TextStyle(
                   color: ExplorerColors.muted,
                   height: 1.4,
                 ),
               ),
-              const SizedBox(height: 12),
+
+              const SizedBox(height: 16),
+
               TextFormField(
                 autofocus: true,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.done,
+                keyboardType:
+                TextInputType.emailAddress,
+                textInputAction:
+                TextInputAction.done,
                 autocorrect: false,
                 enableSuggestions: false,
+
                 onChanged: (value) {
                   enteredEmail = value;
                 },
+
                 onFieldSubmitted: (_) {
                   submit();
                 },
-                decoration: const InputDecoration(
+
+                decoration:
+                const InputDecoration(
                   labelText: 'Traveler Email',
-                  hintText: 'traveler@example.com',
-                  prefixIcon: Icon(Icons.email_outlined),
+                  hintText:
+                  'traveler@example.com',
+                  prefixIcon: Icon(
+                    Icons.email_outlined,
+                  ),
                 ),
               ),
             ],
           ),
+
           actions: [
             TextButton(
               onPressed: () {
-                FocusScope.of(dialogContext).unfocus();
-                Navigator.of(dialogContext).pop();
+                FocusScope.of(dialogContext)
+                    .unfocus();
+
+                Navigator.of(dialogContext)
+                    .pop();
               },
               child: const Text('Cancel'),
             ),
+
             FilledButton.icon(
               onPressed: submit,
-              icon: const Icon(Icons.send_outlined),
-              label: const Text('Send Invitation'),
+              icon: const Icon(
+                Icons.send_outlined,
+              ),
+              label: const Text(
+                'Send Invitation',
+              ),
             ),
           ],
         );
@@ -282,14 +337,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
       final invitationReference = AppServices.db
           .collection('group_invitations')
           .doc('${widget.groupId}_$memberId');
-
-      final currentInvitation = await invitationReference.get();
-
-      if (currentInvitation.data()?['status'] == 'pending') {
-        throw Exception(
-          'An invitation is already waiting for $memberName.',
-        );
-      }
 
       var leaderName = _groupMemberName(
         latestGroup,
@@ -959,35 +1006,87 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
 
             const SizedBox(height: 12),
 
-            SizedBox(
-              height: 430,
-              child: ClipRRect(
-                borderRadius:
-                BorderRadius.circular(14),
-                child: GoogleMap(
-                  initialCameraPosition:
-                  CameraPosition(
-                    target: initialPosition,
-                    zoom: 14,
-                  ),
-                  onMapCreated: (controller) {
-                    _mapController = controller;
+            Stack(
+              children: [
+                SizedBox(
+                  height: 430,
+                  width: double.infinity,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: initialPosition,
+                        zoom: 14,
+                      ),
+                      onMapCreated: (controller) {
+                        _mapController = controller;
 
-                    WidgetsBinding.instance
-                        .addPostFrameCallback((_) {
-                      _fitMapToLocations(
-                        positions.values,
-                      );
-                    });
-                  },
-                  markers: markers,
-                  polylines: polylines,
-                  myLocationEnabled: false,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: true,
-                  mapToolbarEnabled: false,
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _fitMapToLocations(
+                            positions.values,
+                          );
+                        });
+                      },
+                      markers: markers,
+                      polylines: polylines,
+                      myLocationEnabled: false,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: true,
+                      mapToolbarEnabled: false,
+                    ),
+                  ),
                 ),
-              ),
+
+                // Expand map button
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    elevation: 3,
+                    borderRadius: BorderRadius.circular(10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        _openFullScreenMap(
+                          positions: positions,
+                          markers: markers,
+                          polylines: polylines,
+                          initialPosition: initialPosition,
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.fullscreen,
+                              color: ExplorerColors.navy,
+                              size: 20,
+                            ),
+                            SizedBox(width: 5),
+                            Text(
+                              'Expand',
+                              style: TextStyle(
+                                color: ExplorerColors.navy,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 18),
@@ -1378,10 +1477,45 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
             'groupId',
             isEqualTo: widget.groupId,
           )
+              .where(
+            'leaderId',
+            isEqualTo: uid,
+          )
               .snapshots(),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return ExplorerCard(
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      color: ExplorerColors.danger,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Unable to load invitations.\n${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: ExplorerColors.danger,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            if (!snapshot.hasData) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+
             final pending =
-            (snapshot.data?.docs ?? []).where(
+            snapshot.data!.docs.where(
                   (document) {
                 return document.data()['status'] ==
                     'pending';
@@ -1398,62 +1532,67 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
             }
 
             return Column(
-              children: pending.map((document) {
-                final data = document.data();
+              children: pending.map(
+                    (document) {
+                  final data = document.data();
 
-                final memberName =
-                    '${data['memberName'] ?? 'Traveler'}';
+                  final memberName =
+                      '${data['memberName'] ?? 'Traveler'}';
 
-                final memberEmail =
-                    '${data['memberEmail'] ?? ''}';
+                  final memberEmail =
+                      '${data['memberEmail'] ?? ''}';
 
-                return Padding(
-                  padding:
-                  const EdgeInsets.only(bottom: 9),
-                  child: ExplorerCard(
-                    backgroundColor:
-                    ExplorerColors.goldSoft,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                        backgroundColor:
-                        ExplorerColors.navy,
-                        foregroundColor:
-                        Colors.white,
-                        child: Icon(
-                          Icons
-                              .mark_email_unread_outlined,
-                        ),
-                      ),
-                      title: Text(
-                        memberName,
-                        style: const TextStyle(
-                          color:
+                  return Padding(
+                    padding: const EdgeInsets.only(
+                      bottom: 9,
+                    ),
+                    child: ExplorerCard(
+                      backgroundColor:
+                      ExplorerColors.goldSoft,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+
+                        leading: const CircleAvatar(
+                          backgroundColor:
                           ExplorerColors.navy,
-                          fontWeight:
-                          FontWeight.w800,
+                          foregroundColor:
+                          Colors.white,
+                          child: Icon(
+                            Icons.mark_email_unread_outlined,
+                          ),
                         ),
-                      ),
-                      subtitle: Text(
-                        memberEmail.isEmpty
-                            ? 'Waiting for response'
-                            : '$memberEmail\nWaiting for response',
-                      ),
-                      isThreeLine:
-                      memberEmail.isNotEmpty,
-                      trailing:
-                      OutlinedButton(
-                        onPressed: () =>
-                            _cancelInvitation(
-                              document,
-                            ),
-                        child:
-                        const Text('Cancel'),
+
+                        title: Text(
+                          memberName,
+                          style: const TextStyle(
+                            color: ExplorerColors.navy,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+
+                        subtitle: Text(
+                          memberEmail.isEmpty
+                              ? 'Waiting for response'
+                              : '$memberEmail\nWaiting for response',
+                        ),
+
+                        isThreeLine:
+                        memberEmail.isNotEmpty,
+
+                        trailing: OutlinedButton(
+                          onPressed: () =>
+                              _cancelInvitation(
+                                document,
+                              ),
+                          child: const Text(
+                            'Cancel',
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                },
+              ).toList(),
             );
           },
         ),
@@ -1750,6 +1889,230 @@ class _GroupDetailsPageState extends State<GroupDetailsPage>
           ],
         );
       },
+    );
+  }
+}
+
+class _FullScreenGroupMapPage extends StatefulWidget {
+  const _FullScreenGroupMapPage({
+    required this.positions,
+    required this.markers,
+    required this.polylines,
+    required this.initialPosition,
+  });
+
+  final Map<String, LatLng> positions;
+  final Set<Marker> markers;
+  final Set<Polyline> polylines;
+  final LatLng initialPosition;
+
+  @override
+  State<_FullScreenGroupMapPage> createState() =>
+      _FullScreenGroupMapPageState();
+}
+
+class _FullScreenGroupMapPageState
+    extends State<_FullScreenGroupMapPage> {
+  GoogleMapController? _controller;
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fitAllMembers() async {
+    final controller = _controller;
+
+    if (controller == null ||
+        widget.positions.isEmpty) {
+      return;
+    }
+
+    final points =
+    widget.positions.values.toList();
+
+    if (points.length == 1) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          points.first,
+          16,
+        ),
+      );
+
+      return;
+    }
+
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+
+    for (final point in points.skip(1)) {
+      minLat = min(
+        minLat,
+        point.latitude,
+      );
+
+      maxLat = max(
+        maxLat,
+        point.latitude,
+      );
+
+      minLng = min(
+        minLng,
+        point.longitude,
+      );
+
+      maxLng = max(
+        maxLng,
+        point.longitude,
+      );
+    }
+
+    if (minLat == maxLat &&
+        minLng == maxLng) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          points.first,
+          16,
+        ),
+      );
+
+      return;
+    }
+
+    await controller.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(
+            minLat,
+            minLng,
+          ),
+          northeast: LatLng(
+            maxLat,
+            maxLng,
+          ),
+        ),
+        80,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+
+      appBar: AppBar(
+        title: const Text(
+          'Group Map',
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Show all members',
+            onPressed: _fitAllMembers,
+            icon: const Icon(
+              Icons.center_focus_strong,
+            ),
+          ),
+        ],
+      ),
+
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition:
+              CameraPosition(
+                target:
+                widget.initialPosition,
+                zoom: 14,
+              ),
+
+              onMapCreated: (controller) {
+                _controller = controller;
+
+                WidgetsBinding.instance
+                    .addPostFrameCallback(
+                      (_) {
+                    _fitAllMembers();
+                  },
+                );
+              },
+
+              markers: widget.markers,
+
+              polylines:
+              widget.polylines,
+
+              myLocationEnabled: false,
+
+              myLocationButtonEnabled:
+              false,
+
+              zoomControlsEnabled: true,
+
+              compassEnabled: true,
+
+              mapToolbarEnabled: false,
+            ),
+          ),
+
+          // Number of visible locations
+          Positioned(
+            top: 14,
+            left: 14,
+            child: SafeArea(
+              child: Container(
+                padding:
+                const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius:
+                  BorderRadius.circular(
+                    10,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      blurRadius: 6,
+                      color: Color(
+                        0x22000000,
+                      ),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize:
+                  MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.groups_outlined,
+                      size: 18,
+                      color:
+                      ExplorerColors.navy,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${widget.positions.length} location${widget.positions.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        color:
+                        ExplorerColors.navy,
+                        fontWeight:
+                        FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
