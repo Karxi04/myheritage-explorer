@@ -251,8 +251,7 @@ class ItineraryShareHelper {
                 const Text(
                   'Anyone with this link can view the itinerary, including its place images.',
                 ),
-                const SizedBox(height: 12),
-                Container(
+                const SizedBox(height: 12),                Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -306,5 +305,200 @@ class ItineraryShareHelper {
         error: true,
       );
     }
+  }
+
+  static String? buildGoogleMapsMultiStopUrl(List<Map<String, dynamic>> stops) {
+    if (stops.isEmpty) return null;
+    if (stops.length == 1) {
+      final stop = stops.first;
+      final coords = _coordinatesFor(stop);
+      final query = coords != null
+          ? '${coords['latitude']},${coords['longitude']}'
+          : Uri.encodeComponent('${stop['name'] ?? ''}, ${stop['formattedAddress'] ?? ''}');
+      return 'https://www.google.com/maps/search/?api=1&query=$query';
+    }
+
+    String pointString(Map<String, dynamic> stop) {
+      final coords = _coordinatesFor(stop);
+      if (coords != null) {
+        return '${coords['latitude']},${coords['longitude']}';
+      }
+      return Uri.encodeComponent('${stop['name'] ?? ''} ${stop['formattedAddress'] ?? stop['area'] ?? ''}'.trim());
+    }
+
+    final origin = pointString(stops.first);
+    final destination = pointString(stops.last);
+    final waypoints = stops.length > 2
+        ? stops.sublist(1, stops.length - 1).map(pointString).join('|')
+        : '';
+
+    final buffer = StringBuffer('https://www.google.com/maps/dir/?api=1&origin=$origin&destination=$destination');
+    if (waypoints.isNotEmpty) {
+      buffer.write('&waypoints=$waypoints');
+    }
+    buffer.write('&travelmode=driving');
+    return buffer.toString();
+  }
+
+  static Future<void> openMultiStopNavigation(
+    BuildContext context,
+    List<Map<String, dynamic>> stops,
+  ) async {
+    final url = buildGoogleMapsMultiStopUrl(stops);
+    if (url == null) {
+      showMessage(context, 'No stops available to navigate.', error: true);
+      return;
+    }
+
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (_) {
+      if (context.mounted) {
+        showMessage(context, 'Unable to open Google Maps.', error: true);
+      }
+    }
+  }
+
+  static String formatItineraryText({
+    required Map<String, dynamic> itinerary,
+    required ItineraryScheduleResult schedule,
+  }) {
+    final title = '${itinerary['title'] ?? 'Cultural Day Trip'}';
+    final area = '${itinerary['area'] ?? 'Malaysia'}';
+    final pace = '${itinerary['travelPace'] ?? 'Balanced'}';
+    final totalHours = (schedule.totalEstimatedMinutes / 60).toStringAsFixed(1);
+    final stops = schedule.stops;
+
+    final buffer = StringBuffer();
+    buffer.writeln('🏛️ $title');
+    buffer.writeln('📍 Location: $area');
+    buffer.writeln('⏱️ Total Duration: $totalHours hours (${stops.length} stops)');
+    buffer.writeln('🚶 Pace: $pace');
+    buffer.writeln('----------------------------------------');
+    buffer.writeln();
+
+    for (var i = 0; i < stops.length; i++) {
+      final stop = stops[i];
+      final name = '${stop['name'] ?? 'Stop ${i + 1}'}';
+      final timeLabel = '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+      final category = '${stop['category'] ?? ''}';
+      final duration = stop['durationMinutes'] ?? 60;
+      final address = '${stop['formattedAddress'] ?? stop['area'] ?? ''}'.trim();
+      final travel = (stop['travelMinutesBefore'] as num?)?.round() ?? 0;
+      final task = stop['culturalTask'] is Map ? Map<String, dynamic>.from(stop['culturalTask'] as Map) : null;
+      final taskTitle = task != null ? '${task['title'] ?? ''}' : '${stop['culturalTaskTitle'] ?? ''}'.trim();
+
+      if (i > 0 && travel > 0) {
+        buffer.writeln('  ↓ 🚗 Travel ~$travel min');
+      }
+      buffer.writeln('${i + 1}. $name ${timeLabel.isNotEmpty ? '($timeLabel)' : ''}');
+      buffer.writeln('   Category: $category • Visit: $duration min');
+      if (address.isNotEmpty) {
+        buffer.writeln('   Address: $address');
+      }
+      if (taskTitle.isNotEmpty) {
+        buffer.writeln('   🏆 Cultural Task: $taskTitle');
+      }
+      buffer.writeln();
+    }
+
+    buffer.writeln('----------------------------------------');
+    buffer.writeln('Created with MyHeritage Explorer');
+    return buffer.toString();
+  }
+
+  static Future<void> exportAndShareItinerary(
+    BuildContext context, {
+    required Map<String, dynamic> itinerary,
+    required ItineraryScheduleResult schedule,
+  }) async {
+    final text = formatItineraryText(itinerary: itinerary, schedule: schedule);
+    final title = '${itinerary['title'] ?? 'My Itinerary'}';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (bottomContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.file_download_outlined, color: ExplorerColors.navy, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Export "$title"',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: ExplorerColors.navy,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: ExplorerColors.goldSoft,
+                  child: Icon(Icons.copy_outlined, color: ExplorerColors.goldDark, size: 20),
+                ),
+                title: const Text('Copy Formatted Schedule', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('Copy clean timeline text with addresses & tasks to clipboard', style: TextStyle(fontSize: 11)),
+                onTap: () async {
+                  Navigator.pop(bottomContext);
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (context.mounted) {
+                    showMessage(context, 'Full itinerary schedule copied to clipboard!');
+                  }
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: ExplorerColors.navySoft,
+                  child: Icon(Icons.share_outlined, color: ExplorerColors.navy, size: 20),
+                ),
+                title: const Text('Share Text Summary', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('Share full text via WhatsApp, Telegram, Notes or Email', style: TextStyle(fontSize: 11)),
+                onTap: () async {
+                  Navigator.pop(bottomContext);
+                  await SharePlus.instance.share(ShareParams(text: text));
+                },
+              ),
+              if (schedule.stops.isNotEmpty) ...[
+                const Divider(height: 1),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE8F5E9),
+                    child: Icon(Icons.directions_outlined, color: Color(0xFF2E7D32), size: 20),
+                  ),
+                  title: const Text('Open Full Route in Google Maps', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  subtitle: const Text('Multi-stop turn-by-turn navigation for all stops', style: TextStyle(fontSize: 11)),
+                  onTap: () async {
+                    Navigator.pop(bottomContext);
+                    await openMultiStopNavigation(context, schedule.stops);
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -31,6 +31,7 @@ class _AdminAccountRow {
 class _AdminUsersPageState extends State<AdminUsersPage> {
   final search = TextEditingController();
   late String role;
+  bool syncingVendors = false;
 
   @override
   void initState() {
@@ -46,6 +47,25 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   void dispose() {
     search.dispose();
     super.dispose();
+  }
+
+  Future<void> _syncCuratedVendors() async {
+    setState(() => syncingVendors = true);
+    try {
+      final count = await MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+      if (mounted) {
+        showMessage(
+          context,
+          'Successfully synced $count curated venues (Sentosa Food Court BM, BM Yam Rice, etc.) into verified vendors with reviews!',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Sync error: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => syncingVendors = false);
+    }
   }
 
   List<_AdminAccountRow> _rows({
@@ -143,6 +163,26 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   onChanged: (value) => setState(
                     () => role = value ?? 'all',
                   ),
+                ),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: ExplorerColors.navy,
+                ),
+                onPressed: syncingVendors ? null : _syncCuratedVendors,
+                icon: syncingVendors
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.storefront_outlined, size: 16),
+                label: Text(
+                  syncingVendors ? 'Syncing...' : 'Sync All Curated Vendors',
                 ),
               ),
             ],

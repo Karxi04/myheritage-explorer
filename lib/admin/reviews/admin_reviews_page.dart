@@ -10,11 +10,28 @@ class AdminReviewsPage extends StatefulWidget {
 class _AdminReviewsPageState extends State<AdminReviewsPage> {
   String filter = 'flagged';
   final search = TextEditingController();
+  bool seeding = false;
 
   @override
   void dispose() {
     search.dispose();
     super.dispose();
+  }
+
+  Future<void> _seedReviews() async {
+    setState(() => seeding = true);
+    try {
+      final count = await AppServices.seedVendorReviews(force: true);
+      if (mounted) {
+        showMessage(context, 'Successfully synced $count reviews for all vendors and places.');
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Error generating reviews: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => seeding = false);
+    }
   }
 
   Future<void> recalculatePlace(String placeId) async {
@@ -180,16 +197,43 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                         ? ExplorerStatusTone.success
                         : ExplorerStatusTone.warning,
                   ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ExplorerColors.navy,
+                    ),
+                    onPressed: seeding ? null : _seedReviews,
+                    icon: seeding
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.auto_fix_high_rounded, size: 16),
+                    label: Text(seeding ? 'Syncing...' : 'Sync All Vendor Reviews'),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
             if (docs.isEmpty)
-              const ExplorerCard(
+              ExplorerCard(
                 child: ExplorerEmptyState(
                   title: 'No reviews in this category',
-                  subtitle: 'Try another filter or search term.',
+                  subtitle: allDocs.isEmpty
+                      ? 'No reviews exist in the database yet. Click below to generate sample reviews and flagged review queue for all vendors.'
+                      : 'Try another filter or search term.',
                   icon: Icons.rate_review_outlined,
+                  action: allDocs.isEmpty
+                      ? FilledButton.icon(
+                          onPressed: seeding ? null : _seedReviews,
+                          icon: const Icon(Icons.auto_fix_high_rounded),
+                          label: const Text('Generate Vendor Reviews & Flagged Queue'),
+                        )
+                      : null,
                 ),
               )
             else

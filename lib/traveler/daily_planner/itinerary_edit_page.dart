@@ -39,10 +39,71 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
     return false;
   }
 
+  String _calculateDynamicPace(List<Map<String, dynamic>> stopsList) {
+    if (stopsList.isEmpty) {
+      return '${widget.itinerary['travelPace'] ?? 'Balanced'}';
+    }
+    final availableH =
+        (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4.0;
+    final count = stopsList.length;
+    final stopsPerHour = count / max(1.0, availableH);
+
+    if (stopsPerHour >= 1.25 || (count >= 5 && availableH <= 4)) {
+      return 'Fast';
+    } else if (stopsPerHour <= 0.6 || (count <= 2 && availableH >= 4)) {
+      return 'Relaxed';
+    }
+    return 'Balanced';
+  }
+
+  Map<String, dynamic> _calculateDynamicBudgetInfo(
+    List<Map<String, dynamic>> stopsList,
+  ) {
+    if (stopsList.isEmpty) {
+      return {
+        'budgetLevel': '${widget.itinerary['budgetLevel'] ?? 'Medium'}',
+        'budget': (widget.itinerary['budget'] as num?)?.round() ?? 100,
+        'estimatedAmount': (widget.itinerary['budget'] as num?)?.round() ?? 100,
+      };
+    }
+    var totalCost = 0;
+    var lowCount = 0;
+    var highCount = 0;
+    for (final stop in stopsList) {
+      final level = '${stop['budgetLevel'] ?? 'Medium'}'.toLowerCase();
+      if (level.contains('low')) {
+        totalCost += 20;
+        lowCount++;
+      } else if (level.contains('high')) {
+        totalCost += 120;
+        highCount++;
+      } else {
+        totalCost += 50;
+      }
+    }
+    totalCost = max(30, totalCost);
+    final avgCostPerStop = totalCost / stopsList.length;
+    final String computedLevel;
+    if (avgCostPerStop <= 30 ||
+        (lowCount > stopsList.length / 2 && highCount == 0)) {
+      computedLevel = 'Low';
+    } else if (avgCostPerStop >= 80 || highCount >= 2) {
+      computedLevel = 'High';
+    } else {
+      computedLevel = 'Medium';
+    }
+    return {
+      'budgetLevel': computedLevel,
+      'budget': totalCost,
+      'estimatedAmount': totalCost,
+    };
+  }
+
   ItineraryScheduleResult _scheduleStops(List<Map<String, dynamic>> values) {
+    final dynamicPace = _calculateDynamicPace(values);
     return ItinerarySchedulePlanner.plan(
       stops: values,
-      pace: '${widget.itinerary['travelPace'] ?? 'Balanced'}',
+      pace: dynamicPace,
       availableHours:
           (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
       preferredStartMinutes: (widget.itinerary['suggestedStartMinutes'] as num?)
@@ -105,6 +166,41 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           context,
           'This stop is already in the itinerary.',
           error: true,
+        );
+        return;
+      }
+
+      final availableHours =
+          (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4.0;
+      final maxAllowedMinutes = (availableHours * 60 * 1.15).round();
+
+      final candidateStops = [...stops, detailed];
+      final projected = _scheduleStops(candidateStops);
+
+      if (projected.totalEstimatedMinutes > maxAllowedMinutes) {
+        final projectedHours =
+            (projected.totalEstimatedMinutes / 60).toStringAsFixed(1);
+        final limitHours = availableHours.toStringAsFixed(0);
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Trip Duration Limit'),
+              ],
+            ),
+            content: Text(
+              'Adding "${detailed['name']}" would increase total itinerary duration to $projectedHours hours, which exceeds your planned $limitHours-hour trip limit.\n\nTo add this stop, please remove another stop first.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
         );
         return;
       }
@@ -196,6 +292,8 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 
     setState(() => saving = true);
     try {
+      final dynamicPace = _calculateDynamicPace(stops);
+      final dynamicBudgetInfo = _calculateDynamicBudgetInfo(stops);
       final schedule = _scheduleStops(stops);
       final updatedStops = await Future.wait(
         schedule.stops.asMap().entries.map((entry) async {
@@ -219,6 +317,10 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           .doc(widget.itineraryId)
           .update({
             'stops': updatedStops,
+            'travelPace': dynamicPace,
+            'pace': dynamicPace,
+            'budget': dynamicBudgetInfo['budget'],
+            'budgetLevel': dynamicBudgetInfo['budgetLevel'],
             'suggestedStartMinutes': schedule.startMinutes,
             'suggestedEndMinutes': schedule.endMinutes,
             'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
@@ -296,7 +398,73 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                       children: [
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                          child: ItineraryTimelineSummary(schedule: schedule),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ItineraryTimelineSummary(schedule: schedule),
+                              const SizedBox(height: 8),
+                              Builder(
+                                builder: (_) {
+                                  final dynamicPace = _calculateDynamicPace(stops);
+                                  final budgetInfo = _calculateDynamicBudgetInfo(stops);
+                                  final budgetAmount = budgetInfo['budget'];
+                                  final budgetLevel = budgetInfo['budgetLevel'];
+
+                                  return Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: ExplorerColors.goldSoft,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: ExplorerColors.gold.withValues(alpha: 0.5)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.speed_rounded, size: 14, color: ExplorerColors.goldDark),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              'Pace: $dynamicPace',
+                                              style: const TextStyle(
+                                                color: ExplorerColors.goldDark,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: ExplorerColors.subtle,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: ExplorerColors.border),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.payments_outlined, size: 14, color: ExplorerColors.navy),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              'Est. Budget: RM $budgetAmount ($budgetLevel)',
+                                              style: const TextStyle(
+                                                color: ExplorerColors.navy,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                         Expanded(
                           child: ReorderableListView.builder(
