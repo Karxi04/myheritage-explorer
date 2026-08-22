@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
+import '../traveler/traveler_pages.dart';
 
 
 part 'dashboard/admin_dashboard_page.dart';

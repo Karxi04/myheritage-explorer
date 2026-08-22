@@ -1,7 +1,33 @@
 part of '../admin_pages.dart';
 
-class AdminDashboardPage extends StatelessWidget {
+class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
+
+  @override
+  State<AdminDashboardPage> createState() => _AdminDashboardPageState();
+}
+
+class _AdminDashboardPageState extends State<AdminDashboardPage> {
+  bool isSyncing = false;
+
+  Future<void> _syncToFirebase() async {
+    setState(() => isSyncing = true);
+    try {
+      final count = await MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+      if (mounted) {
+        showMessage(
+          context,
+          'Successfully synced $count curated vendors (including Sentosa Food Court BM), places and reviews to Firebase!',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Sync error: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => isSyncing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,8 +48,13 @@ class AdminDashboardPage extends StatelessWidget {
         query: AppServices.db.collection('travelers'),
       ),
       (
-        label: 'Pending vendors',
+        label: 'All Vendors',
         icon: Icons.storefront_outlined,
+        query: AppServices.db.collection('vendors'),
+      ),
+      (
+        label: 'Pending vendors',
+        icon: Icons.hourglass_top_outlined,
         query: AppServices.db
             .collection('vendors')
             .where('vendorStatus', isEqualTo: 'pending'),
@@ -33,13 +64,6 @@ class AdminDashboardPage extends StatelessWidget {
         icon: Icons.warning_amber_outlined,
         query: AppServices.db
             .collection('hazards')
-            .where('status', isEqualTo: 'pending'),
-      ),
-      (
-        label: 'Pending tasks',
-        icon: Icons.camera_alt_outlined,
-        query: AppServices.db
-            .collection('task_submissions')
             .where('status', isEqualTo: 'pending'),
       ),
       (
@@ -54,16 +78,50 @@ class AdminDashboardPage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        const Text(
-          'System Overview',
-          style: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Administrators, travelers and vendors are stored separately.',
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'System Overview',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Administrators, travelers, vendors and reviews in Cloud Firestore.',
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: ExplorerColors.navy,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              ),
+              onPressed: isSyncing ? null : _syncToFirebase,
+              icon: isSyncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.cloud_upload_outlined, size: 18),
+              label: Text(
+                isSyncing ? 'Syncing to Firebase...' : '⚡ Sync All Vendors to Firebase',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 22),
         GridView.count(

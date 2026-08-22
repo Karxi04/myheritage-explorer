@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_pages.dart';
 import '../core/app_theme.dart';
 import '../core/helpers.dart';
@@ -21,6 +22,7 @@ import '../core/geoapify_config.dart';
 import '../core/services.dart';
 
 part 'home/traveler_home_page.dart';
+part 'daily_planner/malaysian_planner_data.dart';
 part 'daily_planner/daily_planner_page.dart';
 part 'daily_planner/review_ml_model.dart';
 part 'daily_planner/place_detail_page.dart';

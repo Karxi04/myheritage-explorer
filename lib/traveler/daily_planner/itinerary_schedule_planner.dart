@@ -41,10 +41,11 @@ class ItinerarySchedulePlanner {
       );
     }
 
-    final start = _suggestedStart(
-      planned.first,
-      preferredStartMinutes ?? defaultStartMinutes,
-    );
+    final start = preferredStartMinutes ??
+        _suggestedStart(
+          planned.first,
+          defaultStartMinutes,
+        );
     var cursor = start;
 
     for (var index = 0; index < planned.length; index++) {

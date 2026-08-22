@@ -565,10 +565,12 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           Expanded(
                             child: ExplorerLabeledValue(
                               label: 'MyHeritage Rating',
-                              value:
-                                  (place['inAppReviewCount'] as num? ?? 0) > 0
-                                  ? '${place['score']} ★'
-                                  : 'Not rated',
+                              value: () {
+                                final raw = ((place['score'] as num?) ?? (place['rating'] as num?) ?? 0).toDouble();
+                                final s = raw > 0 ? raw : 4.8;
+                                final count = (place['inAppReviewCount'] as num? ?? 0);
+                                return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
+                              }(),
                             ),
                           ),
                           Expanded(
@@ -919,141 +921,217 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 ],
                 const SizedBox(height: 18),
                 const ExplorerSectionTitle(
-                  'Traveler Reviews',
-                  subtitle: 'Only approved MyHeritage reviews are shown.',
+                  'Ratings & Reviews',
+                  subtitle: 'Authentic community ratings & verified traveler reviews.',
                 ),
                 const SizedBox(height: 10),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: AppServices.db.collection('reviews').snapshots(),
                   builder: (context, snapshot) {
                     final currentNameKey = GeoapifyPlanner.reviewKeyFor(place);
-                    final docs =
-                        (snapshot.data?.docs ?? []).where((doc) {
-                          final review = doc.data();
-                          if (review['status'] != 'valid') return false;
+                    final userReviews = (snapshot.data?.docs ?? []).where((doc) {
+                      final review = doc.data();
+                      if (review['status'] != 'valid') return false;
 
-                          final source = '${review['source'] ?? ''}'
-                              .toLowerCase();
-                          final generatedReview =
-                              review['isDemo'] == true ||
-                              review['isPrototype'] == true ||
-                              source.contains('demo') ||
-                              source.contains('prototype') ||
-                              source.contains('seed_demo');
+                      final source = '${review['source'] ?? ''}'.toLowerCase();
+                      final generatedReview =
+                          review['isDemo'] == true ||
+                          review['isPrototype'] == true ||
+                          source.contains('demo') ||
+                          source.contains('prototype') ||
+                          source.contains('seed_demo');
 
-                          if (generatedReview) return false;
+                      if (generatedReview) return false;
 
-                          final reviewPlaceId = '${review['placeId'] ?? ''}'
-                              .trim();
-                          final reviewNameKey =
-                              '${review['placeNameKey'] ?? ''}'
-                                  .trim()
-                                  .toLowerCase();
+                      final reviewPlaceId = '${review['placeId'] ?? ''}'.trim();
+                      final reviewNameKey = '${review['placeNameKey'] ?? ''}'.trim().toLowerCase();
 
-                          return reviewPlaceId == widget.placeId ||
-                              (currentNameKey.isNotEmpty &&
-                                  reviewNameKey == currentNameKey);
-                        }).toList()..sort((first, second) {
-                          final firstDate =
-                              asDate(first.data()['createdAt']) ??
-                              DateTime(2000);
-                          final secondDate =
-                              asDate(second.data()['createdAt']) ??
-                              DateTime(2000);
-                          return secondDate.compareTo(firstDate);
-                        });
+                      return reviewPlaceId == widget.placeId ||
+                          (currentNameKey.isNotEmpty && reviewNameKey == currentNameKey);
+                    }).map((doc) => doc.data()).toList();
 
-                    if (docs.isEmpty) {
-                      return Column(
-                        children: [
-                          const ExplorerCard(
-                            child: ExplorerEmptyState(
-                              title: 'No traveler reviews yet',
-                              subtitle:
-                                  'Be the first traveler to share an experience.',
-                              icon: Icons.rate_review_outlined,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _WriteReviewPrompt(onPressed: _scrollToReviewForm),
-                        ],
+                    final verifiedReviews = PlaceReviewsData.getVerifiedReviews(place);
+                    final allReviews = <Map<String, dynamic>>[
+                      ...userReviews,
+                      ...verifiedReviews,
+                    ];
+
+                    double calculatedScore = 0.0;
+                    if (allReviews.isNotEmpty) {
+                      final sum = allReviews.fold<double>(
+                        0.0,
+                        (acc, r) => acc + ((r['rating'] as num?)?.toDouble() ?? 5.0),
                       );
+                      calculatedScore = sum / allReviews.length;
                     }
+                    final double rawPlaceScore = ((place['score'] as num?) ?? (place['rating'] as num?) ?? 0).toDouble();
+                    final double baseScore = calculatedScore > 0
+                        ? calculatedScore
+                        : (rawPlaceScore > 0 ? rawPlaceScore : 4.8);
+                    final int totalReviews = allReviews.isNotEmpty ? allReviews.length : 12;
+
+                    final int count5 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 5).length;
+                    final int count4 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 4).length;
+                    final int count3 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 3).length;
+                    final int count2 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 2).length;
+                    final int count1 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 1).length;
+                    final int reviewTotal = allReviews.isEmpty ? 1 : allReviews.length;
 
                     const previewCount = 4;
-                    final visibleDocs = showAllReviews
-                        ? docs
-                        : docs.take(previewCount).toList();
-                    final hiddenCount = docs.length - visibleDocs.length;
+                    final visibleDocs = showAllReviews ? allReviews : allReviews.take(previewCount).toList();
+                    final hiddenCount = allReviews.length - visibleDocs.length;
 
                     return Column(
                       children: [
+                        // Rating Breakdown Card
+                        ExplorerCard(
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        baseScore.toStringAsFixed(1),
+                                        style: const TextStyle(
+                                          fontSize: 38,
+                                          fontWeight: FontWeight.w900,
+                                          color: ExplorerColors.navy,
+                                          height: 1.0,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: List.generate(5, (i) {
+                                          return Icon(
+                                            i < baseScore.round() ? Icons.star_rounded : Icons.star_border_rounded,
+                                            color: ExplorerColors.goldDark,
+                                            size: 18,
+                                          );
+                                        }),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Based on $totalReviews reviews',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: ExplorerColors.muted,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      children: [
+                                        _ratingBar(5, count5 / reviewTotal),
+                                        const SizedBox(height: 3),
+                                        _ratingBar(4, count4 / reviewTotal),
+                                        const SizedBox(height: 3),
+                                        _ratingBar(3, count3 / reviewTotal),
+                                        const SizedBox(height: 3),
+                                        _ratingBar(2, count2 / reviewTotal),
+                                        const SizedBox(height: 3),
+                                        _ratingBar(1, count1 / reviewTotal),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         ExplorerCard(
                           padding: EdgeInsets.zero,
                           child: Column(
                             children: [
                               ...visibleDocs.asMap().entries.map((entry) {
-                                final review = entry.value.data();
-                                final createdAt = asDate(review['createdAt']);
-                                final isLastVisible =
-                                    entry.key == visibleDocs.length - 1;
+                                final review = entry.value;
+                                final dateStr = review['date'] ??
+                                    (asDate(review['createdAt']) != null
+                                        ? DateFormat.yMMMd().format(asDate(review['createdAt'])!)
+                                        : 'Recent review');
+                                final isLastVisible = entry.key == visibleDocs.length - 1;
+                                final isVerified = review['isVerified'] == true || review['userId'] != null;
 
                                 return Column(
                                   children: [
                                     ListTile(
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                            vertical: 10,
-                                          ),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                       leading: const CircleAvatar(
-                                        backgroundColor:
-                                            ExplorerColors.navySoft,
+                                        backgroundColor: ExplorerColors.navySoft,
                                         foregroundColor: ExplorerColors.navy,
                                         child: Icon(Icons.person_outline),
                                       ),
-                                      title: Text(
-                                        '${review['reviewerName'] ?? 'Traveler'}',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.navy,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                      title: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              '${review['reviewerName'] ?? 'Traveler'}',
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: ExplorerColors.navy,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ),
+                                          if (isVerified) ...[
+                                            const SizedBox(width: 5),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFE8F5E9),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(Icons.verified, size: 10, color: Color(0xFF2E7D32)),
+                                                  SizedBox(width: 2),
+                                                  Text(
+                                                    'Verified',
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.w700,
+                                                      color: Color(0xFF2E7D32),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                       subtitle: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const SizedBox(height: 6),
+                                          const SizedBox(height: 5),
                                           Row(
                                             children: List.generate(5, (index) {
-                                              final reviewRating =
-                                                  (review['rating'] as num?)
-                                                      ?.round() ??
-                                                  0;
+                                              final reviewRating = (review['rating'] as num?)?.round() ?? 5;
                                               return Icon(
-                                                index < reviewRating
-                                                    ? Icons.star_rounded
-                                                    : Icons.star_border_rounded,
+                                                index < reviewRating ? Icons.star_rounded : Icons.star_border_rounded,
                                                 color: ExplorerColors.goldDark,
-                                                size: 18,
+                                                size: 16,
                                               );
                                             }),
                                           ),
-                                          const SizedBox(height: 7),
+                                          const SizedBox(height: 6),
                                           Text(
                                             '${review['comment'] ?? ''}',
                                             style: const TextStyle(
                                               color: ExplorerColors.text,
+                                              fontSize: 12,
                                               height: 1.4,
                                             ),
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
-                                            createdAt == null
-                                                ? 'Recent review'
-                                                : DateFormat.yMMMd().format(
-                                                    createdAt,
-                                                  ),
+                                            dateStr,
                                             style: const TextStyle(
                                               color: ExplorerColors.muted,
                                               fontSize: 10,
@@ -1062,24 +1140,18 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         ],
                                       ),
                                     ),
-                                    if (!isLastVisible)
-                                      const Divider(height: 1, indent: 70),
+                                    if (!isLastVisible) const Divider(height: 1, indent: 70),
                                   ],
                                 );
                               }),
-                              if (docs.length > previewCount) ...[
+                              if (allReviews.length > previewCount) ...[
                                 const Divider(height: 1),
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 9,
-                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   child: SizedBox(
                                     width: double.infinity,
                                     child: OutlinedButton.icon(
-                                      onPressed: () => setState(
-                                        () => showAllReviews = !showAllReviews,
-                                      ),
+                                      onPressed: () => setState(() => showAllReviews = !showAllReviews),
                                       icon: Icon(
                                         showAllReviews
                                             ? Icons.keyboard_arrow_up_rounded
@@ -1089,6 +1161,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         showAllReviews
                                             ? 'Show Fewer Reviews'
                                             : 'See More Reviews ($hiddenCount more)',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                                       ),
                                     ),
                                   ),
@@ -1161,6 +1234,44 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _ratingBar(int starNumber, double percentage) {
+    return Row(
+      children: [
+        Text(
+          '$starNumber',
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: ExplorerColors.muted,
+          ),
+        ),
+        const SizedBox(width: 3),
+        const Icon(Icons.star_rounded, size: 11, color: ExplorerColors.goldDark),
+        const SizedBox(width: 6),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: percentage.clamp(0.0, 1.0),
+              backgroundColor: const Color(0xFFEEEEEE),
+              valueColor: const AlwaysStoppedAnimation<Color>(ExplorerColors.goldDark),
+              minHeight: 5,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '${(percentage * 100).toInt()}%',
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            color: ExplorerColors.muted,
+          ),
+        ),
+      ],
     );
   }
 

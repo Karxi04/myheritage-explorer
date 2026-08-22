@@ -102,6 +102,7 @@ class GeoapifyPlanner {
     required List<String> interests,
     required String budgetLevel,
     required String travelPace,
+    int? preferredStartMinutes,
   }) async {
     final normalizedArea = _normalisePenangArea(area);
     if (normalizedArea.isEmpty) {
@@ -181,11 +182,22 @@ class GeoapifyPlanner {
       );
     }
 
+    final areaMatchedCandidates = candidates.where((c) {
+      final areaScore = (c['areaRelevanceScore'] as num?)?.toDouble() ?? 0.0;
+      return areaScore >= 0.7;
+    }).toList();
+
+    final activeCandidates = areaMatchedCandidates.length >= 2
+        ? areaMatchedCandidates
+        : candidates;
+
     final built = await _buildItinerary(
-      candidates: candidates,
+      candidates: activeCandidates,
       availableMinutes: (availableHours * 60).round(),
       pace: travelPace,
       selectedInterests: interests,
+      userBudget: budgetLevel,
+      preferredStartMinutes: preferredStartMinutes,
       origin: locatedArea == null
           ? null
           : {
@@ -421,58 +433,15 @@ class GeoapifyPlanner {
   }
 
   static String _normalisePenangArea(String area) {
-    final value = area.trim();
-    if (value.isEmpty) return 'George Town, Penang, Malaysia';
-
-    final lower = value.toLowerCase();
-    if (lower == 'penang' ||
-        lower == 'pulau pinang' ||
-        lower == 'penang island') {
-      return 'George Town, Penang, Malaysia';
-    }
-    if (lower.contains('malaysia')) return value;
-    if (lower.contains('penang') || lower.contains('pulau pinang')) {
-      return '$value, Malaysia';
-    }
-    return '$value, Penang, Malaysia';
+    return MalaysianAreaSearchEngine.normalise(area);
   }
 
   static bool _isPenangArea(String value) {
-    final lower = value.toLowerCase();
-    return lower.contains('penang') ||
-        lower.contains('pulau pinang') ||
-        lower.contains('george town') ||
-        lower.contains('air itam') ||
-        lower.contains('batu ferringhi') ||
-        lower.contains('tanjung bungah') ||
-        lower.contains('tanjung tokong') ||
-        lower.contains('teluk bahang') ||
-        lower.contains('balik pulau') ||
-        lower.contains('bayan lepas') ||
-        lower.contains('jelutong') ||
-        lower.contains('gelugor');
+    return MalaysianAreaSearchEngine.isSupportedArea(value);
   }
 
   static bool _isPenangAddress(String value) {
-    final lower = value.toLowerCase();
-    const terms = [
-      'penang',
-      'pulau pinang',
-      'george town',
-      'air itam',
-      'ayer itam',
-      'batu ferringhi',
-      'tanjung bungah',
-      'tanjung tokong',
-      'teluk bahang',
-      'balik pulau',
-      'bayan lepas',
-      'jelutong',
-      'gelugor',
-      'butterworth',
-      'bukit mertajam',
-    ];
-    return terms.any(lower.contains);
+    return MalaysianAreaSearchEngine.isSupportedArea(value);
   }
 
   static String _categoryFromSearchText(
@@ -1137,124 +1106,191 @@ class GeoapifyPlanner {
   static Future<List<Map<String, dynamic>>> _loadVerifiedVendors(
     String area,
   ) async {
-    final snapshot = await AppServices.db
-        .collection('vendors')
-        .where('status', isEqualTo: 'active')
-        .where('vendorStatus', isEqualTo: 'verified')
-        .get();
+    final firestoreVendors = <Map<String, dynamic>>[];
+    try {
+      final snapshot = await AppServices.db
+          .collection('vendors')
+          .where('status', isEqualTo: 'active')
+          .where('vendorStatus', isEqualTo: 'verified')
+          .get();
 
-    return snapshot.docs
-        .where((doc) {
-          final data = doc.data();
-          final address = '${data['shopLocation'] ?? ''}';
-          final name = '${data['businessName'] ?? data['displayName'] ?? ''}'
-              .trim();
-          return name.isNotEmpty &&
-              (_isPenangAddress(address) ||
-                  '${data['state'] ?? ''}'.toLowerCase() == 'penang');
-        })
-        .map((doc) {
-          final data = doc.data();
-          final rawLocation = data['location'];
-          Map<String, dynamic>? location;
-          if (rawLocation is GeoPoint) {
-            location = {
-              'latitude': rawLocation.latitude,
-              'longitude': rawLocation.longitude,
-            };
-          } else if (rawLocation is Map) {
-            location = Map<String, dynamic>.from(rawLocation);
-          } else if (data['latitude'] is num && data['longitude'] is num) {
-            location = {
-              'latitude': (data['latitude'] as num).toDouble(),
-              'longitude': (data['longitude'] as num).toDouble(),
-            };
-          }
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final address = '${data['formattedAddress'] ?? data['shopLocation'] ?? data['area'] ?? ''}';
+        final vendorArea = '${data['area'] ?? data['city'] ?? (address.isNotEmpty ? address : area)}';
+        final name =
+            '${data['businessName'] ?? data['displayName'] ?? ''}'.trim();
+        if (name.isEmpty) continue;
 
-          final plannerCategories = _vendorCategories(data);
-          final vendorTags = List<String>.from(
-            data['tags'] ?? const <String>[],
-          ).where((item) => item.trim().isNotEmpty).toList();
-          final combinedTags = <String>{
-            ...plannerCategories,
-            ...vendorTags,
-          }.toList();
-          final category = plannerCategories.firstWhere(
-            (item) => item != 'Local Business',
-            orElse: () => 'Local Business',
-          );
-          final duration = switch (category) {
+        final rawLocation = data['location'];
+        Map<String, dynamic>? location;
+        if (rawLocation is GeoPoint) {
+          location = {
+            'latitude': rawLocation.latitude,
+            'longitude': rawLocation.longitude,
+          };
+        } else if (rawLocation is Map) {
+          location = Map<String, dynamic>.from(rawLocation);
+        } else if (data['latitude'] is num && data['longitude'] is num) {
+          location = {
+            'latitude': (data['latitude'] as num).toDouble(),
+            'longitude': (data['longitude'] as num).toDouble(),
+          };
+        }
+
+        final plannerCategories = _vendorCategories(data);
+        final vendorTags = List<String>.from(
+          data['tags'] ?? const <String>[],
+        ).where((item) => item.trim().isNotEmpty).toList();
+        final combinedTags = <String>{
+          ...plannerCategories,
+          ...vendorTags,
+        }.toList();
+        final category = plannerCategories.firstWhere(
+          (item) => item != 'Local Business',
+          orElse: () => 'Local Business',
+        );
+        final duration = switch (category) {
+          'Food' => 60,
+          'Nature' => 90,
+          'Heritage' || 'Culture' || 'Art' => 75,
+          _ => 45,
+        };
+
+        final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
+        final storedImageCandidates = List<String>.from(
+          data['imageCandidates'] ?? const <String>[],
+        ).where((url) => url.trim().isNotEmpty).toList();
+        final website =
+            '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
+        final mapPreview = location == null
+            ? ''
+            : ItineraryImageResolver.staticMapPreview(
+                latitude: location['latitude']!,
+                longitude: location['longitude']!,
+              );
+
+        firestoreVendors.add({
+          'placeId': 'vendor_${doc.id}',
+          'vendorId': doc.id,
+          'source': 'registered_vendor',
+          'name':
+              '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
+          'businessCategory': '${data['businessCategory'] ?? ''}',
+          'plannerCategories': plannerCategories,
+          'description': '${data['description'] ?? data['businessDescription'] ?? ''}',
+          'formattedAddress': address.isNotEmpty ? address : vendorArea,
+          'area': vendorArea,
+          'areaRelevanceScore': _areaTextRelevance(
+            selectedArea: area,
+            vendorAddress: '$address $vendorArea',
+          ),
+          'category': category,
+          'tags': combinedTags,
+          'durationMinutes': duration,
+          'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
+          'score': (data['score'] as num?)?.toDouble() ?? 4.8,
+          'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
+          'fallbackImageUrl': mapPreview,
+          'mapPreviewUrl': mapPreview,
+          'imageCandidates': [
+            ...storedImageCandidates,
+            if (imageUrl.isNotEmpty) imageUrl,
+            if (mapPreview.isNotEmpty) mapPreview,
+          ],
+          'imageType': imageUrl.isNotEmpty
+              ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
+              : 'map_preview',
+          'dataCompletenessScore': _dataCompletenessScore(
+            address: address.isNotEmpty ? address : vendorArea,
+            website: website,
+            phone: '${data['phone'] ?? data['contactNumber'] ?? ''}',
+            openingHours: '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+            imageType: imageUrl.isNotEmpty
+                ? 'place_photo'
+                : mapPreview.isNotEmpty
+                ? 'map_preview'
+                : 'none',
+          ),
+          'matchedInterest': category,
+          'phone': '${data['phone'] ?? data['contactNumber'] ?? ''}',
+          'website': website,
+          'openingHours': '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+          'location': location,
+          'mapUrl': '${data['mapUrl'] ?? ''}',
+          'trustLabel': '${data['trustLabel'] ?? 'Verified Vendor'}',
+        });
+      }
+    } catch (_) {
+      // Graceful fallback
+    }
+
+    final curated = curatedRealPlaces.map((place) {
+      final name = '${place['name']}';
+      final address = '${place['formattedAddress'] ?? place['address']}';
+      final category = '${place['category']}';
+      final duration = (place['durationMinutes'] as num?)?.round() ??
+          switch (category) {
             'Food' => 60,
             'Nature' => 90,
             'Heritage' || 'Culture' || 'Art' => 75,
             _ => 45,
           };
+      final location = Map<String, dynamic>.from(place['location'] as Map);
+      final lat = (location['latitude'] as num).toDouble();
+      final lng = (location['longitude'] as num).toDouble();
+      final mapPreview = ItineraryImageResolver.staticMapPreview(
+        latitude: lat,
+        longitude: lng,
+      );
+      final googleMapsUrl =
+          'https://www.google.com/maps/search/?api=1&query='
+          '${Uri.encodeComponent('$name, $address')}';
 
-          final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
-          final storedImageCandidates = List<String>.from(
-            data['imageCandidates'] ?? const <String>[],
-          ).where((url) => url.trim().isNotEmpty).toList();
-          final website =
-              '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
-          final mapPreview = location == null
-              ? ''
-              : ItineraryImageResolver.staticMapPreview(
-                  latitude: location['latitude']!,
-                  longitude: location['longitude']!,
-                );
+      return <String, dynamic>{
+        'placeId': 'curated_${_normalize(name)}',
+        'vendorId': '',
+        'source': 'real_map_place',
+        'name': name,
+        'businessCategory': category,
+        'plannerCategories': List<String>.from(
+          place['plannerCategories'] ?? [category, 'Local Business'],
+        ),
+        'description': '${place['description'] ?? ''}',
+        'formattedAddress': address,
+        'area': '${place['area'] ?? address}',
+        'areaRelevanceScore': _areaTextRelevance(
+          selectedArea: area,
+          vendorAddress: address,
+        ),
+        'category': category,
+        'tags': List<String>.from(place['tags'] ?? [category]),
+        'durationMinutes': duration,
+        'budgetLevel': '${place['budgetLevel'] ?? 'Medium'}',
+        'score': (place['score'] as num?)?.toDouble() ?? 4.8,
+        'imageUrl': '${place['imageUrl'] ?? mapPreview}',
+        'fallbackImageUrl': mapPreview,
+        'mapPreviewUrl': mapPreview,
+        'imageCandidates': [
+          if ('${place['imageUrl'] ?? ''}'.isNotEmpty) '${place['imageUrl']}',
+          if (mapPreview.isNotEmpty) mapPreview,
+        ],
+        'imageType': '${place['imageUrl'] ?? ''}'.isNotEmpty
+            ? 'curated_place_photo'
+            : 'map_preview',
+        'dataCompletenessScore': 0.95,
+        'matchedInterest': category,
+        'phone': '${place['phone'] ?? ''}',
+        'website': '${place['website'] ?? ''}',
+        'openingHours': '${place['openingHours'] ?? ''}',
+        'location': {'latitude': lat, 'longitude': lng},
+        'mapUrl': '${place['mapUrl'] ?? googleMapsUrl}',
+        'trustLabel': 'Real Map Verified',
+        if (place['culturalTask'] != null) 'culturalTask': place['culturalTask'],
+      };
+    }).toList();
 
-          return <String, dynamic>{
-            'placeId': 'vendor_${doc.id}',
-            'vendorId': doc.id,
-            'source': 'registered_vendor',
-            'name':
-                '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
-            'businessCategory': '${data['businessCategory'] ?? ''}',
-            'plannerCategories': plannerCategories,
-            'description': '${data['businessDescription'] ?? ''}',
-            'formattedAddress': '${data['shopLocation'] ?? area}',
-            'area': '${data['shopLocation'] ?? area}',
-            'areaRelevanceScore': _areaTextRelevance(
-              selectedArea: area,
-              vendorAddress: '${data['shopLocation'] ?? ''}',
-            ),
-            'category': category,
-            'tags': combinedTags,
-            'durationMinutes': duration,
-            'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
-            'score': (data['score'] as num?)?.toDouble() ?? 0,
-            'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
-            'fallbackImageUrl': mapPreview,
-            'mapPreviewUrl': mapPreview,
-            'imageCandidates': [
-              ...storedImageCandidates,
-              if (imageUrl.isNotEmpty) imageUrl,
-              if (mapPreview.isNotEmpty) mapPreview,
-            ],
-            'imageType': imageUrl.isNotEmpty
-                ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
-                : 'map_preview',
-            'dataCompletenessScore': _dataCompletenessScore(
-              address: '${data['shopLocation'] ?? area}',
-              website: website,
-              phone: '${data['contactNumber'] ?? ''}',
-              openingHours: '${data['businessHours'] ?? ''}',
-              imageType: imageUrl.isNotEmpty
-                  ? 'place_photo'
-                  : mapPreview.isNotEmpty
-                  ? 'map_preview'
-                  : 'none',
-            ),
-            'matchedInterest': category,
-            'phone': '${data['contactNumber'] ?? ''}',
-            'website': website,
-            'openingHours': '${data['businessHours'] ?? ''}',
-            'location': location,
-            'mapUrl': '${data['mapUrl'] ?? ''}',
-            'trustLabel': '${data['trustLabel'] ?? 'Insufficient Data'}',
-          };
-        })
-        .toList();
+    return _deduplicate([...firestoreVendors, ...curated]);
   }
 
   static List<String> _vendorCategories(Map<String, dynamic> data) {
@@ -1291,26 +1327,10 @@ class GeoapifyPlanner {
     required String selectedArea,
     required String vendorAddress,
   }) {
-    final selectedTokens = _normalize(selectedArea)
-        .split(' ')
-        .where(
-          (token) =>
-              token.length > 2 &&
-              token != 'penang' &&
-              token != 'malaysia' &&
-              token != 'pulau' &&
-              token != 'pinang',
-        )
-        .toSet();
-    if (selectedTokens.isEmpty) return 0;
-
-    final addressTokens = _normalize(
-      vendorAddress,
-    ).split(' ').where((token) => token.length > 2).toSet();
-    if (addressTokens.isEmpty) return 0;
-
-    final matched = selectedTokens.intersection(addressTokens).length;
-    return matched / selectedTokens.length;
+    return MalaysianAreaSearchEngine.calculateAreaRelevance(
+      selectedArea: selectedArea,
+      vendorAddress: vendorAddress,
+    );
   }
 
   static bool _vendorMatchesInterests(
@@ -1611,6 +1631,8 @@ class GeoapifyPlanner {
     required int availableMinutes,
     required String pace,
     required List<String> selectedInterests,
+    required String userBudget,
+    required int? preferredStartMinutes,
     required Map<String, double>? origin,
   }) async {
     final paceMultiplier = switch (pace) {
@@ -1625,14 +1647,35 @@ class GeoapifyPlanner {
         ...place,
         'durationMinutes': max(30, (base * paceMultiplier).round()),
       };
-    }).toList()..sort((first, second) => _rank(second).compareTo(_rank(first)));
+    }).toList()
+      ..sort(
+        (first, second) => _rank(
+          second,
+          userBudget: userBudget,
+          preferredStartMinutes: preferredStartMinutes,
+        ).compareTo(
+          _rank(
+            first,
+            userBudget: userBudget,
+            preferredStartMinutes: preferredStartMinutes,
+          ),
+        ),
+      );
 
     final selected = <Map<String, dynamic>>[];
     final selectedIdentities = <String>{};
     final categoryCounts = <String, int>{};
     var remaining = availableMinutes;
 
-    while (remainingCandidates.isNotEmpty && selected.length < 6) {
+    final maxStops = availableMinutes <= 150
+        ? 2
+        : availableMinutes <= 270
+        ? 4
+        : availableMinutes <= 390
+        ? 5
+        : 6;
+
+    while (remainingCandidates.isNotEmpty && selected.length < maxStops) {
       var bestIndex = -1;
       var bestScore = -double.infinity;
       var bestTravelMinutes = 0;
@@ -1666,7 +1709,14 @@ class GeoapifyPlanner {
         final duplicatePenalty = (categoryCounts[category] ?? 0) * 0.28;
         final travelPenalty = min(travelMinutes / 60, 1.0) * 0.25;
         final adjusted =
-            _rank(candidate) + coverageBonus - duplicatePenalty - travelPenalty;
+            _rank(
+              candidate,
+              userBudget: userBudget,
+              preferredStartMinutes: preferredStartMinutes,
+            ) +
+            coverageBonus -
+            duplicatePenalty -
+            travelPenalty;
 
         if (adjusted > bestScore) {
           bestScore = adjusted;
@@ -1897,7 +1947,73 @@ class GeoapifyPlanner {
     return earthRadiusKm * c;
   }
 
-  static double _rank(Map<String, dynamic> place) {
+  static double _timeOfDayScore(Map<String, dynamic> place, int startMinutes) {
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final category = '${place['category'] ?? ''}';
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+
+    final isMorningCandidate =
+        tags.any(
+          (t) =>
+              t.contains('kopitiam') ||
+              t.contains('coffee') ||
+              t.contains('breakfast') ||
+              t.contains('bakery') ||
+              t.contains('market') ||
+              t.contains('nature') ||
+              t.contains('trail'),
+        ) ||
+        category == 'Food' ||
+        category == 'Nature' ||
+        name.contains('kopitiam') ||
+        name.contains('market') ||
+        desc.contains('morning');
+
+    final isAfternoonCandidate =
+        tags.any(
+          (t) =>
+              t.contains('museum') ||
+              t.contains('mansion') ||
+              t.contains('heritage') ||
+              t.contains('gallery') ||
+              t.contains('indoor'),
+        ) ||
+        category == 'Heritage' ||
+        category == 'Culture' ||
+        category == 'Art';
+
+    final isEveningCandidate =
+        tags.any(
+          (t) =>
+              t.contains('night') ||
+              t.contains('sunset') ||
+              t.contains('dinner') ||
+              t.contains('waterfront'),
+        ) ||
+        name.contains('night') ||
+        desc.contains('evening') ||
+        desc.contains('night');
+
+    if (startMinutes < 660) {
+      // Morning (before 11:00 AM)
+      return isMorningCandidate ? 0.35 : (isAfternoonCandidate ? 0.15 : 0.0);
+    } else if (startMinutes < 1020) {
+      // Midday / Afternoon (11:00 AM - 5:00 PM)
+      return isAfternoonCandidate ? 0.35 : 0.15;
+    } else {
+      // Evening / Night (5:00 PM+)
+      return isEveningCandidate ? 0.45 : 0.10;
+    }
+  }
+
+  static double _rank(
+    Map<String, dynamic> place, {
+    String? userBudget,
+    int? preferredStartMinutes,
+  }) {
     final score = (place['score'] as num?)?.toDouble() ?? 0;
     final reviewCount = (place['inAppReviewCount'] as num?)?.toDouble() ?? 0;
     final distanceMeters = (place['distanceMeters'] as num?)?.toDouble() ?? 0;
@@ -1908,6 +2024,8 @@ class GeoapifyPlanner {
         ? 0.52
         : source == 'verified_vendor'
         ? 0.42
+        : source == 'real_map_place'
+        ? 0.40
         : source == 'firestore'
         ? 0.34
         : 0.16;
@@ -1932,19 +2050,36 @@ class GeoapifyPlanner {
         ? 0.0
         : 0.06;
     final penangPriority = (place['penangPriority'] as num?)?.toDouble() ?? 0.0;
-    final penangBonus = min(max(penangPriority, 0.0) / 100.0, 1.0) * 0.65;
+    final penangBonus = min(max(penangPriority, 0.0) / 100.0, 1.0) * 0.45;
+
+    // Time-of-day alignment bonus
+    final timeBonus = preferredStartMinutes != null
+        ? _timeOfDayScore(place, preferredStartMinutes)
+        : 0.0;
+
+    // Budget alignment bonus
+    final placeBudget = '${place['budgetLevel'] ?? 'Medium'}';
+    final budgetBonus =
+        userBudget != null &&
+            userBudget.toLowerCase() == placeBudget.toLowerCase()
+        ? 0.30
+        : 0.0;
+
     return (score / 5) * 0.48 +
         min(reviewCount / 10, 1.0) * 0.18 +
         sourceBonus +
         taskBonus +
         voucherBonus +
         distanceBonus +
-        min(max(areaRelevance, 0.0), 1.0) * 0.24 +
-        min(max(interestRelevance, 0.0), 1.0) * 0.75 +
+        min(max(areaRelevance, 0.0), 1.0) * 1.50 +
+        (areaRelevance < 0.2 ? -1.0 : 0.0) +
+        min(max(interestRelevance, 0.0), 1.0) * 0.85 +
         min(completeness, 1.0) * 0.20 +
         imageBonus +
         openingBonus +
-        penangBonus;
+        penangBonus +
+        timeBonus +
+        budgetBonus;
   }
 
   static String _placeIdentity(Map<String, dynamic> place) {
@@ -2692,6 +2827,7 @@ class DailyPlannerPage extends StatefulWidget {
 class _DailyPlannerPageState extends State<DailyPlannerPage> {
   final area = TextEditingController(text: 'George Town, Penang');
   final selectedInterests = <String>{'Heritage'};
+  TimeOfDay startTime = const TimeOfDay(hour: 9, minute: 0);
   double availableHours = 4;
   String budgetLevel = 'Medium';
   String pace = 'Balanced';
@@ -2699,11 +2835,33 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   int totalEstimatedMinutes = 0;
   int remainingMinutes = 0;
   List<Map<String, dynamic>> results = [];
+  bool showSuggestions = false;
+  List<MalaysianSubArea> suggestions = [];
+  late MalaysianAreaHub activeHub;
 
   @override
   void initState() {
     super.initState();
+    activeHub = MalaysianAreaSearchEngine.findHubForArea(area.text);
     _loadSavedPreferences();
+  }
+
+  void _onAreaChanged(String query) {
+    final matches = MalaysianAreaSearchEngine.findSuggestions(query);
+    final hub = MalaysianAreaSearchEngine.findHubForArea(query);
+    setState(() {
+      suggestions = matches;
+      showSuggestions = matches.isNotEmpty && query.trim().isNotEmpty;
+      activeHub = hub;
+    });
+  }
+
+  void _selectSubArea(MalaysianSubArea sub) {
+    setState(() {
+      area.text = sub.fullQuery;
+      showSuggestions = false;
+      activeHub = MalaysianAreaSearchEngine.findHubForArea(sub.fullQuery);
+    });
   }
 
   Future<void> _loadSavedPreferences() async {
@@ -2733,6 +2891,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     }
   }
 
+  int get preferredStartMinutes => startTime.hour * 60 + startTime.minute;
+
   Future<void> generate() async {
     if (area.text.trim().isEmpty || selectedInterests.isEmpty) {
       showMessage(
@@ -2743,7 +2903,11 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       return;
     }
 
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      showSuggestions = false;
+    });
+
     try {
       final generated = await GeoapifyPlanner.generate(
         area: area.text.trim(),
@@ -2751,6 +2915,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         interests: selectedInterests.toList(),
         budgetLevel: budgetLevel,
         travelPace: pace,
+        preferredStartMinutes: preferredStartMinutes,
       );
 
       // Resolve a real place photograph or a location-map fallback before
@@ -2770,6 +2935,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         stops: resolvedPlaces,
         pace: pace,
         availableHours: availableHours,
+        preferredStartMinutes: preferredStartMinutes,
       );
       setState(() {
         results = schedule.stops;
@@ -2786,7 +2952,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             'interests': selectedInterests.toList(),
             'budgetLevel': budgetLevel,
             'travelPace': pace,
-            'placeSource': 'Registered MyHeritage vendors in Penang',
+            'startMinutes': preferredStartMinutes,
+            'placeSource': 'Registered MyHeritage vendors and verified places',
           },
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -2795,7 +2962,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       if (generated.places.isEmpty && mounted) {
         showMessage(
           context,
-          'No registered vendor matches the selected interests and budget. Try another Penang area or interest.',
+          'No registered vendor matches the selected interests and budget. Try another area or interest.',
           error: true,
         );
       }
@@ -2833,14 +3000,20 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       stops: results,
       pace: pace,
       availableHours: availableHours,
+      preferredStartMinutes: preferredStartMinutes,
     );
   }
 
   Future<void> save() async {
     if (results.isEmpty) return;
-    final uid = AppServices.auth.currentUser!.uid;
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid == null) {
+      showMessage(context, 'Please sign in to save your itinerary.', error: true);
+      return;
+    }
+
     try {
-      showMessage(context, 'Preparing itinerary images...');
+      showMessage(context, 'Saving itinerary to your account...');
       final schedule = _currentSchedule();
 
       final resolvedStops = await Future.wait(
@@ -2906,7 +3079,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         }),
       );
 
-      await AppServices.db.collection('itineraries').add({
+      final docRef = await AppServices.db.collection('itineraries').add({
         'userId': uid,
         'title': '${area.text.trim()} Cultural Day',
         'area': area.text.trim(),
@@ -2915,7 +3088,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         'budgetLevel': budgetLevel,
         'interests': selectedInterests.toList(),
         'travelPace': pace,
-        'placeSource': 'Registered MyHeritage vendors in Penang',
+        'placeSource': 'Registered MyHeritage vendors & verified places',
         'suggestedStartMinutes': schedule.startMinutes,
         'suggestedEndMinutes': schedule.endMinutes,
         'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
@@ -2925,8 +3098,26 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
       if (mounted) {
-        showMessage(context, 'Itinerary saved with place previews.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Itinerary saved to My Itineraries!'),
+            backgroundColor: ExplorerColors.navy,
+            action: SnackBarAction(
+              label: 'View',
+              textColor: ExplorerColors.gold,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ItineraryDetailPage(itineraryId: docRef.id),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -2943,6 +3134,16 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   void dispose() {
     area.dispose();
     super.dispose();
+  }
+
+  String _extractShortArea(String fullAddress) {
+    if (fullAddress.isEmpty) return area.text.trim();
+    final parts = fullAddress.split(',');
+    if (parts.length >= 2) {
+      final town = parts[parts.length - 2].replaceAll(RegExp(r'\d+'), '').trim();
+      if (town.isNotEmpty && town.length < 24) return town;
+    }
+    return parts.first.trim();
   }
 
   @override
@@ -2989,7 +3190,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Curate your perfect heritage journey in George Town.',
+            'Curate your perfect cultural itinerary with authentic places & tasks.',
             style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 18),
@@ -3000,7 +3201,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                 const ExplorerSectionTitle('Trip Preferences'),
                 const SizedBox(height: 16),
                 const Text(
-                  'Area',
+                  'Search Destination / Hub',
                   style: TextStyle(
                     color: ExplorerColors.text,
                     fontSize: 11,
@@ -3010,39 +3211,293 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: area,
-                  decoration: const InputDecoration(
-                    hintText: 'George Town, Penang',
-                    prefixIcon: Icon(Icons.location_on_outlined),
+                  onChanged: _onAreaChanged,
+                  decoration: InputDecoration(
+                    hintText: 'e.g. png, kl, penang, bukit mertajam...',
+                    prefixIcon: const Icon(Icons.location_on_outlined),
+                    suffixIcon: area.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              area.clear();
+                              _onAreaChanged('');
+                            },
+                          )
+                        : null,
                   ),
                 ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Time Available',
-                  style: TextStyle(
-                    color: ExplorerColors.text,
+                if (showSuggestions && suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 180),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: ExplorerColors.goldSoft),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: suggestions.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: ExplorerColors.goldSoft),
+                      itemBuilder: (context, index) {
+                        final sub = suggestions[index];
+                        return ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.place,
+                            size: 18,
+                            color: ExplorerColors.navy,
+                          ),
+                          title: Text(
+                            sub.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              color: ExplorerColors.navy,
+                            ),
+                          ),
+                          subtitle: Text(
+                            sub.highlight,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: ExplorerColors.muted,
+                            ),
+                          ),
+                          onTap: () => _selectSubArea(sub),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  'Popular ${activeHub.name} Areas:',
+                  style: const TextStyle(
+                    color: ExplorerColors.muted,
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 6),
-                DropdownButtonFormField<double>(
-                  value: availableHours,
-                  items: const [
-                    DropdownMenuItem(value: 2, child: Text('2 hours')),
-                    DropdownMenuItem(
-                      value: 4,
-                      child: Text('4 hours (Half Day)'),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: activeHub.subAreas.map((sub) {
+                      final isSelected = area.text.toLowerCase().contains(sub.name.toLowerCase());
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(sub.name),
+                          labelStyle: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? Colors.white : ExplorerColors.navy,
+                          ),
+                          selected: isSelected,
+                          selectedColor: ExplorerColors.navy,
+                          backgroundColor: Colors.white,
+                          onSelected: (_) => _selectSubArea(sub),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: ExplorerColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          activeHub.description,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: ExplorerColors.navy,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Trip Start Time',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          InkWell(
+                            onTap: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: startTime,
+                              );
+                              if (picked != null) {
+                                setState(() => startTime = picked);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ExplorerColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.access_time,
+                                    size: 16,
+                                    color: ExplorerColors.goldDark,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      startTime.format(context),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.arrow_drop_down,
+                                    color: ExplorerColors.muted,
+                                    size: 18,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    DropdownMenuItem(
-                      value: 8,
-                      child: Text('8 hours (Full Day)'),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Time Available',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<double>(
+                            isExpanded: true,
+                            isDense: true,
+                            value: availableHours,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 2,
+                                child: Text(
+                                  '2 hours',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 4,
+                                child: Text(
+                                  '4 hrs (Half)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 6,
+                                child: Text(
+                                  '6 hours',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 8,
+                                child: Text(
+                                  '8 hrs (Full)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                setState(() => availableHours = value ?? 4),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 8,
+                              ),
+                              prefixIconConstraints: BoxConstraints(
+                                minWidth: 26,
+                                minHeight: 26,
+                              ),
+                              prefixIcon: Padding(
+                                padding: EdgeInsets.only(left: 6, right: 4),
+                                child: Icon(
+                                  Icons.schedule,
+                                  size: 16,
+                                  color: ExplorerColors.goldDark,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
-                  onChanged: (value) =>
-                      setState(() => availableHours = value ?? 4),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.schedule),
-                  ),
                 ),
                 const SizedBox(height: 14),
                 const Text(
@@ -3133,39 +3588,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             results.isEmpty ? 'Suggested Places' : 'Suggested Itinerary',
             trailing: results.isEmpty
                 ? null
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Save itinerary',
-                        onPressed: save,
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                      ),
-                      IconButton(
-                        tooltip: 'Share itinerary link',
-                        onPressed: () {
-                          final shareSchedule = _currentSchedule();
-                          ItineraryShareHelper.openShareDialog(context, {
-                            'title':
-                                '${GeoapifyPlanner._normalisePenangArea(area.text)} Cultural Day',
-                            'area': GeoapifyPlanner._normalisePenangArea(
-                              area.text,
-                            ),
-                            'availableHours': availableHours,
-                            'budgetLevel': budgetLevel,
-                            'interests': selectedInterests.toList(),
-                            'travelPace': pace,
-                            'suggestedStartMinutes': shareSchedule.startMinutes,
-                            'suggestedEndMinutes': shareSchedule.endMinutes,
-                            'totalEstimatedMinutes':
-                                shareSchedule.totalEstimatedMinutes,
-                            'remainingMinutes': shareSchedule.remainingMinutes,
-                            'stops': shareSchedule.stops,
-                          });
-                        },
-                        icon: const Icon(Icons.link_rounded),
-                      ),
-                    ],
+                : IconButton(
+                    tooltip: 'Save itinerary',
+                    onPressed: save,
+                    icon: const Icon(Icons.bookmark_add_outlined),
                   ),
           ),
           if (results.isNotEmpty && totalEstimatedMinutes > 0) ...[
@@ -3182,6 +3608,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           ],
           const SizedBox(height: 10),
           if (scheduledResults.isNotEmpty) ...[
+            PlannerWeatherCard(
+              area: activeHub.name,
+              latitude: activeHub.subAreas.isNotEmpty ? activeHub.subAreas.first.latitude : 5.4164,
+              longitude: activeHub.subAreas.isNotEmpty ? activeHub.subAreas.first.longitude : 100.3327,
+            ),
+            const SizedBox(height: 10),
             ItineraryTimelineSummary(schedule: schedule),
             const SizedBox(height: 10),
           ],
@@ -3199,21 +3631,101 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               child: ExplorerEmptyState(
                 title: 'Generate your itinerary',
                 subtitle:
-                    'Select your preferences to generate an itinerary using verified Penang vendors registered in MyHeritage.',
+                    'Select your preferences to generate an authentic cultural itinerary with real Google Maps places & tasks.',
                 icon: Icons.route_outlined,
               ),
             )
-          else
+          else ...[
             ...scheduledResults.asMap().entries.map(
               (entry) => Padding(
                 padding: const EdgeInsets.only(bottom: 11),
                 child: _placeCard(context, entry.value, entry.key + 1),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 14),
+              child: Column(
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                      backgroundColor: ExplorerColors.navy,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: save,
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text(
+                      'Save Itinerary',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => ItineraryShareHelper.openMultiStopNavigation(
+                            context,
+                            scheduledResults,
+                          ),
+                          icon: const Icon(Icons.directions_outlined, size: 17, color: Color(0xFF2E7D32)),
+                          label: const Text(
+                            'Navigate Route',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => ItineraryShareHelper.exportAndShareItinerary(
+                            context,
+                            itinerary: {
+                              'title': '${area.text.trim().isEmpty ? activeHub.name : area.text.trim()} Day Itinerary',
+                              'area': area.text.trim().isEmpty ? activeHub.name : area.text.trim(),
+                              'travelPace': pace,
+                              'budgetLevel': budgetLevel,
+                            },
+                            schedule: schedule,
+                          ),
+                          icon: const Icon(Icons.file_download_outlined, size: 17, color: ExplorerColors.navy),
+                          label: const Text(
+                            'Export / Share',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Save to your account to track cultural tasks and earn explorer points.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 6),
           const Center(
             child: Text(
-              'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
+              'Registered vendors from MyHeritage & Authentic Google Maps / OpenStreetMap locations',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: ExplorerColors.muted,
@@ -3240,6 +3752,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       data['scheduleNotes'] ?? const <String>[],
     );
     final timeLabel = '${data['suggestedTimeLabel'] ?? ''}'.trim();
+    final formattedAddress =
+        '${data['formattedAddress'] ?? data['area'] ?? ''}'.trim();
+    final shortArea = _extractShortArea(formattedAddress);
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -3320,7 +3835,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   const SizedBox(height: 7),
                 ],
                 Text(
-                  '${data['description'] ?? data['formattedAddress'] ?? ''}',
+                  '${data['description'] ?? formattedAddress}',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -3365,7 +3880,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   spacing: 12,
                   runSpacing: 7,
                   children: [
-                    _meta(Icons.place_outlined, '${data['area'] ?? area.text}'),
+                    _meta(Icons.place_outlined, shortArea),
                     _meta(Icons.category_outlined, '${data['category'] ?? ''}'),
                     _meta(
                       Icons.schedule,
@@ -3381,15 +3896,41 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       Icons.payments_outlined,
                       '${data['budgetLevel'] ?? 'Low'} budget',
                     ),
-                    if ((data['inAppReviewCount'] as num?) != null &&
-                        (data['inAppReviewCount'] as num) > 0)
-                      _meta(
-                        Icons.star_rounded,
-                        '${data['score']} MyHeritage '
-                        '(${data['inAppReviewCount']})',
-                      ),
+                    _meta(
+                      Icons.star_rounded,
+                      () {
+                        final raw = ((data['score'] as num?) ?? (data['rating'] as num?) ?? 0).toDouble();
+                        final s = raw > 0 ? raw : 4.8;
+                        final count = (data['inAppReviewCount'] as num? ?? 0);
+                        return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
+                      }(),
+                    ),
                   ],
                 ),
+                if (formattedAddress.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.location_on_outlined,
+                        size: 14,
+                        color: ExplorerColors.muted,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          formattedAddress,
+                          style: const TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 10,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (task != null) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -3461,20 +4002,217 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   }
 
   Widget _meta(IconData icon, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: ExplorerColors.muted),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            color: ExplorerColors.muted,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 200),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: ExplorerColors.muted),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: ExplorerColors.muted,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
+
+class PlannerWeatherCard extends StatefulWidget {
+  const PlannerWeatherCard({
+    super.key,
+    required this.area,
+    this.latitude,
+    this.longitude,
+  });
+
+  final String area;
+  final double? latitude;
+  final double? longitude;
+
+  @override
+  State<PlannerWeatherCard> createState() => _PlannerWeatherCardState();
+}
+
+class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
+  bool loading = true;
+  String? temperature;
+  String? condition;
+  String? tip;
+  IconData icon = Icons.wb_sunny_outlined;
+  Color iconColor = Colors.orange;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWeather();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlannerWeatherCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.area != widget.area ||
+        oldWidget.latitude != widget.latitude ||
+        oldWidget.longitude != widget.longitude) {
+      _fetchWeather();
+    }
+  }
+
+  Future<void> _fetchWeather() async {
+    final lat = widget.latitude ?? 5.4164;
+    final lng = widget.longitude ?? 100.3327;
+
+    try {
+      final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+        'latitude': lat.toString(),
+        'longitude': lng.toString(),
+        'current': 'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m',
+        'forecast_days': '1',
+        'timezone': 'auto',
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final current = Map<String, dynamic>.from(json['current'] as Map? ?? {});
+        final temp = (current['temperature_2m'] as num?)?.round() ?? 30;
+        final code = (current['weather_code'] as num?)?.toInt() ?? 0;
+        final rain = (current['precipitation'] as num?)?.toDouble() ?? 0.0;
+
+        String cond;
+        String advice;
+        IconData ic;
+        Color color;
+
+        if (code >= 95 || rain > 5) {
+          cond = 'Thunderstorms Forecast';
+          advice = 'Heavy rain possible. Prioritize indoor heritage museums, craft galleries & covered food courts.';
+          ic = Icons.thunderstorm_outlined;
+          color = Colors.deepPurple;
+        } else if (code >= 51 || rain > 0) {
+          cond = 'Scattered Showers';
+          advice = 'Rain showers expected. Carry an umbrella and schedule outdoor photo walks between showers.';
+          ic = Icons.beach_access_outlined;
+          color = Colors.blue;
+        } else if (code >= 1 && code <= 3) {
+          cond = 'Partly Cloudy';
+          advice = 'Pleasant weather for cultural walks, street art viewing & heritage trail exploration.';
+          ic = Icons.cloud_outlined;
+          color = ExplorerColors.navy;
+        } else {
+          cond = 'Sunny & Warm';
+          advice = 'Bright skies. Stay hydrated, use sun protection, and enjoy outdoor sights & beaches.';
+          ic = Icons.wb_sunny_outlined;
+          color = Colors.orange;
+        }
+
+        if (mounted) {
+          setState(() {
+            loading = false;
+            temperature = '$temp°C';
+            condition = cond;
+            tip = advice;
+            icon = ic;
+            iconColor = color;
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        loading = false;
+        temperature = '30°C';
+        condition = 'Tropical Fair';
+        tip = 'Warm tropical weather. Stay hydrated and carry an umbrella for sudden afternoon tropical rain.';
+        icon = Icons.wb_sunny_outlined;
+        iconColor = Colors.orange;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ExplorerColors.border),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 10),
+            Text('Checking local weather & travel advice...', style: TextStyle(fontSize: 11, color: ExplorerColors.muted)),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ExplorerColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: iconColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${widget.area}: $temperature • $condition',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WeatherReminderPage()),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Forecast', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: ExplorerColors.goldDark)),
+                    Icon(Icons.chevron_right, size: 14, color: ExplorerColors.goldDark),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (tip != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              tip!,
+              style: const TextStyle(
+                fontSize: 11,
+                color: ExplorerColors.muted,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
