@@ -1,15 +1,26 @@
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
+import '../core/safety_config.dart';
 import '../core/services.dart';
-
+import '../models/hazard_report.dart';
+import '../models/hazard_vote.dart';
+import '../services/confidence_analysis_service.dart';
+import '../services/hazard_report_service.dart';
+import '../services/hazard_vote_service.dart';
+import '../widgets/hazard_evidence_image.dart';
 
 part 'dashboard/admin_dashboard_page.dart';
 part 'users/admin_users_page.dart';
 part 'places/admin_places_page.dart';
 part 'cultural/admin_cultural_page.dart';
+part 'hazards/admin_hazard_shared_widgets.dart';
+part 'hazards/admin_pending_reports_tab.dart';
+part 'hazards/admin_verified_reports_tab.dart';
+part 'hazards/admin_hazard_management_page.dart';
 part 'hazards/admin_hazards_page.dart';
 part 'reviews/admin_reviews_page.dart';

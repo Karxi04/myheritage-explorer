@@ -257,12 +257,12 @@ class ItineraryDetailPage extends StatelessWidget {
                           ),
                         )
                       else
-                        _PreparedItineraryRoute(
-                          stops: stops,
-                          onResolved: (resolvedStops) => _saveResolvedImages(
-                            reference,
-                            stops,
-                            resolvedStops,
+                        StreamBuilder<List<HazardReport>>(
+                          stream: HazardReportService().watchVerifiedReports(),
+                          builder: (context, hazardSnapshot) => _PreparedItineraryRoute(
+                            stops: stops,
+                            warnings: const ItinerarySafetyService().checkStops(stops, hazardSnapshot.data ?? const []),
+                            onResolved: (resolvedStops) => _saveResolvedImages(reference, stops, resolvedStops),
                           ),
                         ),
                       const SizedBox(height: 10),
@@ -326,10 +326,12 @@ class ItineraryDetailPage extends StatelessWidget {
 class _PreparedItineraryRoute extends StatefulWidget {
   const _PreparedItineraryRoute({
     required this.stops,
+    required this.warnings,
     required this.onResolved,
   });
 
   final List<Map<String, dynamic>> stops;
+  final List<ItineraryHazardWarning> warnings;
   final Future<void> Function(List<Map<String, dynamic>> resolvedStops)
   onResolved;
 
@@ -439,6 +441,7 @@ class _PreparedItineraryRouteState extends State<_PreparedItineraryRoute> {
               child: _SavedItineraryStopCard(
                 number: entry.key + 1,
                 stop: stop,
+                warnings: widget.warnings.where((warning) => warning.stopIndex == entry.key).toList(),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -555,11 +558,13 @@ class _SavedItineraryStopCard extends StatelessWidget {
     required this.number,
     required this.stop,
     required this.onTap,
+    required this.warnings,
   });
 
   final int number;
   final Map<String, dynamic> stop;
   final VoidCallback onTap;
+  final List<ItineraryHazardWarning> warnings;
 
   @override
   Widget build(BuildContext context) {
@@ -682,6 +687,17 @@ class _SavedItineraryStopCard extends StatelessWidget {
                             ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: warnings.isEmpty ? null : () => _showItinerarySafetyWarning(context, warnings),
+                        child: Row(
+                          children: [
+                            Icon(warnings.isEmpty ? Icons.verified_user_outlined : Icons.warning_amber_rounded, size: 16, color: warnings.isEmpty ? ExplorerColors.success : ExplorerColors.danger),
+                            const SizedBox(width: 5),
+                            Expanded(child: Text(warnings.isEmpty ? 'No nearby verified hazards' : '${warnings.length} verified hazard${warnings.length == 1 ? '' : 's'} nearby - tap for details', style: TextStyle(color: warnings.isEmpty ? ExplorerColors.success : ExplorerColors.danger, fontSize: 10, fontWeight: FontWeight.w800))),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -696,4 +712,23 @@ class _SavedItineraryStopCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showItinerarySafetyWarning(BuildContext context, List<ItineraryHazardWarning> warnings) async {
+  final ordered = [...warnings]..sort((a, b) {
+    const rank = {'High': 3, 'Medium': 2, 'Low': 1};
+    final severity = (rank[b.hazard.severity] ?? 0).compareTo(rank[a.hazard.severity] ?? 0);
+    return severity != 0 ? severity : a.distanceMeters.compareTo(b.distanceMeters);
+  });
+  await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+    title: const Text('Safety Warning'),
+    content: SizedBox(width: 440, child: ListView(shrinkWrap: true, children: ordered.map((warning) => ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.warning_amber_rounded, color: ExplorerColors.danger),
+      title: Text('${warning.hazard.severity}-Severity ${warning.hazard.category}'),
+      subtitle: Text('${warning.distanceMeters.round()}m from destination\nOfficial status: Verified'),
+      onTap: () { Navigator.pop(dialogContext); Navigator.push(context, MaterialPageRoute(builder: (_) => HazardDetailPage(hazardId: warning.hazard.id))); },
+    )).toList())),
+    actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Continue With Plan'))],
+  ));
 }

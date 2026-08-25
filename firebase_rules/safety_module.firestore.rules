@@ -1,0 +1,156 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin'
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isActiveTraveler() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/travelers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/travelers/$(request.auth.uid)).data.role == 'traveler'
+        && get(/databases/$(database)/documents/travelers/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function validStatus(value) {
+      return value in ['Pending Review', 'Verified', 'Rejected', 'Resolved'];
+    }
+
+    function validVote(value) {
+      return value in ['HAZARD_EXISTS', 'HAZARD_RESOLVED'];
+    }
+
+    function canReadHazard(hazardId) {
+      let hazard = get(/databases/$(database)/documents/hazard_reports/$(hazardId));
+      return isAdmin()
+        || (signedIn() && hazard.data.userId == request.auth.uid)
+        || (signedIn() && hazard.data.status == 'Verified');
+    }
+
+    match /hazard_reports/{hazardId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid)
+        || (signedIn() && resource.data.status == 'Verified');
+
+      allow create: if isActiveTraveler()
+        && request.resource.data.hazardId == hazardId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'Pending Review'
+        && request.resource.data.category is string
+        && request.resource.data.severity in ['Low', 'Medium', 'High']
+        && request.resource.data.description is string
+        && request.resource.data.imageUrl is string
+        && request.resource.data.hasPhotoEvidence == true
+        && request.resource.data.evidenceStorage == 'firestore'
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number;
+
+      allow update: if isAdmin()
+        && validStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'reviewedBy', 'reviewedAt', 'updatedAt', 'statusHistory'
+        ])
+        && (
+          (resource.data.status == 'Pending Review'
+            && request.resource.data.status in ['Verified', 'Rejected'])
+          || (resource.data.status == 'Verified'
+            && request.resource.data.status == 'Resolved')
+        );
+
+      allow delete: if false;
+
+      match /evidence/{evidenceId} {
+        allow read: if canReadHazard(hazardId);
+
+        allow create: if evidenceId == 'photo'
+          && isActiveTraveler()
+          && request.resource.data.keys().hasOnly([
+            'hazardId', 'userId', 'imageBytes', 'contentType',
+            'byteLength', 'createdAt'
+          ])
+          && request.resource.data.hazardId == hazardId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.imageBytes is bytes
+          && request.resource.data.imageBytes.size() <= 400 * 1024
+          && request.resource.data.byteLength
+            == request.resource.data.imageBytes.size()
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.createdAt == request.time
+          && getAfter(
+            /databases/$(database)/documents/hazard_reports/$(hazardId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/hazard_reports/$(hazardId)
+          ).data.hasPhotoEvidence == true;
+
+        allow update, delete: if false;
+      }
+
+      match /votes/{userId} {
+        allow read: if canReadHazard(hazardId);
+        allow create: if isActiveTraveler()
+          && userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid
+          && validVote(request.resource.data.voteType)
+          && request.resource.data.distanceFromHazardMeters is number
+          && request.resource.data.distanceFromHazardMeters >= 0
+          && request.resource.data.distanceFromHazardMeters <= 500
+          && request.resource.data.proximityBand in ['STRONG', 'NORMAL', 'WEAK']
+          && request.resource.data.isGpsValidated == true
+          && request.resource.data.hasPhotoEvidence is bool
+          && request.resource.data.photoUrl is string
+          && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified';
+        allow update, delete: if false;
+
+        match /evidence/{evidenceId} {
+          allow read: if canReadHazard(hazardId);
+          allow create: if evidenceId == 'photo'
+            && isActiveTraveler()
+            && userId == request.auth.uid
+            && request.resource.data.keys().hasOnly([
+              'hazardId', 'userId', 'imageBytes', 'contentType',
+              'byteLength', 'createdAt'
+            ])
+            && request.resource.data.hazardId == hazardId
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.imageBytes is bytes
+            && request.resource.data.imageBytes.size() <= 400 * 1024
+            && request.resource.data.byteLength
+              == request.resource.data.imageBytes.size()
+            && request.resource.data.contentType == 'image/jpeg'
+            && request.resource.data.createdAt == request.time
+            && get(
+              /databases/$(database)/documents/hazard_reports/$(hazardId)
+            ).data.status == 'Verified';
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isAdmin()
+        && request.resource.data.notificationId == notificationId
+        && request.resource.data.type == 'hazard_status'
+        && request.resource.data.hazardId is string
+        && request.resource.data.isRead == false;
+
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isRead', 'read', 'readAt'
+        ])
+        && request.resource.data.isRead == true;
+
+      allow delete: if false;
+    }
+  }
+}

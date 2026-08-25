@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>MyHeritage Explorer uses the camera to attach evidence to safety reports.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>MyHeritage Explorer uses your location to report hazards and warn you about nearby verified danger zones.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MyHeritage Explorer can use a selected photo as evidence for a safety report.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

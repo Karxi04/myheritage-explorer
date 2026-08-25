@@ -44,7 +44,9 @@ class _TravelerShellState extends State<TravelerShell> {
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
-      body: IndexedStack(index: index, children: pages),
+      body: HazardProximityMonitor(
+        child: IndexedStack(index: index, children: pages),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
         onDestinationSelected: (value) => setState(() => index = value),

@@ -6,6 +6,8 @@ class MyHazardReportsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
+    final reportService = HazardReportService();
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       body: SafeArea(
@@ -30,24 +32,22 @@ class MyHazardReportsPage extends StatelessWidget {
               ],
             ),
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db
-                    .collection('hazards')
-                    .where('reporterId', isEqualTo: uid)
-                    .snapshots(),
+              child: StreamBuilder<List<HazardReport>>(
+                stream: reportService.watchReportsByUser(uid),
                 builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return ExplorerEmptyState(
+                      title: 'Unable to load your reports',
+                      subtitle: '${snapshot.error}',
+                      icon: Icons.cloud_off_outlined,
+                    );
+                  }
                   if (!snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final docs = snapshot.data!.docs.toList()
-                    ..sort(
-                      (a, b) =>
-                          (asDate(b.data()['createdAt']) ?? DateTime(2000))
-                              .compareTo(
-                        asDate(a.data()['createdAt']) ?? DateTime(2000),
-                      ),
-                    );
-                  if (docs.isEmpty) {
+
+                  final reports = snapshot.data!;
+                  if (reports.isEmpty) {
                     return const ExplorerEmptyState(
                       title: 'No reports submitted',
                       subtitle:
@@ -55,15 +55,23 @@ class MyHazardReportsPage extends StatelessWidget {
                       icon: Icons.health_and_safety_outlined,
                     );
                   }
+
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
-                    itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemCount: reports.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
-                      final data = docs[index].data();
-                      final status = '${data['status'] ?? 'pending'}';
-                      final createdAt = asDate(data['createdAt']);
+                      final report = reports[index];
                       return ExplorerCard(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => HazardDetailPage(
+                              hazardId: report.id,
+                              showStatusHistory: true,
+                            ),
+                          ),
+                        ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -71,14 +79,14 @@ class MyHazardReportsPage extends StatelessWidget {
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
-                                color: _toneColor(status),
+                                color: _toneColor(report.status),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(
-                                status == 'resolved'
+                                report.status == HazardReportStatus.resolved
                                     ? Icons.task_alt
                                     : Icons.warning_amber_rounded,
-                                color: _iconColor(status),
+                                color: _iconColor(report.status),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -90,7 +98,7 @@ class MyHazardReportsPage extends StatelessWidget {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          '${data['category'] ?? 'Hazard'}',
+                                          report.category,
                                           style: const TextStyle(
                                             color: ExplorerColors.navy,
                                             fontSize: 15,
@@ -99,14 +107,14 @@ class MyHazardReportsPage extends StatelessWidget {
                                         ),
                                       ),
                                       ExplorerStatusBadge(
-                                        label: status.toUpperCase(),
-                                        tone: _statusTone(status),
+                                        label: report.status.toUpperCase(),
+                                        tone: _statusTone(report.status),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 5),
                                   Text(
-                                    '${data['description'] ?? ''}',
+                                    report.description,
                                     maxLines: 3,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -124,19 +132,11 @@ class MyHazardReportsPage extends StatelessWidget {
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        createdAt == null
+                                        report.createdAt == null
                                             ? 'Recently submitted'
                                             : DateFormat.yMMMd()
-                                                .add_jm()
-                                                .format(createdAt),
-                                        style: const TextStyle(
-                                          color: ExplorerColors.muted,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Text(
-                                        '${data['upvoteCount'] ?? 0} confirmations',
+                                                  .add_jm()
+                                                  .format(report.createdAt!),
                                         style: const TextStyle(
                                           color: ExplorerColors.muted,
                                           fontSize: 10,
@@ -162,20 +162,23 @@ class MyHazardReportsPage extends StatelessWidget {
   }
 
   static ExplorerStatusTone _statusTone(String status) => switch (status) {
-        'verified' || 'resolved' => ExplorerStatusTone.success,
-        'rejected' => ExplorerStatusTone.danger,
-        _ => ExplorerStatusTone.warning,
-      };
+    HazardReportStatus.verified ||
+    HazardReportStatus.resolved => ExplorerStatusTone.success,
+    HazardReportStatus.rejected => ExplorerStatusTone.danger,
+    _ => ExplorerStatusTone.warning,
+  };
 
   static Color _toneColor(String status) => switch (status) {
-        'verified' || 'resolved' => ExplorerColors.successSoft,
-        'rejected' => ExplorerColors.dangerSoft,
-        _ => ExplorerColors.warningSoft,
-      };
+    HazardReportStatus.verified ||
+    HazardReportStatus.resolved => ExplorerColors.successSoft,
+    HazardReportStatus.rejected => ExplorerColors.dangerSoft,
+    _ => ExplorerColors.warningSoft,
+  };
 
   static Color _iconColor(String status) => switch (status) {
-        'verified' || 'resolved' => ExplorerColors.success,
-        'rejected' => ExplorerColors.danger,
-        _ => ExplorerColors.goldDark,
-      };
+    HazardReportStatus.verified ||
+    HazardReportStatus.resolved => ExplorerColors.success,
+    HazardReportStatus.rejected => ExplorerColors.danger,
+    _ => ExplorerColors.goldDark,
+  };
 }

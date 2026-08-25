@@ -8,6 +8,8 @@ class CreateHazardPage extends StatefulWidget {
 }
 
 class _CreateHazardPageState extends State<CreateHazardPage> {
+  final _reportService = HazardReportService();
+  final _locationService = const LocationService();
   final description = TextEditingController();
   String category = 'Unsafe walkway';
   String severity = 'Medium';
@@ -25,38 +27,41 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
       showMessage(context, 'Enter a hazard description.', error: true);
       return;
     }
+    if (image == null) {
+      showMessage(
+        context,
+        'Add photo evidence before submitting.',
+        error: true,
+      );
+      return;
+    }
+
     setState(() => busy = true);
     try {
-      final uid = AppServices.auth.currentUser!.uid;
-      final position = await determinePosition();
-      String? imageUrl;
-      if (image != null) {
-        imageUrl = await AppServices.uploadImage(
-          folder: 'hazards',
-          uid: uid,
-          bytes: await image!.readAsBytes(),
-          extension: image!.name.split('.').last,
-        );
-      }
-      await AppServices.db.collection('hazards').add({
-        'reporterId': uid,
-        'category': category,
-        'severity': severity,
-        'description': description.text.trim(),
-        'imageUrl': imageUrl,
-        'location': GeoPoint(position.latitude, position.longitude),
-        'status': 'pending',
-        'upvoteCount': 0,
-        'resolveCount': 0,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final position = await _locationService.getCurrentPosition();
+      final imageBytes = await image!.readAsBytes();
+
+      await _reportService.createReport(
+        category: category,
+        severity: severity,
+        description: description.text.trim(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        imageBytes: imageBytes,
+      );
+
       if (mounted) {
-        showMessage(context, 'Hazard submitted for administrator review.');
+        showMessage(context, 'Hazard submitted with status Pending Review.');
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) showMessage(context, e.toString(), error: true);
+      if (mounted) {
+        showMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -130,27 +135,29 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                         const ExplorerSectionTitle('Hazard Details'),
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
-                          value: category,
+                          initialValue: category,
                           decoration: const InputDecoration(
                             labelText: 'Hazard category',
                             prefixIcon: Icon(Icons.category_outlined),
                           ),
-                          items: [
-                            'Unsafe walkway',
-                            'Poor lighting',
-                            'Road obstruction',
-                            'Flooding',
-                            'Suspicious activity',
-                            'Other',
-                          ]
-                              .map(
-                                (value) => DropdownMenuItem(
-                                  value: value,
-                                  child: Text(value),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) => setState(() => category = value!),
+                          items:
+                              const [
+                                    'Unsafe walkway',
+                                    'Poor lighting',
+                                    'Road obstruction',
+                                    'Flooding',
+                                    'Suspicious activity',
+                                    'Other',
+                                  ]
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(value),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (value) =>
+                              setState(() => category = value!),
                         ),
                         const SizedBox(height: 16),
                         const Text(
@@ -219,7 +226,7 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const ExplorerSectionTitle(
-                          'Photo Evidence',
+                          'Photo Evidence *',
                           subtitle:
                               'A clear photo helps administrators verify the report.',
                         ),
@@ -229,7 +236,9 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                           onTap: () async {
                             final picked = await ImagePicker().pickImage(
                               source: ImageSource.camera,
-                              imageQuality: 80,
+                              maxWidth: 1600,
+                              maxHeight: 1600,
+                              imageQuality: 85,
                             );
                             if (picked != null) setState(() => image = picked);
                           },
@@ -275,16 +284,6 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  image == null
-                                      ? 'Camera permission may be requested.'
-                                      : 'Tap again to replace this photo.',
-                                  style: const TextStyle(
-                                    color: ExplorerColors.muted,
-                                    fontSize: 10,
-                                  ),
-                                ),
                               ],
                             ),
                           ),
@@ -310,15 +309,6 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                         : const Icon(Icons.send_outlined),
                     label: Text(
                       busy ? 'Submitting Report...' : 'Submit Hazard Report',
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  const Text(
-                    'False or misleading reports may be rejected by the administrator.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 10,
                     ),
                   ),
                 ],

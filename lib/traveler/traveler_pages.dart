@@ -1,26 +1,38 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
-import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
+import 'package:latlong2/latlong.dart' as latlng;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../auth/auth_pages.dart';
-import '../core/app_theme.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
+import '../core/safety_config.dart';
 import '../core/services.dart';
-
-
+import '../models/app_notification.dart';
+import '../models/hazard_report.dart';
+import '../models/hazard_vote.dart';
+import '../models/itinerary_hazard_warning.dart';
+import '../services/confidence_analysis_service.dart';
+import '../services/hazard_map_service.dart';
+import '../services/hazard_report_service.dart';
+import '../services/hazard_vote_service.dart';
+import '../services/location_service.dart';
+import '../services/itinerary_safety_service.dart';
+import '../services/safety_alert_priority_service.dart';
+import '../services/mobile_notification_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/hazard_evidence_image.dart';
 
 part 'home/traveler_home_page.dart';
 part 'daily_planner/daily_planner_page.dart';
@@ -35,6 +47,10 @@ part 'cultural/cultural_tasks_page.dart';
 part 'safety/safety_page.dart';
 part 'safety/my_hazard_reports_page.dart';
 part 'safety/create_hazard_page.dart';
+part 'safety/hazard_detail_page.dart';
+part 'safety/hazard_proximity_monitor.dart';
+part 'safety/danger_zone_map_page.dart';
+part 'safety/safety_alert_page.dart';
 part 'companion/companion_page.dart';
 part 'companion/group_details_page.dart';
 part 'rewards/rewards_page.dart';
@@ -44,6 +60,3 @@ part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
-
-
-

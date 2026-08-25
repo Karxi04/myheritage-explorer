@@ -475,12 +475,16 @@ class AppServices {
     String type = 'general',
     String? referenceId,
   }) async {
-    await db.collection('notifications').add({
+    final notificationRef = db.collection('notifications').doc();
+    await notificationRef.set({
+      'notificationId': notificationRef.id,
       'userId': userId,
       'title': title,
       'message': message,
       'type': type,
       'referenceId': referenceId,
+      if (type.startsWith('hazard')) 'hazardId': referenceId,
+      'isRead': false,
       'read': false,
       'createdAt': FieldValue.serverTimestamp(),
     });
