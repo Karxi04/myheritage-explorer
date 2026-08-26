@@ -632,7 +632,6 @@ class ItineraryImageResolver {
       } catch (_) {
         failed = true;
       }
-
       if (!failed) {
         return {
           ...resolved,
@@ -710,8 +709,12 @@ class ItineraryPlaceImage extends StatelessWidget {
   }
 
   static List<String> _uniqueCandidateList(Map<String, dynamic> stop) {
+    final imageCand = stop['imageCandidates'];
     final raw = <Object?>[
-      ...List<Object?>.from(stop['imageCandidates'] ?? const <Object?>[]),
+      if (imageCand is List)
+        ...imageCand
+      else if (imageCand != null)
+        imageCand,
       stop['imageUrl'],
       stop['fallbackImageUrl'],
       stop['mapPreviewUrl'],

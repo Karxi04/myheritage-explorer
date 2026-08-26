@@ -16,6 +16,153 @@ class ItineraryScheduleResult {
   final int endMinutes;
 }
 
+class ItineraryBudgetEstimate {
+  const ItineraryBudgetEstimate({
+    required this.dayBudget,
+    required this.tripBudget,
+    required this.budgetLevel,
+  });
+
+  final int dayBudget;
+  final int tripBudget;
+  final String budgetLevel;
+}
+
+class ItineraryBudgetEstimator {
+  const ItineraryBudgetEstimator._();
+
+  static const int lowDailyLimit = 50;
+  static const int mediumDailyLimit = 150;
+
+  static ItineraryBudgetEstimate estimateDay(
+    List<Map<String, dynamic>> stops,
+  ) {
+    final dayBudget = stops.fold<int>(
+      0,
+      (total, stop) => total + estimateStop(stop),
+    );
+    return ItineraryBudgetEstimate(
+      dayBudget: dayBudget,
+      tripBudget: dayBudget,
+      budgetLevel: levelForDailyBudget(dayBudget),
+    );
+  }
+
+  static ItineraryBudgetEstimate estimateTrip(
+    List<Map<String, dynamic>> days, {
+    List<Map<String, dynamic>> fallbackStops = const <Map<String, dynamic>>[],
+  }) {
+    final dayBudgets = <int>[];
+    for (final day in days) {
+      final rawStops = day['stops'];
+      if (rawStops is! List) continue;
+      final stops = rawStops
+          .whereType<Map>()
+          .map((stop) => Map<String, dynamic>.from(stop))
+          .toList();
+      dayBudgets.add(
+        stops.fold<int>(0, (total, stop) => total + estimateStop(stop)),
+      );
+    }
+
+    if (dayBudgets.isEmpty && fallbackStops.isNotEmpty) {
+      dayBudgets.add(
+        fallbackStops.fold<int>(
+          0,
+          (total, stop) => total + estimateStop(stop),
+        ),
+      );
+    }
+
+    final tripBudget = dayBudgets.fold<int>(0, (total, day) => total + day);
+    final averageDayBudget = dayBudgets.isEmpty
+        ? 0
+        : (tripBudget / dayBudgets.length).round();
+    return ItineraryBudgetEstimate(
+      dayBudget: averageDayBudget,
+      tripBudget: tripBudget,
+      budgetLevel: levelForDailyBudget(averageDayBudget),
+    );
+  }
+
+  static int estimateStop(Map<String, dynamic> stop) {
+    final explicit = _explicitCost(stop);
+    if (explicit != null) return explicit;
+
+    final level = '${stop['budgetLevel'] ?? stop['budget'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final category = '${stop['category'] ?? ''}'.toLowerCase();
+    final tags = (stop['tags'] as List?)
+            ?.map((tag) => '$tag'.toLowerCase())
+            .toList() ??
+        const <String>[];
+
+    if (level.contains('free') || category.contains('free')) return 0;
+    if (level.contains('high') || category.contains('fine dining')) return 90;
+    if (level.contains('medium')) {
+      if (category.contains('food') || tags.any((tag) => tag.contains('food'))) {
+        return 35;
+      }
+      return 45;
+    }
+    if (level.contains('low')) {
+      if (category.contains('food') ||
+          category.contains('hawker') ||
+          category.contains('market')) {
+        return 20;
+      }
+      return 10;
+    }
+    if (category.contains('food') ||
+        category.contains('cafe') ||
+        category.contains('restaurant')) {
+      return 35;
+    }
+    if (category.contains('heritage') ||
+        category.contains('landmark') ||
+        category.contains('temple') ||
+        category.contains('mosque') ||
+        category.contains('park')) {
+      return 10;
+    }
+    return 30;
+  }
+
+  static String levelForDailyBudget(int dayBudget) {
+    if (dayBudget <= lowDailyLimit) return 'Low';
+    if (dayBudget <= mediumDailyLimit) return 'Medium';
+    return 'High';
+  }
+
+  static int? _explicitCost(Map<String, dynamic> stop) {
+    for (final key in const [
+      'estimatedCostRm',
+      'estimatedCost',
+      'costRm',
+      'cost',
+      'priceRm',
+      'price',
+      'entryFee',
+    ]) {
+      final parsed = _parseCost(stop[key]);
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
+  static int? _parseCost(Object? value) {
+    if (value == null) return null;
+    if (value is num) return max(0, value.round());
+    final text = '$value'.toLowerCase().trim();
+    if (text.isEmpty || text == 'null') return null;
+    if (text.contains('free') || text == 'no' || text == 'false') return 0;
+    final match = RegExp(r'\d+(?:\.\d+)?').firstMatch(text);
+    if (match == null) return null;
+    return max(0, double.parse(match.group(0)!).round());
+  }
+}
+
 class ItinerarySchedulePlanner {
   const ItinerarySchedulePlanner._();
 
@@ -41,11 +188,9 @@ class ItinerarySchedulePlanner {
       );
     }
 
-    final start = preferredStartMinutes ??
-        _suggestedStart(
-          planned.first,
-          defaultStartMinutes,
-        );
+    final start = preferredStartMinutes != null
+        ? _suggestedStartWithPreferred(planned.first, preferredStartMinutes)
+        : _suggestedStart(planned.first, defaultStartMinutes);
     var cursor = start;
 
     for (var index = 0; index < planned.length; index++) {
@@ -56,15 +201,22 @@ class ItinerarySchedulePlanner {
       final distance = index == 0
           ? null
           : _distanceMeters(planned[index - 1], stop);
-      final arrival = cursor + travel;
+      var arrival = cursor + travel;
       final duration = max(
         30,
         (stop['durationMinutes'] as num?)?.round() ?? 60,
       );
+
+      final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
+      if (openingWindow != null && !openingWindow.open24Hours) {
+        if (arrival < openingWindow.opens && openingWindow.opens < openingWindow.closes) {
+          arrival = openingWindow.opens;
+        }
+      }
+
       final departure = arrival + duration;
       final notes = <String>[];
 
-      final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
       final openingNote = _openingNote(
         window: openingWindow,
         arrival: arrival,
@@ -79,11 +231,11 @@ class ItinerarySchedulePlanner {
 
       if (travel >= 35) {
         notes.add(
-          'Long transfer from the previous stop. Consider moving closer places together.',
+          'Long transfer from previous stop. Consider grouping nearby places.',
         );
       } else if (travel >= 22) {
         notes.add(
-          'Moderate transfer from the previous stop. Keep some buffer time.',
+          'Moderate transfer from previous stop. Buffer time included.',
         );
       }
 
@@ -124,9 +276,18 @@ class ItinerarySchedulePlanner {
     return '$hour12:${minute.toString().padLeft(2, '0')} $suffix';
   }
 
+  static int _suggestedStartWithPreferred(Map<String, dynamic> first, int preferred) {
+    final window = _openingWindow('${first['openingHours'] ?? ''}');
+    if (window == null || window.open24Hours) return preferred;
+    if (window.opens > preferred && window.opens < window.closes) {
+      return window.opens;
+    }
+    return preferred;
+  }
+
   static int _suggestedStart(Map<String, dynamic> first, int fallback) {
     final window = _openingWindow('${first['openingHours'] ?? ''}');
-    if (window == null) return fallback;
+    if (window == null || window.open24Hours) return fallback;
     if (window.opens > fallback && window.opens < window.closes) {
       return window.opens;
     }
