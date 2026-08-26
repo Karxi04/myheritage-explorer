@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import 'helpers.dart';
+import 'notification_service.dart';
 
 class AccountProfile {
   const AccountProfile({required this.role, required this.data});
@@ -475,15 +476,121 @@ class AppServices {
     String type = 'general',
     String? referenceId,
   }) async {
-    await db.collection('notifications').add({
-      'userId': userId,
-      'title': title,
-      'message': message,
-      'type': type,
-      'referenceId': referenceId,
-      'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await db.collection('notifications').add({
+        'userId': userId,
+        'title': title,
+        'message': message,
+        'type': type,
+        'referenceId': referenceId,
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+
+    try {
+      final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
+      final payload = type == 'itinerary' && referenceId != null
+          ? 'itinerary:$referenceId'
+          : null;
+      await SystemNotificationService.instance.showInstantNotification(
+        id: notifId,
+        title: title,
+        body: message,
+        payload: payload,
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> scheduleTripNotification({
+    required String userId,
+    required String itineraryId,
+    required String title,
+    required String area,
+    required DateTime tripStartDate,
+    DateTime? tripEndDate,
+  }) async {
+    final formattedDate =
+        '${tripStartDate.day}/${tripStartDate.month}/${tripStartDate.year}';
+    final inAppTitle = '📅 Trip Scheduled: $title';
+    final inAppMessage =
+        'Your itinerary for $area is scheduled for $formattedDate. We will send you a reminder before departure!';
+
+    await notify(
+      userId: userId,
+      title: inAppTitle,
+      message: inAppMessage,
+      type: 'itinerary',
+      referenceId: itineraryId,
+    );
+
+    // Schedule 1 day before at 9:00 AM (or on start date at 8:00 AM if trip is tomorrow/today)
+    final now = DateTime.now();
+    DateTime reminderDate = DateTime(
+      tripStartDate.year,
+      tripStartDate.month,
+      tripStartDate.day,
+      8,
+      0,
+    ).subtract(const Duration(days: 1));
+
+    if (reminderDate.isBefore(now)) {
+      reminderDate = DateTime(
+        tripStartDate.year,
+        tripStartDate.month,
+        tripStartDate.day,
+        8,
+        0,
+      );
+    }
+
+    final notifId = itineraryId.hashCode.abs().remainder(100000);
+    await SystemNotificationService.instance.scheduleTripReminder(
+      id: notifId,
+      title: '✈️ Upcoming Trip: $title ($area)',
+      body: 'Your trip to $area starts tomorrow ($formattedDate)! Check your itinerary & today\'s weather forecast.',
+      reminderTime: reminderDate,
+      payload: 'itinerary:$itineraryId',
+    );
+  }
+
+  static String getItineraryStatus(Map<String, dynamic> itinerary) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    DateTime? startDate;
+    DateTime? endDate;
+
+    if (itinerary['startDate'] != null) {
+      startDate = asDate(itinerary['startDate']);
+    } else if (itinerary['targetDate'] != null) {
+      startDate = asDate(itinerary['targetDate']);
+    }
+
+    if (itinerary['endDate'] != null) {
+      endDate = asDate(itinerary['endDate']);
+    }
+
+    if (startDate == null) {
+      final createdAt = asDate(itinerary['createdAt']);
+      if (createdAt != null && now.difference(createdAt).inDays > 14) {
+        return 'expired';
+      }
+      return 'ongoing';
+    }
+
+    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+    final endDay = endDate != null
+        ? DateTime(endDate.year, endDate.month, endDate.day)
+        : startDay;
+
+    if (today.isBefore(startDay)) {
+      return 'upcoming';
+    } else if (today.isAfter(endDay)) {
+      return 'expired';
+    } else {
+      return 'ongoing';
+    }
   }
 
   static Future<void> claimVoucher({
@@ -1018,32 +1125,6 @@ class AppServices {
         });
       }
     } catch (_) {}
-
-    final curatedPlaces = [
-      {'name': 'Restoran BM Yam Rice', 'area': 'Bukit Mertajam', 'category': 'Food'},
-      {'name': 'BM Cup Rice Gai Fan', 'area': 'Bukit Mertajam', 'category': 'Food'},
-      {'name': 'Duck Egg Char Koay Teow BM', 'area': 'Bukit Mertajam', 'category': 'Food'},
-      {'name': 'Minor Basilica of St. Anne', 'area': 'Bukit Mertajam', 'category': 'Heritage'},
-      {'name': 'Cheong Fatt Tze - The Blue Mansion', 'area': 'George Town, Penang', 'category': 'Heritage'},
-      {'name': 'Pinang Peranakan Mansion', 'area': 'George Town, Penang', 'category': 'Heritage'},
-      {'name': 'Pasar Besar Siti Khadijah', 'area': 'Kota Bharu, Kelantan', 'category': 'Heritage'},
-      {'name': 'Masjid Kristal', 'area': 'Kuala Terengganu', 'category': 'Heritage'},
-      {'name': 'Borneo Cultures Museum', 'area': 'Kuching, Sarawak', 'category': 'Culture'},
-      {'name': 'Batu Caves Temple', 'area': 'Selangor', 'category': 'Heritage'},
-    ];
-
-    for (final curated in curatedPlaces) {
-      final nameKey = (curated['name'] ?? '')
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9]'), '_');
-      targets.add({
-        'vendorId': '',
-        'placeId': 'curated_$nameKey',
-        'name': curated['name']!,
-        'category': curated['category']!,
-        'area': curated['area']!,
-      });
-    }
 
     int addedCount = 0;
     int targetIndex = 0;

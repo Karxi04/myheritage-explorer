@@ -3,6 +3,23 @@ part of '../traveler_pages.dart';
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
+  Future<void> _handleNotificationTap(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> reference,
+    Map<String, dynamic> data,
+  ) async {
+    await reference.update({'read': true});
+    final isItinerary = '${data['type'] ?? ''}' == 'itinerary';
+    final itineraryId = '${data['referenceId'] ?? ''}'.trim();
+    if (!isItinerary || itineraryId.isEmpty || !context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
@@ -59,7 +76,11 @@ class NotificationsPage extends StatelessWidget {
                         borderColor: read
                             ? ExplorerColors.border
                             : const Color(0xFFB9CBE2),
-                        onTap: () => doc.reference.update({'read': true}),
+                        onTap: () => _handleNotificationTap(
+                          context,
+                          doc.reference,
+                          data,
+                        ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
