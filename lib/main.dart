@@ -12,9 +12,7 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
   SystemNotificationService.instance.init();
@@ -23,23 +21,35 @@ Future<void> main() async {
 }
 
 void _handleNotificationPayload(String? payload) {
-  final itineraryId = _itineraryIdFromNotificationPayload(payload);
-  if (itineraryId.isEmpty) return;
+  final value = (payload ?? '').trim();
+  if (value.isEmpty) return;
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final navigator = appNavigatorKey.currentState;
     if (navigator == null) return;
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
-      ),
-    );
+
+    Widget? destination;
+    if (AppServices.auth.currentUser != null) {
+      destination = switch (value) {
+        'rewards' => const RewardsPage(),
+        'voucher_wallet' => const VoucherWalletPage(),
+        _ => null,
+      };
+    }
+    final itineraryId = _itineraryIdFromNotificationPayload(value);
+    if (destination == null && itineraryId.isNotEmpty) {
+      destination = ItineraryDetailPage(itineraryId: itineraryId);
+    }
+    if (destination == null) return;
+
+    navigator.push(MaterialPageRoute(builder: (_) => destination!));
   });
 }
 
 String _itineraryIdFromNotificationPayload(String? payload) {
-  final value = '${payload ?? ''}'.trim();
+  final value = (payload ?? '').trim();
   if (value.isEmpty) return '';
+  if (value == 'rewards' || value == 'voucher_wallet') return '';
   if (value.startsWith('itinerary:')) {
     return value.substring('itinerary:'.length).trim();
   }
@@ -62,15 +72,13 @@ class MyHeritageApp extends StatelessWidget {
   }
 }
 
-
 class _AppEntry extends StatelessWidget {
   const _AppEntry();
 
   @override
   Widget build(BuildContext context) {
     final shareId = Uri.base.queryParameters['share']?.trim();
-    final encodedItinerary =
-        Uri.base.queryParameters['itinerary']?.trim();
+    final encodedItinerary = Uri.base.queryParameters['itinerary']?.trim();
 
     if (shareId != null && shareId.isNotEmpty) {
       return SharedItineraryPage(shareId: shareId);
@@ -78,9 +86,7 @@ class _AppEntry extends StatelessWidget {
 
     // Backward compatibility for the previous long itinerary links.
     if (encodedItinerary != null && encodedItinerary.isNotEmpty) {
-      return SharedItineraryPage(
-        encodedItinerary: encodedItinerary,
-      );
+      return SharedItineraryPage(encodedItinerary: encodedItinerary);
     }
 
     return const AuthGate();

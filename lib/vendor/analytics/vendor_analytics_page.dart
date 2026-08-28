@@ -1,4 +1,3 @@
-﻿
 part of '../vendor_pages.dart';
 
 class VendorAnalyticsPage extends StatelessWidget {
@@ -33,12 +32,12 @@ class VendorAnalyticsPage extends StatelessWidget {
           final vouchers = voucherSnapshot.data!.docs;
           final totalIssued = vouchers.fold<num>(
             0,
-            (sum, doc) =>
-                sum + ((doc.data()['inventoryLimit'] ?? 0) as num),
+            (total, doc) =>
+                total + ((doc.data()['inventoryLimit'] ?? 0) as num),
           );
           final totalClaimed = vouchers.fold<num>(
             0,
-            (sum, doc) => sum + ((doc.data()['claimCount'] ?? 0) as num),
+            (total, doc) => total + ((doc.data()['claimCount'] ?? 0) as num),
           );
 
           QueryDocumentSnapshot<Map<String, dynamic>>? topVoucher;
@@ -62,11 +61,10 @@ class VendorAnalyticsPage extends StatelessWidget {
 
               final redemptions = redemptionSnapshot.data!.docs.toList()
                 ..sort(
-                  (a, b) => (asDate(b.data()['redeemedAt']) ??
-                          DateTime(2000))
+                  (a, b) => (asDate(b.data()['redeemedAt']) ?? DateTime(2000))
                       .compareTo(
-                    asDate(a.data()['redeemedAt']) ?? DateTime(2000),
-                  ),
+                        asDate(a.data()['redeemedAt']) ?? DateTime(2000),
+                      ),
                 );
 
               final rate = totalClaimed == 0
@@ -87,6 +85,30 @@ class VendorAnalyticsPage extends StatelessWidget {
                   .take(8)
                   .map((entry) => entry.value.toDouble())
                   .toList();
+              final interestCounts = <String, int>{};
+              for (final doc in redemptions) {
+                final rawTags = doc.data()['interestTags'];
+                if (rawTags is! Iterable) continue;
+                for (final rawTag in rawTags) {
+                  final tag = '$rawTag'.trim();
+                  if (tag.isNotEmpty) {
+                    interestCounts[tag] = (interestCounts[tag] ?? 0) + 1;
+                  }
+                }
+              }
+              final sortedInterests = interestCounts.entries.toList()
+                ..sort((a, b) => b.value.compareTo(a.value));
+              final topInterests = sortedInterests.take(4).toList();
+              final interestTotal = topInterests.fold<int>(
+                0,
+                (total, entry) => total + entry.value,
+              );
+              const interestColors = [
+                ExplorerColors.navy,
+                ExplorerColors.gold,
+                Color(0xFF5D88C7),
+                Color(0xFFBCC9D8),
+              ];
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
@@ -103,10 +125,7 @@ class VendorAnalyticsPage extends StatelessWidget {
                   const SizedBox(height: 4),
                   const Text(
                     'Monitor voucher performance and tourist interest trends.',
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
                   ),
                   const SizedBox(height: 18),
                   Row(
@@ -115,7 +134,7 @@ class VendorAnalyticsPage extends StatelessWidget {
                         child: ExplorerMetricCard(
                           label: 'Total Vouchers Issued',
                           value: '$totalIssued',
-                          caption: '+12% this month',
+                          caption: '$totalClaimed claimed overall',
                           compact: true,
                         ),
                       ),
@@ -124,7 +143,8 @@ class VendorAnalyticsPage extends StatelessWidget {
                         child: ExplorerMetricCard(
                           label: 'Avg. Redemption Rate',
                           value: '${rate.toStringAsFixed(1)}%',
-                          caption: '+5.4% this month',
+                          caption:
+                              '${redemptions.length} completed redemptions',
                           compact: true,
                         ),
                       ),
@@ -161,7 +181,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                topVoucher == null ? 'No voucher data' : '${topVoucher.data()['title'] ?? 'No voucher data'}',
+                                topVoucher == null
+                                    ? 'No voucher data'
+                                    : '${topVoucher.data()['title'] ?? 'No voucher data'}',
                                 style: const TextStyle(
                                   color: ExplorerColors.navy,
                                   fontSize: 16,
@@ -172,8 +194,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                           ),
                         ),
                         ExplorerStatusBadge(
-                          label:
-                              topVoucher == null ? '0 CLAIMS' : '${topVoucher.data()['claimCount'] ?? 0} CLAIMS',
+                          label: topVoucher == null
+                              ? '0 CLAIMS'
+                              : '${topVoucher.data()['claimCount'] ?? 0} CLAIMS',
                           tone: ExplorerStatusTone.warning,
                         ),
                       ],
@@ -182,30 +205,33 @@ class VendorAnalyticsPage extends StatelessWidget {
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Redemption Trend'),
                   const SizedBox(height: 10),
-                  ExplorerCard(
-                    child: SizedBox(
-                      height: 170,
-                      child: CustomPaint(
-                        painter: _VendorLineChartPainter(
-                          values: trendValues.isEmpty
-                              ? const [1, 2, 1.5, 3, 2.7, 4]
-                              : trendValues,
-                        ),
-                        child: const Align(
-                          alignment: Alignment.topLeft,
-                          child: Text(
-                            'CLAIMED / REDEEMED',
-                            style: TextStyle(
-                              color: ExplorerColors.muted,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .5,
+                  if (trendValues.isEmpty)
+                    const ExplorerEmptyState(
+                      title: 'No redemption trend yet',
+                      subtitle: 'Completed QR scans will build this chart.',
+                      icon: Icons.show_chart,
+                    )
+                  else
+                    ExplorerCard(
+                      child: SizedBox(
+                        height: 170,
+                        child: CustomPaint(
+                          painter: _VendorLineChartPainter(values: trendValues),
+                          child: const Align(
+                            alignment: Alignment.topLeft,
+                            child: Text(
+                              'REDEMPTIONS BY DAY',
+                              style: TextStyle(
+                                color: ExplorerColors.muted,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: .5,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Claimed vs Redeemed'),
                   const SizedBox(height: 10),
@@ -223,46 +249,50 @@ class VendorAnalyticsPage extends StatelessWidget {
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Interest Tags Distribution'),
                   const SizedBox(height: 10),
-                  ExplorerCard(
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 120,
-                          height: 120,
-                          child: CustomPaint(
-                            painter: _VendorDonutPainter(),
+                  if (topInterests.isEmpty)
+                    const ExplorerEmptyState(
+                      title: 'No interest data yet',
+                      subtitle:
+                          'Anonymous tourist interests are captured at redemption.',
+                      icon: Icons.pie_chart_outline,
+                    )
+                  else
+                    ExplorerCard(
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 120,
+                            height: 120,
+                            child: CustomPaint(
+                              painter: _VendorDonutPainter(
+                                segments: [
+                                  for (var i = 0; i < topInterests.length; i++)
+                                    (
+                                      color: interestColors[i],
+                                      ratio:
+                                          topInterests[i].value / interestTotal,
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 18),
-                        const Expanded(
-                          child: Column(
-                            children: [
-                              _LegendRow(
-                                color: ExplorerColors.navy,
-                                label: 'Heritage',
-                                value: '40%',
-                              ),
-                              _LegendRow(
-                                color: ExplorerColors.gold,
-                                label: 'Food',
-                                value: '25%',
-                              ),
-                              _LegendRow(
-                                color: Color(0xFF5D88C7),
-                                label: 'Local',
-                                value: '20%',
-                              ),
-                              _LegendRow(
-                                color: Color(0xFFBCC9D8),
-                                label: 'Craft',
-                                value: '15%',
-                              ),
-                            ],
+                          const SizedBox(width: 18),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                for (var i = 0; i < topInterests.length; i++)
+                                  _LegendRow(
+                                    color: interestColors[i],
+                                    label: topInterests[i].key,
+                                    value:
+                                        '${(topInterests[i].value / interestTotal * 100).round()}%',
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 20),
                   const ExplorerSectionTitle('Recent Redemptions'),
                   const SizedBox(height: 10),
@@ -274,7 +304,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                       icon: Icons.analytics_outlined,
                     )
                   else
-                    ...redemptions.take(8).map(
+                    ...redemptions
+                        .take(8)
+                        .map(
                           (doc) => Padding(
                             padding: const EdgeInsets.only(bottom: 9),
                             child: ExplorerCard(
@@ -301,7 +333,7 @@ class VendorAnalyticsPage extends StatelessWidget {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Voucher ${doc.data()['voucherId'] ?? ''}',
+                                          '${doc.data()['voucherTitle'] ?? 'Voucher ${doc.data()['voucherId'] ?? ''}'}',
                                           style: const TextStyle(
                                             color: ExplorerColors.navy,
                                             fontSize: 12,
@@ -310,7 +342,16 @@ class VendorAnalyticsPage extends StatelessWidget {
                                         ),
                                         const SizedBox(height: 3),
                                         Text(
-                                          doc.id.toUpperCase(),
+                                          asDate(doc.data()['redeemedAt']) ==
+                                                  null
+                                              ? 'Recently redeemed'
+                                              : DateFormat.yMMMd()
+                                                    .add_jm()
+                                                    .format(
+                                                      asDate(
+                                                        doc.data()['redeemedAt'],
+                                                      )!,
+                                                    ),
                                           style: const TextStyle(
                                             color: ExplorerColors.muted,
                                             fontSize: 9,
@@ -358,19 +399,13 @@ class _LegendRow extends StatelessWidget {
           Container(
             width: 9,
             height: 9,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: ExplorerColors.muted,
-                fontSize: 11,
-              ),
+              style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
             ),
           ),
           Text(
@@ -399,11 +434,7 @@ class _VendorLineChartPainter extends CustomPainter {
       ..strokeWidth = 1;
     for (var i = 1; i < 5; i++) {
       final y = size.height * i / 5;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        grid,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
     if (values.isEmpty) return;
@@ -444,10 +475,7 @@ class _VendorLineChartPainter extends CustomPainter {
 }
 
 class _VendorBarChartPainter extends CustomPainter {
-  _VendorBarChartPainter({
-    required this.claimed,
-    required this.redeemed,
-  });
+  _VendorBarChartPainter({required this.claimed, required this.redeemed});
 
   final double claimed;
   final double redeemed;
@@ -487,9 +515,7 @@ class _VendorBarChartPainter extends CustomPainter {
       Paint()..color = ExplorerColors.gold,
     );
 
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
+    final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (final item in [
       ('Claimed', size.width * .22 + barWidth / 2),
@@ -497,18 +523,12 @@ class _VendorBarChartPainter extends CustomPainter {
     ]) {
       textPainter.text = TextSpan(
         text: item.$1,
-        style: const TextStyle(
-          color: ExplorerColors.muted,
-          fontSize: 10,
-        ),
+        style: const TextStyle(color: ExplorerColors.muted, fontSize: 10),
       );
       textPainter.layout();
       textPainter.paint(
         canvas,
-        Offset(
-          item.$2 - textPainter.width / 2,
-          baseline + 4,
-        ),
+        Offset(item.$2 - textPainter.width / 2, baseline + 4),
       );
     }
   }
@@ -519,6 +539,10 @@ class _VendorBarChartPainter extends CustomPainter {
 }
 
 class _VendorDonutPainter extends CustomPainter {
+  _VendorDonutPainter({required this.segments});
+
+  final List<({Color color, double ratio})> segments;
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
@@ -527,22 +551,15 @@ class _VendorDonutPainter extends CustomPainter {
     final strokeWidth = radius * .45;
     var start = -pi / 2;
 
-    const segments = [
-      (ExplorerColors.navy, .40),
-      (ExplorerColors.gold, .25),
-      (Color(0xFF5D88C7), .20),
-      (Color(0xFFBCC9D8), .15),
-    ];
-
     for (final segment in segments) {
-      final sweep = pi * 2 * segment.$2;
+      final sweep = pi * 2 * segment.ratio;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         start,
         sweep,
         false,
         Paint()
-          ..color = segment.$1
+          ..color = segment.color
           ..style = PaintingStyle.stroke
           ..strokeWidth = strokeWidth
           ..strokeCap = StrokeCap.butt,
@@ -552,6 +569,6 @@ class _VendorDonutPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _VendorDonutPainter oldDelegate) =>
+      oldDelegate.segments != segments;
 }
-

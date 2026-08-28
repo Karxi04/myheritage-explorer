@@ -9,15 +9,20 @@ class NotificationsPage extends StatelessWidget {
     Map<String, dynamic> data,
   ) async {
     await reference.update({'read': true});
-    final isItinerary = '${data['type'] ?? ''}' == 'itinerary';
+    final type = '${data['type'] ?? ''}';
     final itineraryId = '${data['referenceId'] ?? ''}'.trim();
-    if (!isItinerary || itineraryId.isEmpty || !context.mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
+    if (!context.mounted) return;
+
+    final Widget? destination = switch (type) {
+      'itinerary' when itineraryId.isNotEmpty => ItineraryDetailPage(
+        itineraryId: itineraryId,
       ),
-    );
+      'voucher_nearby' => const RewardsPage(),
+      'voucher_claimed' || 'voucher_redeemed' => const VoucherWalletPage(),
+      _ => null,
+    };
+    if (destination == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => destination));
   }
 
   @override
@@ -30,7 +35,8 @@ class NotificationsPage extends StatelessWidget {
           children: [
             ExplorerPageHeader(
               title: 'Notifications',
-              subtitle: 'Updates about tasks, safety, rewards and your account.',
+              subtitle:
+                  'Updates about tasks, safety, rewards and your account.',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -51,8 +57,8 @@ class NotificationsPage extends StatelessWidget {
                       (a, b) =>
                           (asDate(b.data()['createdAt']) ?? DateTime(2000))
                               .compareTo(
-                        asDate(a.data()['createdAt']) ?? DateTime(2000),
-                      ),
+                                asDate(a.data()['createdAt']) ?? DateTime(2000),
+                              ),
                     );
                   if (docs.isEmpty) {
                     return const ExplorerEmptyState(
@@ -64,15 +70,16 @@ class NotificationsPage extends StatelessWidget {
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                     itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) {
                       final doc = docs[index];
                       final data = doc.data();
                       final read = data['read'] == true;
                       final createdAt = asDate(data['createdAt']);
                       return ExplorerCard(
-                        backgroundColor:
-                            read ? Colors.white : ExplorerColors.navySoft,
+                        backgroundColor: read
+                            ? Colors.white
+                            : ExplorerColors.navySoft,
                         borderColor: read
                             ? ExplorerColors.border
                             : const Color(0xFFB9CBE2),
@@ -89,8 +96,9 @@ class NotificationsPage extends StatelessWidget {
                               backgroundColor: read
                                   ? ExplorerColors.subtle
                                   : ExplorerColors.navy,
-                              foregroundColor:
-                                  read ? ExplorerColors.muted : Colors.white,
+                              foregroundColor: read
+                                  ? ExplorerColors.muted
+                                  : Colors.white,
                               child: Icon(
                                 read
                                     ? Icons.notifications_none
@@ -135,9 +143,9 @@ class NotificationsPage extends StatelessWidget {
                                   Text(
                                     createdAt == null
                                         ? 'Recently'
-                                        : DateFormat.yMMMd()
-                                            .add_jm()
-                                            .format(createdAt),
+                                        : DateFormat.yMMMd().add_jm().format(
+                                            createdAt,
+                                          ),
                                     style: const TextStyle(
                                       color: ExplorerColors.muted,
                                       fontSize: 10,

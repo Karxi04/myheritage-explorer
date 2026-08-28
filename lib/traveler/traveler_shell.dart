@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../core/services.dart';
@@ -13,8 +15,39 @@ class TravelerShell extends StatefulWidget {
   State<TravelerShell> createState() => _TravelerShellState();
 }
 
-class _TravelerShellState extends State<TravelerShell> {
+class _TravelerShellState extends State<TravelerShell>
+    with WidgetsBindingObserver {
   int index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkNearbyRewards());
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkNearbyRewards());
+    }
+  }
+
+  Future<void> _checkNearbyRewards() async {
+    try {
+      await AppServices.checkNearbyRewardNotifications();
+    } catch (_) {
+      // Proximity alerts are best-effort and must not block the traveler UI.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

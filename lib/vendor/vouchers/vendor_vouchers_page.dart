@@ -1,4 +1,3 @@
-﻿
 part of '../vendor_pages.dart';
 
 class VendorVouchersPage extends StatefulWidget {
@@ -10,6 +9,53 @@ class VendorVouchersPage extends StatefulWidget {
 
 class _VendorVouchersPageState extends State<VendorVouchersPage> {
   String filter = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final uid = AppServices.auth.currentUser?.uid;
+      if (uid == null) return;
+      try {
+        await AppServices.archiveExpiredVouchers(uid);
+      } catch (_) {
+        // Expiry is also derived in the UI, so archival remains best-effort.
+      }
+    });
+  }
+
+  Future<void> _archiveVoucher(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Archive this voucher?'),
+            content: const Text(
+              'It will be removed from the tourist catalogue. Existing wallet and redemption records are preserved.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Archive'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await doc.reference.update({
+      'status': 'archived',
+      'archivedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (mounted) showMessage(context, 'Voucher archived.');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +70,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
             tooltip: 'Create voucher',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const VoucherEditorPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const VoucherEditorPage()),
             ),
             icon: const Icon(Icons.add_circle_outline),
           ),
@@ -35,9 +79,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => const VoucherEditorPage(),
-          ),
+          MaterialPageRoute(builder: (_) => const VoucherEditorPage()),
         ),
         icon: const Icon(Icons.add),
         label: const Text('New Voucher'),
@@ -55,20 +97,22 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
           final docs = snapshot.data!.docs.toList()
             ..sort(
               (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
-                  .compareTo(
-                asDate(a.data()['createdAt']) ?? DateTime(2000),
-              ),
+                  .compareTo(asDate(a.data()['createdAt']) ?? DateTime(2000)),
             );
 
           final filtered = docs.where((doc) {
             final data = doc.data();
             final expiry = asDate(data['expiresAt']);
+            final expired = expiry != null && !expiry.isAfter(DateTime.now());
+            final remaining =
+                (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
             return switch (filter) {
-              'Active' => data['status'] == 'active' &&
-                  (expiry == null || expiry.isAfter(DateTime.now())),
-              'Inactive' => data['status'] != 'active',
-              'Expired' =>
-                expiry != null && expiry.isBefore(DateTime.now()),
+              'Active' =>
+                data['status'] == 'active' && !expired && remaining > 0,
+              'Inactive' => data['status'] == 'inactive',
+              'Sold out' => !expired && remaining <= 0,
+              'Expired' => expired || data['status'] == 'expired',
+              'Archived' => data['status'] == 'archived',
               _ => true,
             };
           }).toList();
@@ -88,29 +132,34 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
               const SizedBox(height: 4),
               const Text(
                 'Create, edit and monitor voucher availability.',
-                style: TextStyle(
-                  color: ExplorerColors.muted,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
               ),
               const SizedBox(height: 16),
               SizedBox(
                 height: 34,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: ['All', 'Active', 'Inactive', 'Expired']
-                      .map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(item),
-                            selected: filter == item,
-                            onSelected: (_) =>
-                                setState(() => filter = item),
-                          ),
-                        ),
-                      )
-                      .toList(),
+                  children:
+                      [
+                            'All',
+                            'Active',
+                            'Inactive',
+                            'Sold out',
+                            'Expired',
+                            'Archived',
+                          ]
+                          .map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(item),
+                                selected: filter == item,
+                                onSelected: (_) =>
+                                    setState(() => filter = item),
+                              ),
+                            ),
+                          )
+                          .toList(),
                 ),
               ),
               const SizedBox(height: 16),
@@ -125,10 +174,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                 ...filtered.map(
                   (doc) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _voucherCard(
-                      context,
-                      doc,
-                    ),
+                    child: _voucherCard(context, doc),
                   ),
                 ),
             ],
@@ -144,11 +190,12 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
   ) {
     final data = doc.data();
     final expiry = asDate(data['expiresAt']);
-    final expired =
-        expiry != null && expiry.isBefore(DateTime.now());
-    final active = data['status'] == 'active' && !expired;
-    final remaining = data['inventoryRemaining'] ?? 0;
-    final limit = data['inventoryLimit'] ?? 0;
+    final expired = expiry != null && !expiry.isAfter(DateTime.now());
+    final archived = data['status'] == 'archived';
+    final remaining = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
+    final limit = (data['inventoryLimit'] as num?)?.toInt() ?? 0;
+    final soldOut = remaining <= 0 && !expired;
+    final active = data['status'] == 'active' && !expired && !soldOut;
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -157,9 +204,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
           Container(
             height: 92,
             decoration: BoxDecoration(
-              color: active
-                  ? ExplorerColors.goldSoft
-                  : ExplorerColors.subtle,
+              color: active ? ExplorerColors.goldSoft : ExplorerColors.subtle,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
@@ -167,9 +212,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
             child: Center(
               child: Icon(
                 Icons.local_activity_outlined,
-                color: active
-                    ? ExplorerColors.goldDark
-                    : ExplorerColors.muted,
+                color: active ? ExplorerColors.goldDark : ExplorerColors.muted,
                 size: 42,
               ),
             ),
@@ -188,14 +231,20 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                           ExplorerStatusBadge(
                             label: expired
                                 ? 'EXPIRED'
+                                : archived
+                                ? 'ARCHIVED'
+                                : soldOut
+                                ? 'SOLD OUT'
                                 : active
-                                    ? 'ACTIVE'
-                                    : 'INACTIVE',
+                                ? 'ACTIVE'
+                                : 'INACTIVE',
                             tone: expired
                                 ? ExplorerStatusTone.danger
+                                : archived || soldOut
+                                ? ExplorerStatusTone.neutral
                                 : active
-                                    ? ExplorerStatusTone.success
-                                    : ExplorerStatusTone.neutral,
+                                ? ExplorerStatusTone.success
+                                : ExplorerStatusTone.neutral,
                           ),
                           const Spacer(),
                           Text(
@@ -227,8 +276,8 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        '$remaining/$limit remaining â€¢ ${data['claimCount'] ?? 0} claimed'
-                        '${expiry == null ? '' : ' â€¢ ${DateFormat.yMMMd().format(expiry)}'}',
+                        '$remaining/$limit remaining - ${data['claimCount'] ?? 0} claimed'
+                        '${expiry == null ? '' : ' - ${DateFormat.yMMMd().format(expiry)}'}',
                         style: const TextStyle(
                           color: ExplorerColors.muted,
                           fontSize: 9,
@@ -249,6 +298,8 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                           ),
                         ),
                       );
+                    } else if (value == 'archive') {
+                      await _archiveVoucher(doc);
                     } else {
                       await doc.reference.update({
                         'status': value,
@@ -261,15 +312,22 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                       value: 'edit',
                       child: Text('Edit Voucher'),
                     ),
-                    PopupMenuItem(
-                      value:
-                          data['status'] == 'active' ? 'inactive' : 'active',
-                      child: Text(
-                        data['status'] == 'active'
-                            ? 'Deactivate'
-                            : 'Activate',
+                    if (!expired && !archived)
+                      PopupMenuItem(
+                        value: data['status'] == 'active'
+                            ? 'inactive'
+                            : 'active',
+                        child: Text(
+                          data['status'] == 'active'
+                              ? 'Deactivate'
+                              : 'Activate',
+                        ),
                       ),
-                    ),
+                    if (!archived)
+                      const PopupMenuItem(
+                        value: 'archive',
+                        child: Text('Archive Voucher'),
+                      ),
                   ],
                 ),
               ],
@@ -280,4 +338,3 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
     );
   }
 }
-
