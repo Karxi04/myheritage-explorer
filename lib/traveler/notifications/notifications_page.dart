@@ -10,14 +10,16 @@ class NotificationsPage extends StatelessWidget {
   ) async {
     await reference.update({'read': true});
     final type = '${data['type'] ?? ''}';
-    final itineraryId = '${data['referenceId'] ?? ''}'.trim();
+    final referenceId = '${data['referenceId'] ?? ''}'.trim();
     if (!context.mounted) return;
 
     final Widget? destination = switch (type) {
-      'itinerary' when itineraryId.isNotEmpty => ItineraryDetailPage(
-        itineraryId: itineraryId,
+      'itinerary' when referenceId.isNotEmpty => ItineraryDetailPage(
+        itineraryId: referenceId,
       ),
-      'voucher_nearby' => const RewardsPage(),
+      'voucher_nearby' => RewardsPage(
+        focusVoucherId: referenceId.isEmpty ? null : referenceId,
+      ),
       'voucher_claimed' || 'voucher_redeemed' => const VoucherWalletPage(),
       _ => null,
     };

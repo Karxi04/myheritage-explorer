@@ -1,20 +1,17 @@
-﻿
 part of '../vendor_pages.dart';
 
 class VendorQrScannerPage extends StatefulWidget {
   const VendorQrScannerPage({super.key});
 
   @override
-  State<VendorQrScannerPage> createState() =>
-      _VendorQrScannerPageState();
+  State<VendorQrScannerPage> createState() => _VendorQrScannerPageState();
 }
 
 class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
   final manualCode = TextEditingController();
   bool processing = false;
   bool scanning = true;
-  String result =
-      'Align the visitor voucher QR code inside the camera view.';
+  String result = 'Align the visitor voucher QR code inside the camera view.';
 
   Future<void> redeem(String? raw) async {
     if (raw == null || raw.trim().isEmpty || processing) return;
@@ -24,15 +21,69 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
     });
 
     try {
+      final preview = await AppServices.redemptionPreview(
+        raw.trim(),
+        AppServices.auth.currentUser!.uid,
+      );
+      if (!mounted) return;
+
+      final expiry = asDate(preview['expiresAt']);
+      final confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Confirm voucher redemption'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${preview['title'] ?? 'Voucher'}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('${preview['pointCost'] ?? 0} reward points'),
+                  if (expiry != null)
+                    Text(
+                      'Expires ${DateFormat.yMMMd().add_jm().format(expiry)}',
+                    ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Only confirm after the tourist presents this voucher in person.',
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Confirm Redemption'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (!confirmed) {
+        setState(() => result = 'Redemption cancelled.');
+        return;
+      }
+
       await AppServices.redeemClaim(
         raw.trim(),
         AppServices.auth.currentUser!.uid,
       );
-      setState(() => result = 'Redemption successful.');
+      if (mounted) setState(() => result = 'Redemption successful.');
     } catch (e) {
-      setState(
-        () => result = e.toString().replaceFirst('Exception: ', ''),
-      );
+      if (mounted) {
+        setState(() => result = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       await Future<void>.delayed(const Duration(seconds: 2));
       if (mounted) {
@@ -56,9 +107,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
-      appBar: AppBar(
-        title: const ExplorerBrand(compact: true),
-      ),
+      appBar: AppBar(title: const ExplorerBrand(compact: true)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
         children: [
@@ -73,10 +122,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
           const SizedBox(height: 4),
           const Text(
             'Scan visitor code or enter it manually.',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 18),
           ExplorerCard(
@@ -91,10 +137,10 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
                     MobileScanner(
                       onDetect: scanning
                           ? (capture) => redeem(
-                                capture.barcodes.isEmpty
-                                    ? null
-                                    : capture.barcodes.first.rawValue,
-                              )
+                              capture.barcodes.isEmpty
+                                  ? null
+                                  : capture.barcodes.first.rawValue,
+                            )
                           : (_) {},
                     ),
                     IgnorePointer(
@@ -104,10 +150,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
                           height: 220,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 3,
-                            ),
+                            border: Border.all(color: Colors.white, width: 3),
                           ),
                         ),
                       ),
@@ -116,9 +159,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
                       Container(
                         color: Colors.black45,
                         child: const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                          ),
+                          child: CircularProgressIndicator(color: Colors.white),
                         ),
                       ),
                   ],
@@ -137,12 +178,8 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
             child: Row(
               children: [
                 Icon(
-                  success
-                      ? Icons.check_circle_outline
-                      : Icons.info_outline,
-                  color: success
-                      ? ExplorerColors.success
-                      : ExplorerColors.navy,
+                  success ? Icons.check_circle_outline : Icons.info_outline,
+                  color: success ? ExplorerColors.success : ExplorerColors.navy,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -189,8 +226,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
           ),
           const SizedBox(height: 12),
           ElevatedButton(
-            onPressed:
-                processing ? null : () => redeem(manualCode.text),
+            onPressed: processing ? null : () => redeem(manualCode.text),
             child: const Text('Redeem Voucher'),
           ),
         ],
@@ -198,4 +234,3 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
     );
   }
 }
-

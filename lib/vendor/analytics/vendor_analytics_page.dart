@@ -1,7 +1,10 @@
 part of '../vendor_pages.dart';
 
 class VendorAnalyticsPage extends StatelessWidget {
-  const VendorAnalyticsPage({super.key});
+  const VendorAnalyticsPage({super.key, this.voucherId, this.voucherTitle});
+
+  final String? voucherId;
+  final String? voucherTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +32,10 @@ class VendorAnalyticsPage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final vouchers = voucherSnapshot.data!.docs;
+          final allVouchers = voucherSnapshot.data!.docs;
+          final vouchers = voucherId == null
+              ? allVouchers
+              : allVouchers.where((doc) => doc.id == voucherId).toList();
           final totalIssued = vouchers.fold<num>(
             0,
             (total, doc) =>
@@ -59,26 +65,46 @@ class VendorAnalyticsPage extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final redemptions = redemptionSnapshot.data!.docs.toList()
-                ..sort(
-                  (a, b) => (asDate(b.data()['redeemedAt']) ?? DateTime(2000))
-                      .compareTo(
-                        asDate(a.data()['redeemedAt']) ?? DateTime(2000),
-                      ),
-                );
+              final redemptions =
+                  redemptionSnapshot.data!.docs
+                      .where(
+                        (doc) =>
+                            voucherId == null ||
+                            doc.data()['voucherId'] == voucherId,
+                      )
+                      .toList()
+                    ..sort(
+                      (a, b) =>
+                          (asDate(b.data()['redeemedAt']) ?? DateTime(2000))
+                              .compareTo(
+                                asDate(a.data()['redeemedAt']) ??
+                                    DateTime(2000),
+                              ),
+                    );
 
               final rate = totalClaimed == 0
                   ? 0.0
                   : redemptions.length / totalClaimed * 100;
 
               final byDay = <String, int>{};
+              final byHour = <int, int>{};
               for (final doc in redemptions) {
                 final date = asDate(doc.data()['redeemedAt']);
                 if (date != null) {
                   final key = DateFormat('MM/dd').format(date);
                   byDay[key] = (byDay[key] ?? 0) + 1;
+                  byHour[date.hour] = (byHour[date.hour] ?? 0) + 1;
                 }
               }
+              int? peakHour;
+              for (final entry in byHour.entries) {
+                if (peakHour == null || entry.value > byHour[peakHour]!) {
+                  peakHour = entry.key;
+                }
+              }
+              final peakHourLabel = peakHour == null
+                  ? 'No data yet'
+                  : DateFormat('h a').format(DateTime(2000, 1, 1, peakHour));
               final trend = byDay.entries.toList()
                 ..sort((a, b) => a.key.compareTo(b.key));
               final trendValues = trend
@@ -113,9 +139,11 @@ class VendorAnalyticsPage extends StatelessWidget {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                 children: [
-                  const Text(
-                    'Redemption Analytics',
-                    style: TextStyle(
+                  Text(
+                    voucherId == null
+                        ? 'Redemption Analytics'
+                        : '${voucherTitle ?? 'Voucher'} Analytics',
+                    style: const TextStyle(
                       color: ExplorerColors.navy,
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
@@ -123,18 +151,27 @@ class VendorAnalyticsPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Monitor voucher performance and tourist interest trends.',
-                    style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+                  Text(
+                    voucherId == null
+                        ? 'Monitor voucher performance and tourist interest trends.'
+                        : 'Campaign-specific claims, redemptions and tourist interest.',
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 12,
+                    ),
                   ),
                   const SizedBox(height: 18),
                   Row(
                     children: [
                       Expanded(
                         child: ExplorerMetricCard(
-                          label: 'Total Vouchers Issued',
+                          label: voucherId == null
+                              ? 'Total Vouchers Issued'
+                              : 'Campaign Inventory',
                           value: '$totalIssued',
-                          caption: '$totalClaimed claimed overall',
+                          caption: voucherId == null
+                              ? '$totalClaimed claimed overall'
+                              : '$totalClaimed claimed for this campaign',
                           compact: true,
                         ),
                       ),
@@ -149,6 +186,15 @@ class VendorAnalyticsPage extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 10),
+                  ExplorerMetricCard(
+                    label: 'Peak Redemption Hour',
+                    value: peakHourLabel,
+                    caption: peakHour == null
+                        ? 'Complete a QR redemption to calculate this.'
+                        : '${byHour[peakHour]} redemptions during this hour',
+                    compact: true,
                   ),
                   const SizedBox(height: 10),
                   ExplorerCard(

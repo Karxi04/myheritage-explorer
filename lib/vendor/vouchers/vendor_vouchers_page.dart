@@ -27,13 +27,16 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
   Future<void> _archiveVoucher(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
+    final claimCount = (doc.data()['claimCount'] as num?)?.toInt() ?? 0;
     final confirmed =
         await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('Archive this voucher?'),
-            content: const Text(
-              'It will be removed from the tourist catalogue. Existing wallet and redemption records are preserved.',
+            title: const Text('Remove this voucher?'),
+            content: Text(
+              claimCount > 0
+                  ? '$claimCount ${claimCount == 1 ? 'tourist has' : 'tourists have'} claimed this voucher. It will be removed from new claims, but existing holders can still redeem it.'
+                  : 'It will be removed from the tourist catalogue and archived for your records.',
             ),
             actions: [
               TextButton(
@@ -42,7 +45,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Archive'),
+                child: const Text('Remove'),
               ),
             ],
           ),
@@ -54,7 +57,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
       'archivedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    if (mounted) showMessage(context, 'Voucher archived.');
+    if (mounted) showMessage(context, 'Voucher removed from new claims.');
   }
 
   @override
@@ -298,6 +301,16 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                           ),
                         ),
                       );
+                    } else if (value == 'analytics') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => VendorAnalyticsPage(
+                            voucherId: doc.id,
+                            voucherTitle: '${data['title'] ?? 'Voucher'}',
+                          ),
+                        ),
+                      );
                     } else if (value == 'archive') {
                       await _archiveVoucher(doc);
                     } else {
@@ -311,6 +324,10 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                     const PopupMenuItem(
                       value: 'edit',
                       child: Text('Edit Voucher'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'analytics',
+                      child: Text('View Analytics'),
                     ),
                     if (!expired && !archived)
                       PopupMenuItem(
@@ -326,7 +343,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                     if (!archived)
                       const PopupMenuItem(
                         value: 'archive',
-                        child: Text('Archive Voucher'),
+                        child: Text('Delete Voucher'),
                       ),
                   ],
                 ),

@@ -497,7 +497,7 @@ class AppServices {
         final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
         final payload = switch (type) {
           'itinerary' when referenceId != null => 'itinerary:$referenceId',
-          'voucher_nearby' => 'rewards',
+          'voucher_nearby' when referenceId != null => 'reward:$referenceId',
           'voucher_claimed' || 'voucher_redeemed' => 'voucher_wallet',
           _ => null,
         };
@@ -724,6 +724,10 @@ class AppServices {
             vendor['businessName'] ??
             vendor['displayName'],
         'vendorCategory': currentVoucher['vendorCategory'],
+        'vendorAddress':
+            currentVoucher['vendorAddress'] ?? vendor['shopLocation'],
+        if (currentVoucher['location'] != null)
+          'location': currentVoucher['location'],
         'title': claimedTitle,
         'description': currentVoucher['description'],
         'terms': currentVoucher['terms'],
@@ -828,6 +832,56 @@ class AppServices {
     );
 
     return claimRef.id;
+  }
+
+  static Future<Map<String, dynamic>> redemptionPreview(
+    String rawQr,
+    String vendorId,
+  ) async {
+    final signedInUser = auth.currentUser;
+    if (signedInUser == null || signedInUser.uid != vendorId) {
+      throw Exception(
+        'Please sign in with the vendor account that owns this voucher.',
+      );
+    }
+
+    final parts = rawQr.split('|');
+    if (parts.length != 2) {
+      throw Exception('Unrecognized QR code.');
+    }
+
+    final claimSnapshot = await db
+        .collection('claimed_vouchers')
+        .doc(parts[0])
+        .get();
+    final vendorSnapshot = await vendorRef(vendorId).get();
+    if (!claimSnapshot.exists) {
+      throw Exception('Voucher claim was not found.');
+    }
+    if (!vendorSnapshot.exists ||
+        vendorSnapshot.data()?['role'] != 'vendor' ||
+        vendorSnapshot.data()?['status'] != 'active' ||
+        vendorSnapshot.data()?['vendorStatus'] != 'verified') {
+      throw Exception('This vendor account is not active and verified.');
+    }
+
+    final claim = claimSnapshot.data()!;
+    if (claim['token'] != parts[1]) {
+      throw Exception('Invalid voucher token.');
+    }
+    if (claim['vendorId'] != vendorId) {
+      throw Exception('This voucher belongs to another vendor.');
+    }
+    if (claim['status'] != 'claimed') {
+      throw Exception('Voucher is already redeemed or unavailable.');
+    }
+
+    final expiry = asDate(claim['expiresAt']);
+    if (expiry != null && !expiry.isAfter(DateTime.now())) {
+      throw Exception('Voucher has expired.');
+    }
+
+    return <String, dynamic>{...claim, 'claimId': claimSnapshot.id};
   }
 
   static Future<int> archiveExpiredVouchers(String vendorId) async {
