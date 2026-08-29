@@ -11,6 +11,12 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
   String filter = 'All';
   final Set<String> revealedQrCodes = <String>{};
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(AppServices.syncVoucherExpiryReminders());
+  }
+
   String _displayStatus(Map<String, dynamic> claim) {
     if (claim['status'] == 'redeemed') return 'Redeemed';
     final expiry = asDate(claim['expiresAt']);
@@ -38,6 +44,18 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Digital Wallet'),
+          actions: [
+            IconButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const RewardNotificationSettingsPage(),
+                ),
+              ),
+              icon: const Icon(Icons.notifications_active_outlined),
+              tooltip: 'Reward notification settings',
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Claimed Vouchers'),
@@ -174,6 +192,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                 final redeemedAt = asDate(claim['redeemedAt']);
                 final expiry = asDate(claim['expiresAt']);
                 final token = '${claim['token'] ?? ''}'.trim();
+                final redemptionPin = '${claim['redemptionPin'] ?? ''}'.trim();
                 final canDisplayQr = status == 'Active' && token.isNotEmpty;
                 final qrRevealed = revealedQrCodes.contains(doc.id);
                 final vendorAddress = '${claim['vendorAddress'] ?? ''}'.trim();
@@ -224,7 +243,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                             if (claimedAt != null)
                               'Claimed ${DateFormat.yMMMd().add_jm().format(claimedAt)}',
                             if (expiry != null)
-                              'Expires ${DateFormat.yMMMd().add_jm().format(expiry)}',
+                              '${expiryCountdownLabel(expiry)} (${DateFormat.yMMMd().add_jm().format(expiry)})',
                             if (redeemedAt != null)
                               'Redeemed ${DateFormat.yMMMd().add_jm().format(redeemedAt)}',
                           ].join('\n'),
@@ -259,6 +278,26 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                               size: 220,
                             ),
                           ),
+                          if (redemptionPin.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            const Center(
+                              child: Text(
+                                'Scanner not working? Give the vendor this PIN:',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Center(
+                              child: SelectableText(
+                                redemptionPin,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 6,
+                                ),
+                              ),
+                            ),
+                          ],
                         ] else
                           Center(
                             child: Text(

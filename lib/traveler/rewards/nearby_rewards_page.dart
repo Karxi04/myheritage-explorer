@@ -10,7 +10,7 @@ class NearbyRewardsPage extends StatefulWidget {
 class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
   bool loading = true;
   String? error;
-  Set<String> claimedVoucherIds = <String>{};
+  Map<String, int> claimedCounts = <String, int>{};
 
   List<({QueryDocumentSnapshot<Map<String, dynamic>> doc, double distance})>
   nearby = const [];
@@ -47,12 +47,14 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final location = data['location'];
+        final startsAt = asDate(data['startsAt']);
         final expiry = asDate(data['expiresAt']);
         final cost = (data['pointCost'] as num?)?.toInt() ?? 0;
 
         if (location is! GeoPoint ||
             cost <= 0 ||
             '${data['vendorId'] ?? ''}'.trim().isEmpty ||
+            (startsAt != null && startsAt.isAfter(DateTime.now())) ||
             (expiry != null && expiry.isBefore(DateTime.now()))) {
           continue;
         }
@@ -79,12 +81,16 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
       );
 
       if (!mounted) return;
+      final counts = <String, int>{};
+      for (final claim in claimSnapshot.docs) {
+        final voucherId = '${claim.data()['voucherId'] ?? ''}';
+        if (voucherId.isNotEmpty) {
+          counts[voucherId] = (counts[voucherId] ?? 0) + 1;
+        }
+      }
       setState(() {
         nearby = results;
-        claimedVoucherIds = claimSnapshot.docs
-            .map((doc) => '${doc.data()['voucherId'] ?? ''}')
-            .where((id) => id.isNotEmpty)
-            .toSet();
+        claimedCounts = counts;
         loading = false;
       });
       unawaited(
@@ -104,9 +110,10 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
   String _claimLabel({
     required int points,
     required int cost,
-    required bool alreadyClaimed,
+    required int claimedCount,
+    required int claimLimit,
   }) {
-    if (alreadyClaimed) return 'Already in wallet';
+    if (claimedCount >= claimLimit) return 'Claim limit reached';
     if (cost <= 0) return 'Voucher unavailable';
     if (points < cost) {
       return 'Need ${cost - points} more points';
@@ -190,8 +197,12 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
               final item = nearby[index - 1];
               final voucher = item.doc.data();
               final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
-              final alreadyClaimed = claimedVoucherIds.contains(item.doc.id);
-              final canClaim = !alreadyClaimed && points >= cost && cost > 0;
+              final claimedCount = claimedCounts[item.doc.id] ?? 0;
+              final claimLimit =
+                  ((voucher['perTouristClaimLimit'] as num?)?.toInt() ?? 1)
+                      .clamp(1, 10);
+              final canClaim =
+                  claimedCount < claimLimit && points >= cost && cost > 0;
 
               return Card(
                 child: Padding(
@@ -231,51 +242,67 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                         '$cost points - ${voucher['inventoryRemaining'] ?? 0} remaining',
                       ),
                       const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: canClaim
-                              ? () async {
-                                  try {
-                                    await AppServices.claimVoucher(
-                                      voucherId: item.doc.id,
-                                      voucher: voucher,
-                                    );
-
-                                    if (context.mounted) {
-                                      setState(
-                                        () => claimedVoucherIds = {
-                                          ...claimedVoucherIds,
-                                          item.doc.id,
-                                        },
-                                      );
-                                      showMessage(
-                                        context,
-                                        'Nearby voucher claimed successfully.',
-                                      );
-                                    }
-                                  } catch (exception) {
-                                    if (context.mounted) {
-                                      showMessage(
-                                        context,
-                                        exception.toString().replaceFirst(
-                                          'Exception: ',
-                                          '',
-                                        ),
-                                        error: true,
-                                      );
-                                    }
-                                  }
-                                }
-                              : null,
-                          child: Text(
-                            _claimLabel(
-                              points: points,
-                              cost: cost,
-                              alreadyClaimed: alreadyClaimed,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      VoucherDetailPage(voucherId: item.doc.id),
+                                ),
+                              ),
+                              child: const Text('View Details'),
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: canClaim
+                                  ? () async {
+                                      try {
+                                        final receipt =
+                                            await AppServices.claimVoucher(
+                                              voucherId: item.doc.id,
+                                              voucher: voucher,
+                                            );
+
+                                        if (context.mounted) {
+                                          setState(() {
+                                            claimedCounts[item.doc.id] =
+                                                claimedCount + 1;
+                                          });
+                                          await showVoucherClaimReceipt(
+                                            context,
+                                            receipt,
+                                          );
+                                        }
+                                      } catch (exception) {
+                                        if (context.mounted) {
+                                          showMessage(
+                                            context,
+                                            exception.toString().replaceFirst(
+                                              'Exception: ',
+                                              '',
+                                            ),
+                                            error: true,
+                                          );
+                                        }
+                                      }
+                                    }
+                                  : null,
+                              child: Text(
+                                _claimLabel(
+                                  points: points,
+                                  cost: cost,
+                                  claimedCount: claimedCount,
+                                  claimLimit: claimLimit,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

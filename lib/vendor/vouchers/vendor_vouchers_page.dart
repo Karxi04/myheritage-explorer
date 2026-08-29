@@ -105,13 +105,20 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
 
           final filtered = docs.where((doc) {
             final data = doc.data();
+            final startsAt = asDate(data['startsAt']);
+            final scheduled =
+                startsAt != null && startsAt.isAfter(DateTime.now());
             final expiry = asDate(data['expiresAt']);
             final expired = expiry != null && !expiry.isAfter(DateTime.now());
             final remaining =
                 (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
             return switch (filter) {
               'Active' =>
-                data['status'] == 'active' && !expired && remaining > 0,
+                data['status'] == 'active' &&
+                    !scheduled &&
+                    !expired &&
+                    remaining > 0,
+              'Scheduled' => data['status'] == 'active' && scheduled,
               'Inactive' => data['status'] == 'inactive',
               'Sold out' => !expired && remaining <= 0,
               'Expired' => expired || data['status'] == 'expired',
@@ -146,6 +153,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                       [
                             'All',
                             'Active',
+                            'Scheduled',
                             'Inactive',
                             'Sold out',
                             'Expired',
@@ -192,13 +200,16 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data();
+    final startsAt = asDate(data['startsAt']);
+    final scheduled = startsAt != null && startsAt.isAfter(DateTime.now());
     final expiry = asDate(data['expiresAt']);
     final expired = expiry != null && !expiry.isAfter(DateTime.now());
     final archived = data['status'] == 'archived';
     final remaining = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
     final limit = (data['inventoryLimit'] as num?)?.toInt() ?? 0;
     final soldOut = remaining <= 0 && !expired;
-    final active = data['status'] == 'active' && !expired && !soldOut;
+    final active =
+        data['status'] == 'active' && !scheduled && !expired && !soldOut;
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -236,6 +247,8 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                                 ? 'EXPIRED'
                                 : archived
                                 ? 'ARCHIVED'
+                                : scheduled
+                                ? 'SCHEDULED'
                                 : soldOut
                                 ? 'SOLD OUT'
                                 : active
@@ -243,6 +256,8 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                                 : 'INACTIVE',
                             tone: expired
                                 ? ExplorerStatusTone.danger
+                                : scheduled
+                                ? ExplorerStatusTone.warning
                                 : archived || soldOut
                                 ? ExplorerStatusTone.neutral
                                 : active
@@ -280,6 +295,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                       const SizedBox(height: 10),
                       Text(
                         '$remaining/$limit remaining - ${data['claimCount'] ?? 0} claimed'
+                        '${scheduled ? ' - Starts ${DateFormat.yMMMd().format(startsAt)}' : ''}'
                         '${expiry == null ? '' : ' - ${DateFormat.yMMMd().format(expiry)}'}',
                         style: const TextStyle(
                           color: ExplorerColors.muted,

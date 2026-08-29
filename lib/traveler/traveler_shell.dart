@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../core/services.dart';
 import '../core/explorer_ui.dart';
 import 'traveler_pages.dart';
@@ -18,6 +20,10 @@ class TravelerShell extends StatefulWidget {
 class _TravelerShellState extends State<TravelerShell>
     with WidgetsBindingObserver {
   int index = 0;
+  StreamSubscription<Position>? _rewardLocationSubscription;
+  bool _backgroundRewardsActive = false;
+  bool _backgroundRewardsStarting = false;
+  DateTime? _lastBackgroundRewardCheck;
 
   @override
   void initState() {
@@ -25,12 +31,14 @@ class _TravelerShellState extends State<TravelerShell>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checkNearbyRewards());
+      unawaited(AppServices.syncVoucherExpiryReminders());
     });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_rewardLocationSubscription?.cancel());
     super.dispose();
   }
 
@@ -49,6 +57,105 @@ class _TravelerShellState extends State<TravelerShell>
     }
   }
 
+  void _syncBackgroundRewardMonitoring(Map<String, dynamic> profile) {
+    final shouldRun =
+        AppServices.notificationPreference(
+          profile,
+          'nearbyRewards',
+          defaultValue: true,
+        ) &&
+        AppServices.notificationPreference(
+          profile,
+          'backgroundLocationAlerts',
+          defaultValue: false,
+        );
+    if (shouldRun == _backgroundRewardsActive || _backgroundRewardsStarting) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (shouldRun) {
+        unawaited(_startBackgroundRewardMonitoring());
+      } else {
+        unawaited(_stopBackgroundRewardMonitoring());
+      }
+    });
+  }
+
+  Future<void> _startBackgroundRewardMonitoring() async {
+    if (_backgroundRewardsActive || _backgroundRewardsStarting) return;
+    _backgroundRewardsStarting = true;
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.always ||
+          !await Geolocator.isLocationServiceEnabled()) {
+        return;
+      }
+
+      final LocationSettings settings;
+      if (kIsWeb) {
+        settings = const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          distanceFilter: 150,
+        );
+      } else if (defaultTargetPlatform == TargetPlatform.android) {
+        settings = AndroidSettings(
+          accuracy: LocationAccuracy.medium,
+          distanceFilter: 150,
+          intervalDuration: Duration(minutes: 2),
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationTitle: 'Nearby reward alerts are active',
+            notificationText:
+                'MyHeritage Explorer is checking for rewards near you.',
+            enableWakeLock: false,
+            setOngoing: true,
+          ),
+        );
+      } else if (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        settings = AppleSettings(
+          accuracy: LocationAccuracy.medium,
+          activityType: ActivityType.other,
+          distanceFilter: 150,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: true,
+        );
+      } else {
+        settings = const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          distanceFilter: 150,
+        );
+      }
+
+      await _rewardLocationSubscription?.cancel();
+      _rewardLocationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings).listen((
+            position,
+          ) {
+            final now = DateTime.now();
+            if (_lastBackgroundRewardCheck != null &&
+                now.difference(_lastBackgroundRewardCheck!) <
+                    const Duration(minutes: 2)) {
+              return;
+            }
+            _lastBackgroundRewardCheck = now;
+            unawaited(
+              AppServices.checkNearbyRewardNotifications(
+                currentPosition: position,
+              ).catchError((_) => 0),
+            );
+          }, onError: (_) {});
+      _backgroundRewardsActive = true;
+    } finally {
+      _backgroundRewardsStarting = false;
+    }
+  }
+
+  Future<void> _stopBackgroundRewardMonitoring() async {
+    await _rewardLocationSubscription?.cancel();
+    _rewardLocationSubscription = null;
+    _backgroundRewardsActive = false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser?.uid;
@@ -61,6 +168,7 @@ class _TravelerShellState extends State<TravelerShell>
         final profile = liveProfile == null
             ? widget.profile
             : <String, dynamic>{...widget.profile, ...liveProfile};
+        _syncBackgroundRewardMonitoring(profile);
         return _buildShell(profile);
       },
     );

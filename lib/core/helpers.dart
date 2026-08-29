@@ -22,6 +22,30 @@ String randomToken([int length = 28]) {
   ).join();
 }
 
+String randomNumericCode([int length = 6]) {
+  final random = Random.secure();
+  return List.generate(length, (_) => random.nextInt(10)).join();
+}
+
+String expiryCountdownLabel(DateTime? expiry, {DateTime? now}) {
+  if (expiry == null) return 'No expiry date';
+  final remaining = expiry.difference(now ?? DateTime.now());
+  if (remaining <= Duration.zero) return 'Expired';
+  if (remaining.inDays >= 2) return 'Expires in ${remaining.inDays} days';
+  if (remaining.inDays == 1) return 'Expires tomorrow';
+  if (remaining.inHours >= 1) return 'Expires in ${remaining.inHours} hours';
+  final minutes = remaining.inMinutes.clamp(1, 59);
+  return 'Expires in $minutes minutes';
+}
+
+int stableNotificationId(String value, int suffix) {
+  var hash = 17;
+  for (final unit in value.codeUnits) {
+    hash = (hash * 37 + unit) & 0x3fffffff;
+  }
+  return ((hash * 10 + suffix) & 0x7fffffff);
+}
+
 DateTime? asDate(dynamic value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;

@@ -5,9 +5,11 @@ import 'package:timezone/timezone.dart' as tz;
 
 class SystemNotificationService {
   SystemNotificationService._();
-  static final SystemNotificationService instance = SystemNotificationService._();
+  static final SystemNotificationService instance =
+      SystemNotificationService._();
 
-  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin =
+      FlutterLocalNotificationsPlugin();
   bool _isInitialized = false;
   ValueChanged<String?>? onNotificationPayload;
 
@@ -20,7 +22,9 @@ class SystemNotificationService {
       debugPrint('Timezone init exception: $e');
     }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -42,8 +46,8 @@ class SystemNotificationService {
         },
       );
 
-      final launchDetails =
-          await _notificationsPlugin.getNotificationAppLaunchDetails();
+      final launchDetails = await _notificationsPlugin
+          .getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp == true) {
         onNotificationPayload?.call(
           launchDetails?.notificationResponse?.payload,
@@ -52,7 +56,9 @@ class SystemNotificationService {
 
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         final androidImplementation = _notificationsPlugin
-            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         await androidImplementation?.requestNotificationsPermission();
       }
 
@@ -73,7 +79,8 @@ class SystemNotificationService {
     const androidDetails = AndroidNotificationDetails(
       'myheritage_alerts',
       'Trip Alerts & Reminders',
-      channelDescription: 'Notifications for upcoming itineraries, weather reminders and cultural task rewards.',
+      channelDescription:
+          'Notifications for upcoming itineraries, weather reminders and cultural task rewards.',
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
@@ -127,7 +134,8 @@ class SystemNotificationService {
     const androidDetails = AndroidNotificationDetails(
       'myheritage_trip_reminders',
       'Trip Pre-Departure Reminders',
-      channelDescription: 'Reminders scheduled 1 day prior to your Malaysian heritage trips.',
+      channelDescription:
+          'Reminders scheduled 1 day prior to your Malaysian heritage trips.',
       importance: Importance.high,
       priority: Priority.high,
     );
@@ -165,6 +173,52 @@ class SystemNotificationService {
         body: body,
         payload: payload,
       );
+    }
+  }
+
+  Future<void> scheduleRewardExpiryReminder({
+    required int id,
+    required String voucherTitle,
+    required DateTime reminderTime,
+    required int daysRemaining,
+  }) async {
+    if (!_isInitialized) await init();
+    if (!reminderTime.isAfter(DateTime.now())) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'myheritage_reward_expiry',
+      'Reward Expiry Reminders',
+      channelDescription: 'Reminders before claimed reward vouchers expire.',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+      macOS: darwinDetails,
+    );
+
+    try {
+      await _notificationsPlugin.zonedSchedule(
+        id,
+        'Voucher expiring soon',
+        daysRemaining == 1
+            ? '$voucherTitle expires tomorrow.'
+            : '$voucherTitle expires in $daysRemaining days.',
+        tz.TZDateTime.from(reminderTime, tz.local),
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'voucher_wallet',
+      );
+    } catch (e) {
+      debugPrint('Schedule reward expiry notification error: $e');
     }
   }
 

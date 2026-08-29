@@ -1,9 +1,34 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myheritage_explorer/core/helpers.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
 
 void main() {
   test('basic Flutter test environment works', () {
     expect(1 + 1, 2);
+  });
+
+  test('voucher expiry countdown produces useful labels', () {
+    final now = DateTime(2026, 8, 29, 10);
+    expect(
+      expiryCountdownLabel(DateTime(2026, 9, 2, 10), now: now),
+      'Expires in 4 days',
+    );
+    expect(
+      expiryCountdownLabel(DateTime(2026, 8, 30, 10), now: now),
+      'Expires tomorrow',
+    );
+    expect(expiryCountdownLabel(now, now: now), 'Expired');
+  });
+
+  test('reward reminder notification ids are deterministic and distinct', () {
+    expect(
+      stableNotificationId('claim-123', 3),
+      stableNotificationId('claim-123', 3),
+    );
+    expect(
+      stableNotificationId('claim-123', 3),
+      isNot(stableNotificationId('claim-123', 1)),
+    );
   });
 
   test('review model flags negative text with a high star rating', () {
@@ -99,9 +124,7 @@ void main() {
     expect(candidates.first, 'https://example.com/broken.jpg');
     expect(
       candidates[1],
-      startsWith(
-        'https://commons.wikimedia.org/wiki/Special:Redirect/file/',
-      ),
+      startsWith('https://commons.wikimedia.org/wiki/Special:Redirect/file/'),
     );
   });
 
@@ -127,6 +150,8 @@ void main() {
 
     expect(resolved['suggestedTimeLabel'], '10:00 AM - 11:00 AM');
     expect(resolved['suggestedStartMinutes'], 600);
-    expect(List<String>.from(resolved['scheduleNotes']), ['Move this earlier.']);
+    expect(List<String>.from(resolved['scheduleNotes']), [
+      'Move this earlier.',
+    ]);
   });
 }

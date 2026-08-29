@@ -16,9 +16,11 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
   late final TextEditingController terms;
   late final TextEditingController pointCost;
   late final TextEditingController inventory;
+  late DateTime startsAt;
   late DateTime expiry;
   GeoPoint? voucherLocation;
   double notificationRadiusMeters = 750.0;
+  int perTouristClaimLimit = 1;
   bool busy = false;
 
   @override
@@ -32,6 +34,9 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
     terms = TextEditingController(text: '${data['terms'] ?? ''}');
     pointCost = TextEditingController(text: '${data['pointCost'] ?? 200}');
     inventory = TextEditingController(text: '${data['inventoryLimit'] ?? 50}');
+    startsAt =
+        asDate(data['startsAt']) ??
+        DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
     expiry =
         asDate(data['expiresAt']) ??
         _endOfDay(DateTime.now().add(const Duration(days: 30)));
@@ -40,6 +45,8 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         : null;
     notificationRadiusMeters =
         ((data['notificationRadiusMeters'] ?? 750.0) as num).toDouble();
+    perTouristClaimLimit =
+        ((data['perTouristClaimLimit'] as num?)?.toInt() ?? 1).clamp(1, 5);
   }
 
   DateTime _endOfDay(DateTime value) =>
@@ -49,6 +56,11 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
     final cost = int.tryParse(pointCost.text);
     final limit = int.tryParse(inventory.text);
     final normalizedExpiry = _endOfDay(expiry);
+    final normalizedStart = DateTime(
+      startsAt.year,
+      startsAt.month,
+      startsAt.day,
+    );
 
     if (title.text.trim().isEmpty ||
         description.text.trim().isEmpty ||
@@ -56,6 +68,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         cost <= 0 ||
         limit == null ||
         limit <= 0 ||
+        !normalizedStart.isBefore(normalizedExpiry) ||
         !normalizedExpiry.isAfter(DateTime.now())) {
       showMessage(
         context,
@@ -115,6 +128,8 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         'terms': terms.text.trim(),
         'pointCost': cost,
         'inventoryLimit': limit,
+        'startsAt': Timestamp.fromDate(normalizedStart),
+        'perTouristClaimLimit': perTouristClaimLimit,
         'expiresAt': Timestamp.fromDate(normalizedExpiry),
         if (voucherLocation != null) 'location': voucherLocation,
         'notificationRadiusMeters': notificationRadiusMeters,
@@ -251,6 +266,44 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           ],
           onChanged: (value) =>
               setState(() => notificationRadiusMeters = value ?? 750.0),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          initialValue: perTouristClaimLimit,
+          decoration: const InputDecoration(
+            labelText: 'Claims allowed per tourist',
+            helperText: 'Limit how many copies one tourist can claim.',
+          ),
+          items: const [
+            DropdownMenuItem(value: 1, child: Text('1 claim')),
+            DropdownMenuItem(value: 2, child: Text('2 claims')),
+            DropdownMenuItem(value: 3, child: Text('3 claims')),
+            DropdownMenuItem(value: 4, child: Text('4 claims')),
+            DropdownMenuItem(value: 5, child: Text('5 claims')),
+          ],
+          onChanged: (value) =>
+              setState(() => perTouristClaimLimit = value ?? 1),
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          tileColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text('Available from'),
+          subtitle: Text(DateFormat.yMMMd().format(startsAt)),
+          trailing: const Icon(Icons.event_available_outlined),
+          onTap: () async {
+            final today = DateTime.now();
+            final firstDate = DateTime(today.year, today.month, today.day);
+            final picked = await showDatePicker(
+              context: context,
+              firstDate: firstDate,
+              lastDate: DateTime.now().add(const Duration(days: 730)),
+              initialDate: startsAt.isBefore(firstDate) ? firstDate : startsAt,
+            );
+            if (picked != null) setState(() => startsAt = picked);
+          },
         ),
         const SizedBox(height: 12),
         ListTile(

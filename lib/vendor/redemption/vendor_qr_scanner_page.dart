@@ -220,7 +220,8 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
           TextField(
             controller: manualCode,
             decoration: const InputDecoration(
-              labelText: 'Voucher Code',
+              labelText: 'Voucher QR data or 6-digit PIN',
+              helperText: 'Use the tourist PIN when the camera cannot scan.',
               prefixIcon: Icon(Icons.qr_code),
             ),
           ),

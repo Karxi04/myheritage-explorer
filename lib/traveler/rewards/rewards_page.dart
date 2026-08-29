@@ -20,13 +20,15 @@ class _RewardsPageState extends State<RewardsPage> {
   String searchQuery = '';
   String category = 'All';
   String sortMode = 'Recommended';
+  bool favouritesOnly = false;
 
   String _claimLabel({
     required int points,
     required int cost,
-    required bool alreadyClaimed,
+    required int claimedCount,
+    required int claimLimit,
   }) {
-    if (alreadyClaimed) return 'Already in wallet';
+    if (claimedCount >= claimLimit) return 'Claim limit reached';
     if (cost <= 0) return 'Voucher unavailable';
     if (points < cost) return 'Need ${cost - points} more points';
     return 'Claim for $cost points';
@@ -74,13 +76,11 @@ class _RewardsPageState extends State<RewardsPage> {
     if (!confirmed) return;
 
     try {
-      await AppServices.claimVoucher(voucherId: voucherId, voucher: voucher);
-      if (mounted) {
-        showMessage(
-          context,
-          'Voucher claimed successfully and added to your wallet.',
-        );
-      }
+      final receipt = await AppServices.claimVoucher(
+        voucherId: voucherId,
+        voucher: voucher,
+      );
+      if (mounted) await showVoucherClaimReceipt(context, receipt);
     } catch (error) {
       if (mounted) {
         showMessage(
@@ -120,6 +120,16 @@ class _RewardsPageState extends State<RewardsPage> {
             icon: const Icon(Icons.account_balance_wallet_outlined),
             tooltip: 'Voucher wallet',
           ),
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const RewardNotificationSettingsPage(),
+              ),
+            ),
+            icon: const Icon(Icons.notifications_active_outlined),
+            tooltip: 'Reward notification settings',
+          ),
         ],
       ),
       body: _buildRewardsBody(uid),
@@ -140,6 +150,10 @@ class _RewardsPageState extends State<RewardsPage> {
         final traveler =
             travelerSnapshot.data?.data() ?? const <String, dynamic>{};
         final points = (traveler['points'] as num?)?.toInt() ?? 0;
+        final rawFavourites = traveler['favoriteVoucherIds'];
+        final favouriteVoucherIds = rawFavourites is Iterable
+            ? rawFavourites.map((value) => '$value').toSet()
+            : <String>{};
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: AppServices.db
@@ -160,12 +174,14 @@ class _RewardsPageState extends State<RewardsPage> {
                   .where('userId', isEqualTo: uid)
                   .snapshots(),
               builder: (context, claimSnapshot) {
-                final claimedVoucherIds =
-                    claimSnapshot.data?.docs
-                        .map((doc) => '${doc.data()['voucherId'] ?? ''}')
-                        .where((id) => id.isNotEmpty)
-                        .toSet() ??
-                    <String>{};
+                final claimedCounts = <String, int>{};
+                for (final claim in claimSnapshot.data?.docs ?? const []) {
+                  final voucherId = '${claim.data()['voucherId'] ?? ''}';
+                  if (voucherId.isNotEmpty) {
+                    claimedCounts[voucherId] =
+                        (claimedCounts[voucherId] ?? 0) + 1;
+                  }
+                }
                 final now = DateTime.now();
                 final available = voucherSnapshot.data!.docs.where((doc) {
                   if (widget.focusVoucherId != null &&
@@ -173,11 +189,13 @@ class _RewardsPageState extends State<RewardsPage> {
                     return false;
                   }
                   final voucher = doc.data();
+                  final startsAt = asDate(voucher['startsAt']);
                   final expiry = asDate(voucher['expiresAt']);
                   final inventory =
                       (voucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
                   final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
-                  return (expiry == null || expiry.isAfter(now)) &&
+                  return (startsAt == null || !startsAt.isAfter(now)) &&
+                      (expiry == null || expiry.isAfter(now)) &&
                       inventory > 0 &&
                       cost > 0 &&
                       '${voucher['vendorId'] ?? ''}'.trim().isNotEmpty;
@@ -199,7 +217,11 @@ class _RewardsPageState extends State<RewardsPage> {
                   final matchesCategory =
                       category == 'All' ||
                       '${voucher['vendorCategory'] ?? ''}' == category;
-                  return matchesCategory && _matchesSearch(voucher);
+                  final matchesFavourite =
+                      !favouritesOnly || favouriteVoucherIds.contains(doc.id);
+                  return matchesCategory &&
+                      matchesFavourite &&
+                      _matchesSearch(voucher);
                 }).toList();
 
                 switch (sortMode) {
@@ -258,27 +280,35 @@ class _RewardsPageState extends State<RewardsPage> {
                         prefixIcon: Icon(Icons.search),
                       ),
                     ),
-                    if (categories.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: ['All', ...categories]
-                              .map(
-                                (item) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: FilterChip(
-                                    label: Text(item),
-                                    selected: category == item,
-                                    onSelected: (_) =>
-                                        setState(() => category = item),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              avatar: const Icon(Icons.favorite, size: 16),
+                              label: const Text('Favourites'),
+                              selected: favouritesOnly,
+                              onSelected: (selected) =>
+                                  setState(() => favouritesOnly = selected),
+                            ),
+                          ),
+                          ...['All', ...categories].map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FilterChip(
+                                label: Text(item),
+                                selected: category == item,
+                                onSelected: (_) =>
+                                    setState(() => category = item),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
@@ -319,10 +349,15 @@ class _RewardsPageState extends State<RewardsPage> {
                         final voucher = doc.data();
                         final cost =
                             (voucher['pointCost'] as num?)?.toInt() ?? 0;
-                        final alreadyClaimed = claimedVoucherIds.contains(
-                          doc.id,
-                        );
-                        final canClaim = !alreadyClaimed && points >= cost;
+                        final claimedCount = claimedCounts[doc.id] ?? 0;
+                        final claimLimit =
+                            ((voucher['perTouristClaimLimit'] as num?)
+                                        ?.toInt() ??
+                                    1)
+                                .clamp(1, 10);
+                        final canClaim =
+                            claimedCount < claimLimit && points >= cost;
+                        final favourite = favouriteVoucherIds.contains(doc.id);
                         final expiry = asDate(voucher['expiresAt']);
 
                         return Padding(
@@ -342,6 +377,31 @@ class _RewardsPageState extends State<RewardsPage> {
                                             fontSize: 20,
                                             fontWeight: FontWeight.bold,
                                           ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: favourite
+                                            ? 'Remove from favourites'
+                                            : 'Add to favourites',
+                                        onPressed: () =>
+                                            AppServices.travelerRef(
+                                              uid,
+                                            ).update({
+                                              'favoriteVoucherIds': favourite
+                                                  ? FieldValue.arrayRemove([
+                                                      doc.id,
+                                                    ])
+                                                  : FieldValue.arrayUnion([
+                                                      doc.id,
+                                                    ]),
+                                              'updatedAt':
+                                                  FieldValue.serverTimestamp(),
+                                            }),
+                                        icon: Icon(
+                                          favourite
+                                              ? Icons.favorite
+                                              : Icons.favorite_border,
+                                          color: favourite ? Colors.red : null,
                                         ),
                                       ),
                                       Chip(label: Text('$cost pts')),
@@ -367,23 +427,44 @@ class _RewardsPageState extends State<RewardsPage> {
                                   const SizedBox(height: 8),
                                   Text(
                                     '${voucher['inventoryRemaining'] ?? 0} remaining'
-                                    '${expiry == null ? '' : ' - Expires ${DateFormat.yMMMd().format(expiry)}'}',
+                                    '${expiry == null ? '' : ' - ${expiryCountdownLabel(expiry)}'}',
                                   ),
                                   const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton(
-                                      onPressed: canClaim
-                                          ? () => _confirmClaim(doc.id, voucher)
-                                          : null,
-                                      child: Text(
-                                        _claimLabel(
-                                          points: points,
-                                          cost: cost,
-                                          alreadyClaimed: alreadyClaimed,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => VoucherDetailPage(
+                                                voucherId: doc.id,
+                                              ),
+                                            ),
+                                          ),
+                                          child: const Text('View Details'),
                                         ),
                                       ),
-                                    ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: ElevatedButton(
+                                          onPressed: canClaim
+                                              ? () => _confirmClaim(
+                                                  doc.id,
+                                                  voucher,
+                                                )
+                                              : null,
+                                          child: Text(
+                                            _claimLabel(
+                                              points: points,
+                                              cost: cost,
+                                              claimedCount: claimedCount,
+                                              claimLimit: claimLimit,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),

@@ -1,10 +1,60 @@
 part of '../vendor_pages.dart';
 
-class VendorAnalyticsPage extends StatelessWidget {
+class VendorAnalyticsPage extends StatefulWidget {
   const VendorAnalyticsPage({super.key, this.voucherId, this.voucherTitle});
 
   final String? voucherId;
   final String? voucherTitle;
+
+  @override
+  State<VendorAnalyticsPage> createState() => _VendorAnalyticsPageState();
+}
+
+class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
+  String period = 'All time';
+  DateTimeRange? customRange;
+
+  String? get voucherId => widget.voucherId;
+  String? get voucherTitle => widget.voucherTitle;
+
+  bool _matchesPeriod(DateTime? date) {
+    if (period == 'All time') return true;
+    if (date == null) return false;
+    final now = DateTime.now();
+    final start = switch (period) {
+      '7 days' => now.subtract(const Duration(days: 7)),
+      '30 days' => now.subtract(const Duration(days: 30)),
+      'Custom' when customRange != null => customRange!.start,
+      _ => DateTime(2000),
+    };
+    final end = period == 'Custom' && customRange != null
+        ? DateTime(
+            customRange!.end.year,
+            customRange!.end.month,
+            customRange!.end.day,
+            23,
+            59,
+            59,
+          )
+        : now;
+    return !date.isBefore(start) && !date.isAfter(end);
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: customRange,
+    );
+    if (selected != null) {
+      setState(() {
+        customRange = selected;
+        period = 'Custom';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,8 +119,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                   redemptionSnapshot.data!.docs
                       .where(
                         (doc) =>
-                            voucherId == null ||
-                            doc.data()['voucherId'] == voucherId,
+                            (voucherId == null ||
+                                doc.data()['voucherId'] == voucherId) &&
+                            _matchesPeriod(asDate(doc.data()['redeemedAt'])),
                       )
                       .toList()
                     ..sort(
@@ -161,6 +212,32 @@ class VendorAnalyticsPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final option in const [
+                        'All time',
+                        '7 days',
+                        '30 days',
+                      ])
+                        ChoiceChip(
+                          label: Text(option),
+                          selected: period == option,
+                          onSelected: (_) => setState(() => period = option),
+                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.date_range, size: 18),
+                        label: Text(
+                          period == 'Custom' && customRange != null
+                              ? '${DateFormat.MMMd().format(customRange!.start)} - ${DateFormat.MMMd().format(customRange!.end)}'
+                              : 'Custom',
+                        ),
+                        onPressed: _pickCustomRange,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
                   Row(
                     children: [
                       Expanded(
@@ -178,7 +255,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: ExplorerMetricCard(
-                          label: 'Avg. Redemption Rate',
+                          label: period == 'All time'
+                              ? 'Avg. Redemption Rate'
+                              : 'Filtered Redemption Rate',
                           value: '${rate.toStringAsFixed(1)}%',
                           caption:
                               '${redemptions.length} completed redemptions',

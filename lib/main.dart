@@ -32,8 +32,8 @@ void _handleNotificationPayload(String? payload) {
     if (AppServices.auth.currentUser != null) {
       destination = switch (value) {
         'rewards' => const RewardsPage(),
-        _ when value.startsWith('reward:') => RewardsPage(
-          focusVoucherId: value.substring('reward:'.length).trim(),
+        _ when value.startsWith('reward:') => VoucherDetailPage(
+          voucherId: value.substring('reward:'.length).trim(),
         ),
         'voucher_wallet' => const VoucherWalletPage(),
         _ => null,

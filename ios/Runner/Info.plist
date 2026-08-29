@@ -30,6 +30,12 @@
 	<string>Vendors use the camera to scan tourist voucher QR codes.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Your location is used to find and notify you about nearby local business rewards.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Your location is used in the background to notify you when you approach a participating local business with an active reward.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
