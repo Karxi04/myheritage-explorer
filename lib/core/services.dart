@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -698,12 +697,7 @@ class AppServices {
     final legacyClaimRef = db
         .collection('claimed_vouchers')
         .doc('${uid}_$voucherId');
-    final counterRef = db
-        .collection('voucher_claim_counts')
-        .doc('${uid}_$voucherId');
-    final claimRef = db
-        .collection('claimed_vouchers')
-        .doc('${uid}_${voucherId}_${randomToken(10)}');
+    late DocumentReference<Map<String, dynamic>> claimRef;
 
     var claimedTitle = 'Voucher';
     var vendorName = 'Registered vendor';
@@ -714,8 +708,6 @@ class AppServices {
     await db.runTransaction((transaction) async {
       final travelerSnapshot = await transaction.get(travelerProfileRef);
       final voucherSnapshot = await transaction.get(voucherRef);
-      final counterSnapshot = await transaction.get(counterRef);
-      final legacyClaimSnapshot = await transaction.get(legacyClaimRef);
 
       if (!travelerSnapshot.exists) {
         throw Exception('Traveler profile was not found.');
@@ -755,12 +747,20 @@ class AppServices {
       final claimLimit =
           ((currentVoucher['perTouristClaimLimit'] as num?)?.toInt() ?? 1)
               .clamp(1, 10);
-      final recordedCount =
-          (counterSnapshot.data()?['count'] as num?)?.toInt() ?? 0;
-      final currentClaimCount = max(
-        recordedCount,
-        legacyClaimSnapshot.exists ? 1 : 0,
-      );
+      final claimSlots = <DocumentReference<Map<String, dynamic>>>[
+        legacyClaimRef,
+        for (var sequence = 2; sequence <= claimLimit; sequence++)
+          db
+              .collection('claimed_vouchers')
+              .doc('${uid}_${voucherId}_$sequence'),
+      ];
+      final claimSlotSnapshots = <DocumentSnapshot<Map<String, dynamic>>>[];
+      for (final slot in claimSlots) {
+        claimSlotSnapshots.add(await transaction.get(slot));
+      }
+      final currentClaimCount = claimSlotSnapshots
+          .where((snapshot) => snapshot.exists)
+          .length;
 
       if (cost <= 0) {
         throw Exception(
@@ -798,6 +798,11 @@ class AppServices {
         );
       }
 
+      final availableSlotIndex = claimSlotSnapshots.indexWhere(
+        (snapshot) => !snapshot.exists,
+      );
+      claimRef = claimSlots[availableSlotIndex];
+
       final pointsAfterClaim = currentPoints - cost;
       claimedTitle = '${currentVoucher['title'] ?? 'Voucher'}'.trim();
       vendorName =
@@ -821,13 +826,6 @@ class AppServices {
       transaction.update(voucherRef, {
         'inventoryRemaining': inventory - 1,
         'claimCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      transaction.set(counterRef, {
-        'userId': uid,
-        'voucherId': voucherId,
-        'count': currentClaimCount + 1,
-        'limit': claimLimit,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       transaction.set(claimRef, {
