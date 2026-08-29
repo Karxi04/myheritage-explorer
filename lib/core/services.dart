@@ -548,7 +548,8 @@ class AppServices {
     await SystemNotificationService.instance.scheduleTripReminder(
       id: notifId,
       title: '✈️ Upcoming Trip: $title ($area)',
-      body: 'Your trip to $area starts tomorrow ($formattedDate)! Check your itinerary & today\'s weather forecast.',
+      body:
+          'Your trip to $area starts tomorrow ($formattedDate)! Check your itinerary & today\'s weather forecast.',
       reminderTime: reminderDate,
       payload: 'itinerary:$itineraryId',
     );
@@ -796,17 +797,20 @@ class AppServices {
         'name': 'Sentosa Food Court BM',
         'category': 'Food',
         'area': 'Bukit Mertajam',
-        'formattedAddress': 'Jalan Sentosa, Taman Sentosa, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            'Jalan Sentosa, Taman Sentosa, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.7,
         'phone': '+604-539 8888',
         'openingHours': 'Mon-Sun 17:00-00:00',
         'durationMinutes': 60,
         'budgetLevel': 'Low',
         'location': {'latitude': 5.3488, 'longitude': 100.4722},
-        'description': 'Bustling evening food court in Taman Sentosa featuring over 40 hawker stalls serving BBQ stingray, satay, fried oyster omelette, and claypot noodles.',
+        'description':
+            'Bustling evening food court in Taman Sentosa featuring over 40 hawker stalls serving BBQ stingray, satay, fried oyster omelette, and claypot noodles.',
         'culturalTask': {
           'title': 'Sentosa Evening Hawker Food Feast',
-          'description': 'Sample authentic local street food and photograph your dinner spread at Sentosa Food Court.',
+          'description':
+              'Sample authentic local street food and photograph your dinner spread at Sentosa Food Court.',
           'rewardPoints': 80,
         },
       },
@@ -814,17 +818,20 @@ class AppServices {
         'name': 'Restoran BM Yam Rice',
         'category': 'Food',
         'area': 'Bukit Mertajam',
-        'formattedAddress': '7 Jalan Murthy, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            '7 Jalan Murthy, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.8,
         'phone': '+604-530 6826',
         'openingHours': 'Mon-Sun 09:00-15:00',
         'durationMinutes': 45,
         'budgetLevel': 'Low',
         'location': {'latitude': 5.3644, 'longitude': 100.4611},
-        'description': 'Legendary Bukit Mertajam yam rice served with hot salted mustard green pork soup, tender offal, and spicy chili dip.',
+        'description':
+            'Legendary Bukit Mertajam yam rice served with hot salted mustard green pork soup, tender offal, and spicy chili dip.',
         'culturalTask': {
           'title': 'Legendary Yam Rice Tasting',
-          'description': 'Taste authentic BM Yam Rice with salted vegetable soup and take a photo of the signature dish.',
+          'description':
+              'Taste authentic BM Yam Rice with salted vegetable soup and take a photo of the signature dish.',
           'rewardPoints': 90,
         },
       },
@@ -832,17 +839,20 @@ class AppServices {
         'name': 'Restoran BM Cup Rice (Danby Cup Rice)',
         'category': 'Food',
         'area': 'Bukit Mertajam',
-        'formattedAddress': 'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.7,
         'phone': '+6012-421 8833',
         'openingHours': 'Mon-Sun 08:00-14:00',
         'durationMinutes': 40,
         'budgetLevel': 'Low',
         'location': {'latitude': 5.3639, 'longitude': 100.4608},
-        'description': 'Iconic vintage BM cup rice drenched in rich roasted pork gravy with tender char siew.',
+        'description':
+            'Iconic vintage BM cup rice drenched in rich roasted pork gravy with tender char siew.',
         'culturalTask': {
           'title': 'Heritage Cup Rice Experience',
-          'description': 'Enjoy the classic BM cup rice and capture the vintage street ambience.',
+          'description':
+              'Enjoy the classic BM cup rice and capture the vintage street ambience.',
           'rewardPoints': 85,
         },
       },
@@ -850,17 +860,20 @@ class AppServices {
         'name': 'BM Famous Duck Egg Char Koay Teow',
         'category': 'Food',
         'area': 'Bukit Mertajam',
-        'formattedAddress': 'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.9,
         'phone': '+6016-443 2819',
         'openingHours': 'Mon-Sun 19:00-23:30',
         'durationMinutes': 45,
         'budgetLevel': 'Low',
         'location': {'latitude': 5.3635, 'longitude': 100.4602},
-        'description': 'Famous charcoal-fried char koay teow cooked with rich creamy duck egg, fresh cockles, and fragrant wok hei.',
+        'description':
+            'Famous charcoal-fried char koay teow cooked with rich creamy duck egg, fresh cockles, and fragrant wok hei.',
         'culturalTask': {
           'title': 'Duck Egg Wok Hei Snap',
-          'description': 'Order the signature duck egg Char Koay Teow and photograph the master stir-frying with charcoal wok hei.',
+          'description':
+              'Order the signature duck egg Char Koay Teow and photograph the master stir-frying with charcoal wok hei.',
           'rewardPoints': 95,
         },
       },
@@ -868,20 +881,23 @@ class AppServices {
         'name': 'BM Rojak Orang Hitam Putih',
         'category': 'Food',
         'area': 'Bukit Mertajam',
-        'formattedAddress': 'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.8,
         'phone': '+6012-475 2288',
         'openingHours': 'Mon-Sun 11:30-18:30',
         'durationMinutes': 30,
         'budgetLevel': 'Low',
         'location': {'latitude': 5.3641, 'longitude': 100.4615},
-        'description': 'Renowned BM fruit and fritter rojak tossed in thick, aromatic black shrimp paste and crushed peanuts.',
+        'description':
+            'Renowned BM fruit and fritter rojak tossed in thick, aromatic black shrimp paste and crushed peanuts.',
       },
       {
         'name': 'Minor Basilica of St. Anne',
         'category': 'Heritage',
         'area': 'Bukit Mertajam',
-        'formattedAddress': 'Jalan Kulim, 14000 Bukit Mertajam, Penang, Malaysia',
+        'formattedAddress':
+            'Jalan Kulim, 14000 Bukit Mertajam, Penang, Malaysia',
         'score': 4.9,
         'phone': '+604-538 6405',
         'website': 'https://stannebm.org/',
@@ -889,10 +905,12 @@ class AppServices {
         'durationMinutes': 60,
         'budgetLevel': 'Free',
         'location': {'latitude': 5.3533, 'longitude': 100.4789},
-        'description': 'Historic Catholic pilgrimage site elevated to Minor Basilica status, featuring Gothic architecture and the 1888 Old Shrine.',
+        'description':
+            'Historic Catholic pilgrimage site elevated to Minor Basilica status, featuring Gothic architecture and the 1888 Old Shrine.',
         'culturalTask': {
           'title': 'Basilica Architecture Discovery',
-          'description': 'Photograph the gothic facade of St. Anne Basilica and the historic 1888 hillside chapel.',
+          'description':
+              'Photograph the gothic facade of St. Anne Basilica and the historic 1888 hillside chapel.',
           'rewardPoints': 110,
         },
       },
@@ -900,7 +918,8 @@ class AppServices {
         'name': 'Pinang Peranakan Mansion',
         'category': 'Heritage',
         'area': 'George Town',
-        'formattedAddress': '29 Church Street, 10200 George Town, Penang, Malaysia',
+        'formattedAddress':
+            '29 Church Street, 10200 George Town, Penang, Malaysia',
         'score': 4.8,
         'phone': '+604-264 2929',
         'website': 'https://www.pinangperanakanmansion.com.my/',
@@ -908,10 +927,12 @@ class AppServices {
         'durationMinutes': 75,
         'budgetLevel': 'Medium',
         'location': {'latitude': 5.41758, 'longitude': 100.34262},
-        'description': 'A stately recreation of a rich 19th-century Baba Nyonya residence showcasing over 1,000 antique Peranakan heirlooms.',
+        'description':
+            'A stately recreation of a rich 19th-century Baba Nyonya residence showcasing over 1,000 antique Peranakan heirlooms.',
         'culturalTask': {
           'title': 'Peranakan Heritage Discovery',
-          'description': 'Photograph one traditional Baba Nyonya antique or architectural carving.',
+          'description':
+              'Photograph one traditional Baba Nyonya antique or architectural carving.',
           'rewardPoints': 120,
         },
       },
@@ -919,7 +940,8 @@ class AppServices {
         'name': 'Cheong Fatt Tze - The Blue Mansion',
         'category': 'Heritage',
         'area': 'George Town',
-        'formattedAddress': '14 Leith Street, 10200 George Town, Penang, Malaysia',
+        'formattedAddress':
+            '14 Leith Street, 10200 George Town, Penang, Malaysia',
         'score': 4.7,
         'phone': '+604-262 0006',
         'website': 'https://www.cheongfatttzemansion.com/',
@@ -927,10 +949,12 @@ class AppServices {
         'durationMinutes': 75,
         'budgetLevel': 'High',
         'location': {'latitude': 5.42157, 'longitude': 100.33407},
-        'description': 'Award-winning UNESCO-conserved 1890s courtyard mansion famous for its striking indigo blue walls.',
+        'description':
+            'Award-winning UNESCO-conserved 1890s courtyard mansion famous for its striking indigo blue walls.',
         'culturalTask': {
           'title': 'Indigo Architectural Snapshot',
-          'description': 'Photograph the iconic indigo courtyard and identify one unique Feng Shui element.',
+          'description':
+              'Photograph the iconic indigo courtyard and identify one unique Feng Shui element.',
           'rewardPoints': 130,
         },
       },
@@ -938,17 +962,20 @@ class AppServices {
         'name': 'Pasar Besar Siti Khadijah',
         'category': 'Heritage',
         'area': 'Kota Bharu',
-        'formattedAddress': 'Jalan Buluh Kubu, Bandar Kota Bharu, 15000 Kota Bharu, Kelantan, Malaysia',
+        'formattedAddress':
+            'Jalan Buluh Kubu, Bandar Kota Bharu, 15000 Kota Bharu, Kelantan, Malaysia',
         'score': 4.8,
         'phone': '+609-748 2140',
         'openingHours': 'Mon-Sun 07:00-18:00',
         'durationMinutes': 75,
         'budgetLevel': 'Low',
         'location': {'latitude': 6.1287, 'longitude': 102.2392},
-        'description': 'Iconic 4-storey octagonal central market in Kota Bharu operated mostly by female traders.',
+        'description':
+            'Iconic 4-storey octagonal central market in Kota Bharu operated mostly by female traders.',
         'culturalTask': {
           'title': 'Octagonal Market Geometry & Kuih Akok',
-          'description': 'Photograph the colourful central octagonal produce hall and sample warm Kuih Akok.',
+          'description':
+              'Photograph the colourful central octagonal produce hall and sample warm Kuih Akok.',
           'rewardPoints': 130,
         },
       },
@@ -956,17 +983,20 @@ class AppServices {
         'name': 'Masjid Kristal',
         'category': 'Heritage',
         'area': 'Kuala Terengganu',
-        'formattedAddress': 'Pulau Wan Man, 21000 Kuala Terengganu, Terengganu, Malaysia',
+        'formattedAddress':
+            'Pulau Wan Man, 21000 Kuala Terengganu, Terengganu, Malaysia',
         'score': 4.8,
         'phone': '+609-627 8888',
         'openingHours': 'Mon-Sun 06:00-22:00',
         'durationMinutes': 60,
         'budgetLevel': 'Free',
         'location': {'latitude': 5.3224, 'longitude': 103.1189},
-        'description': 'Magnificent grand mosque built from steel, glass, and crystal on Pulau Wan Man.',
+        'description':
+            'Magnificent grand mosque built from steel, glass, and crystal on Pulau Wan Man.',
         'culturalTask': {
           'title': 'Crystal Reflection Snapshot',
-          'description': 'Photograph the gleaming crystal and glass domes reflecting over the Terengganu River.',
+          'description':
+              'Photograph the gleaming crystal and glass domes reflecting over the Terengganu River.',
           'rewardPoints': 120,
         },
       },
@@ -974,7 +1004,8 @@ class AppServices {
         'name': 'Borneo Cultures Museum',
         'category': 'Culture',
         'area': 'Kuching',
-        'formattedAddress': 'Jalan Tun Abang Haji Openg, 93000 Kuching, Sarawak, Malaysia',
+        'formattedAddress':
+            'Jalan Tun Abang Haji Openg, 93000 Kuching, Sarawak, Malaysia',
         'score': 4.9,
         'phone': '+6082-536 788',
         'website': 'https://museum.sarawak.gov.my/',
@@ -982,10 +1013,12 @@ class AppServices {
         'durationMinutes': 120,
         'budgetLevel': 'Medium',
         'location': {'latitude': 1.5546, 'longitude': 110.3421},
-        'description': 'Iconic 5-storey museum and the second largest in Southeast Asia, housing over 1,000 Borneo cultural artefacts.',
+        'description':
+            'Iconic 5-storey museum and the second largest in Southeast Asia, housing over 1,000 Borneo cultural artefacts.',
         'culturalTask': {
           'title': 'Indigenous Tribal Arts Study',
-          'description': 'Explore Level 3 or 4 and photograph one traditional Dayak craft or textile heirloom.',
+          'description':
+              'Explore Level 3 or 4 and photograph one traditional Dayak craft or textile heirloom.',
           'rewardPoints': 150,
         },
       },
@@ -1000,10 +1033,12 @@ class AppServices {
         'durationMinutes': 90,
         'budgetLevel': 'Free',
         'location': {'latitude': 3.2379, 'longitude': 101.6840},
-        'description': 'Limestone hill comprising three major caves, world-renowned 140-ft golden Lord Murugan statue, and 272 colourful rainbow steps.',
+        'description':
+            'Limestone hill comprising three major caves, world-renowned 140-ft golden Lord Murugan statue, and 272 colourful rainbow steps.',
         'culturalTask': {
           'title': 'Cathedral Cave Step Ascent',
-          'description': 'Climb the 272 rainbow steps and photograph the limestone cathedral cave interior.',
+          'description':
+              'Climb the 272 rainbow steps and photograph the limestone cathedral cave interior.',
           'rewardPoints': 130,
         },
       },
@@ -1092,7 +1127,10 @@ class AppServices {
     final existingReviewsSnapshot = await reviewsCollection.get();
 
     final existingPlaceIds = existingReviewsSnapshot.docs
-        .map((doc) => '${doc.data()['placeId'] ?? doc.data()['vendorId'] ?? ''}'.trim())
+        .map(
+          (doc) =>
+              '${doc.data()['placeId'] ?? doc.data()['vendorId'] ?? ''}'.trim(),
+        )
         .where((id) => id.isNotEmpty)
         .toSet();
 
@@ -1105,7 +1143,8 @@ class AppServices {
         targets.add({
           'vendorId': doc.id,
           'placeId': doc.id,
-          'name': '${data['businessName'] ?? data['displayName'] ?? 'Heritage Vendor'}',
+          'name':
+              '${data['businessName'] ?? data['displayName'] ?? 'Heritage Vendor'}',
           'category': '${data['category'] ?? 'Heritage'}',
           'area': '${data['area'] ?? data['city'] ?? 'Malaysia'}',
         });
@@ -1149,27 +1188,33 @@ class AppServices {
         {
           'reviewerName': 'Tan Mei Ling',
           'rating': 5,
-          'comment': 'Exceptional experience! Authentic $category with top-quality service. Highly recommend visiting when in $area.',
+          'comment':
+              'Exceptional experience! Authentic $category with top-quality service. Highly recommend visiting when in $area.',
           'daysAgo': 2,
         },
         {
           'reviewerName': 'Hafiz Ridzuan',
           'rating': 5,
-          'comment': 'One of the best $category spots in $area. Generous portions and very welcoming staff.',
+          'comment':
+              'One of the best $category spots in $area. Generous portions and very welcoming staff.',
           'daysAgo': 5,
         },
         {
           'reviewerName': 'Sarah Jenkins',
           'rating': 4,
-          'comment': 'Lovely cultural vibe and great attention to detail. Will definitely bring my friends here again.',
+          'comment':
+              'Lovely cultural vibe and great attention to detail. Will definitely bring my friends here again.',
           'daysAgo': 12,
         },
       ];
 
       for (final sample in validSamples) {
-        final date = DateTime.now().subtract(Duration(days: sample['daysAgo'] as int));
+        final date = DateTime.now().subtract(
+          Duration(days: sample['daysAgo'] as int),
+        );
         await reviewsCollection.add({
-          'userId': 'traveler_${(sample['reviewerName'] as String).toLowerCase().replaceAll(' ', '_')}',
+          'userId':
+              'traveler_${(sample['reviewerName'] as String).toLowerCase().replaceAll(' ', '_')}',
           'reviewerName': sample['reviewerName'],
           'placeId': placeId,
           'vendorId': vendorId.isNotEmpty ? vendorId : null,
@@ -1188,8 +1233,11 @@ class AppServices {
           'mlPositiveProbability': 0.95,
           'mlRatingMismatch': false,
           'mlSuspiciousProbability': 0.05,
-          'mlDecision': 'valid',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlRiskScore': 0.05,
+          'mlRiskLevel': 'low',
+          'mlNeedsReview': false,
+          'mlDecision': 'normal',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });
@@ -1198,7 +1246,9 @@ class AppServices {
 
       // Add realistic flagged reviews on selected targets so the Admin side has a rich flagged review moderation queue!
       if (targetIndex % 3 == 0) {
-        final date = DateTime.now().subtract(Duration(hours: 3 * (targetIndex + 1)));
+        final date = DateTime.now().subtract(
+          Duration(hours: 3 * (targetIndex + 1)),
+        );
         await reviewsCollection.add({
           'userId': 'user_bot_${1000 + targetIndex}',
           'reviewerName': 'Crypto_Promoter_Bot',
@@ -1208,10 +1258,15 @@ class AppServices {
           'placeNameKey': placeNameKey,
           'source': 'traveler_app',
           'rating': 1,
-          'comment': 'CLAIM FREE BITCOIN & VOUCHER REWARDS AT HTTP://CRYPTO-PROMO-BONUS.XYZ/CLAIM BEST CASHBACK GUARANTEED!',
+          'comment':
+              'CLAIM FREE BITCOIN & VOUCHER REWARDS AT HTTP://CRYPTO-PROMO-BONUS.XYZ/CLAIM BEST CASHBACK GUARANTEED!',
           'status': 'flagged',
-          'flagReason': 'Automated ML Flag: External promotional URL / Commercial solicitation spam',
-          'flagReasons': ['Promotional spam link detected', 'Commercial solicitation forbidden'],
+          'flagReason':
+              'Automated ML Flag: External promotional URL / Commercial solicitation spam',
+          'flagReasons': [
+            'Promotional spam link detected',
+            'Commercial solicitation forbidden',
+          ],
           'mlSentiment': 'neutral',
           'mlSentimentConfidence': 0.91,
           'mlNegativeProbability': 0.15,
@@ -1219,14 +1274,19 @@ class AppServices {
           'mlPositiveProbability': 0.05,
           'mlRatingMismatch': false,
           'mlSuspiciousProbability': 0.98,
+          'mlRiskScore': 0.98,
+          'mlRiskLevel': 'high',
+          'mlNeedsReview': false,
           'mlDecision': 'flagged',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });
         addedCount++;
       } else if (targetIndex % 3 == 1) {
-        final date = DateTime.now().subtract(Duration(hours: 6 * (targetIndex + 1)));
+        final date = DateTime.now().subtract(
+          Duration(hours: 6 * (targetIndex + 1)),
+        );
         await reviewsCollection.add({
           'userId': 'user_sus_${2000 + targetIndex}',
           'reviewerName': 'Alex Tan',
@@ -1236,10 +1296,14 @@ class AppServices {
           'placeNameKey': placeNameKey,
           'source': 'traveler_app',
           'rating': 1,
-          'comment': 'Outstanding heritage atmosphere, delicious specialty food and staff were exceptionally kind and polite! 10/10 best place!',
+          'comment':
+              'Outstanding heritage atmosphere, delicious specialty food and staff were exceptionally kind and polite! 10/10 best place!',
           'status': 'flagged',
-          'flagReason': 'Automated ML Flag: Rating mismatch (1-star rating given with intensely positive praising text)',
-          'flagReasons': ['Severe rating-sentiment polarity contradiction (1-star vs 98% positive text)'],
+          'flagReason':
+              'Automated ML Flag: Rating mismatch (1-star rating given with intensely positive praising text)',
+          'flagReasons': [
+            'Severe rating-sentiment polarity contradiction (1-star vs 98% positive text)',
+          ],
           'mlSentiment': 'positive',
           'mlSentimentConfidence': 0.98,
           'mlNegativeProbability': 0.01,
@@ -1247,8 +1311,11 @@ class AppServices {
           'mlPositiveProbability': 0.98,
           'mlRatingMismatch': true,
           'mlSuspiciousProbability': 0.89,
+          'mlRiskScore': 0.89,
+          'mlRiskLevel': 'high',
+          'mlNeedsReview': false,
           'mlDecision': 'flagged',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });
@@ -1261,4 +1328,3 @@ class AppServices {
     return addedCount;
   }
 }
-

@@ -88,6 +88,7 @@ class ItineraryShareHelper {
           (stop['suggestedStartMinutes'] as num?)?.round(),
       'suggestedEndMinutes': (stop['suggestedEndMinutes'] as num?)?.round(),
       'suggestedTimeLabel': _shortText(stop['suggestedTimeLabel'], 40),
+      'mealSuggestionLabel': _shortText(stop['mealSuggestionLabel'], 60),
       'scheduleStatus': _shortText(stop['scheduleStatus'], 20),
       'scheduleNotes': List<String>.from(
         stop['scheduleNotes'] ?? const <String>[],
@@ -110,18 +111,107 @@ class ItineraryShareHelper {
     String shareId,
   ) async {
     final createdAt = asDate(itinerary['createdAt']);
-    final stops = List<Map<String, dynamic>>.from(
-      (itinerary['stops'] ?? const []).map(
-        (item) => Map<String, dynamic>.from(item),
+    final availableHours = _availableHoursFor(itinerary);
+    final pace = '${itinerary['travelPace'] ?? 'Balanced'}';
+    final preferredStartMinutes =
+        (itinerary['suggestedStartMinutes'] as num?)?.round();
+    final rawDays = (itinerary['days'] as List?)
+            ?.whereType<Map>()
+            .map((day) => Map<String, dynamic>.from(day))
+            .where((day) => day['stops'] is List && (day['stops'] as List).isNotEmpty)
+            .toList() ??
+        const <Map<String, dynamic>>[];
+
+    final publicDays = <Map<String, dynamic>>[];
+    if (rawDays.isNotEmpty) {
+      for (var index = 0; index < rawDays.length; index++) {
+        final day = rawDays[index];
+        final dayStops = List<Map<String, dynamic>>.from(
+          (day['stops'] as List).map(
+            (item) => Map<String, dynamic>.from(item as Map),
+          ),
+        );
+        final daySchedule = ItinerarySchedulePlanner.plan(
+          stops: dayStops,
+          pace: pace,
+          availableHours:
+              (day['availableHours'] as num?)?.toDouble() ?? availableHours,
+          preferredStartMinutes:
+              (day['suggestedStartMinutes'] as num?)?.round() ??
+                  preferredStartMinutes,
+        );
+        final publicStops = await Future.wait(daySchedule.stops.map(_publicStop));
+        final dayBudget = ItineraryBudgetEstimator.estimateDay(publicStops);
+        publicDays.add({
+          'dayNumber': (day['dayNumber'] as num?)?.round() ?? index + 1,
+          'date': _shortText(day['date'], 40),
+          'dateLabel': _shortText(day['dateLabel'], 80),
+          'weather': day['weather'] is Map
+              ? Map<String, dynamic>.from(day['weather'] as Map)
+              : const <String, dynamic>{},
+          'stops': publicStops,
+          'suggestedStartMinutes': daySchedule.startMinutes,
+          'suggestedEndMinutes': daySchedule.endMinutes,
+          'totalEstimatedMinutes': daySchedule.totalEstimatedMinutes,
+          'remainingMinutes': daySchedule.remainingMinutes,
+          'budget': dayBudget.dayBudget,
+          'budgetLevel': dayBudget.budgetLevel,
+        });
+      }
+    } else {
+      final stops = List<Map<String, dynamic>>.from(
+        (itinerary['stops'] ?? const []).map(
+          (item) => Map<String, dynamic>.from(item),
+        ),
+      );
+      final schedule = ItinerarySchedulePlanner.plan(
+        stops: stops,
+        pace: pace,
+        availableHours: availableHours,
+        preferredStartMinutes: preferredStartMinutes,
+      );
+      final publicStops = await Future.wait(schedule.stops.map(_publicStop));
+      final dayBudget = ItineraryBudgetEstimator.estimateDay(publicStops);
+      publicDays.add({
+        'dayNumber': 1,
+        'date': _shortText(
+          itinerary['startDate'] ?? itinerary['targetDate'] ?? '',
+          40,
+        ),
+        'dateLabel': _shortText(itinerary['dateLabel'] ?? '', 80),
+        'weather': const <String, dynamic>{},
+        'stops': publicStops,
+        'suggestedStartMinutes': schedule.startMinutes,
+        'suggestedEndMinutes': schedule.endMinutes,
+        'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+        'remainingMinutes': schedule.remainingMinutes,
+        'budget': dayBudget.dayBudget,
+        'budgetLevel': dayBudget.budgetLevel,
+      });
+    }
+
+    final publicStops = publicDays
+        .expand((day) => List<Map<String, dynamic>>.from(day['stops'] as List))
+        .toList();
+    final startMinutes = (publicDays.first['suggestedStartMinutes'] as num?)
+            ?.round() ??
+        preferredStartMinutes ??
+        ItinerarySchedulePlanner.defaultStartMinutes;
+    final endMinutes = publicDays.fold<int>(
+      startMinutes,
+      (latest, day) => max(
+        latest,
+        (day['suggestedEndMinutes'] as num?)?.round() ?? latest,
       ),
     );
-    final availableHours = _availableHoursFor(itinerary);
-    final schedule = ItinerarySchedulePlanner.plan(
-      stops: stops,
-      pace: '${itinerary['travelPace'] ?? 'Balanced'}',
-      availableHours: availableHours,
-      preferredStartMinutes: (itinerary['suggestedStartMinutes'] as num?)
-          ?.round(),
+    final totalEstimatedMinutes = publicDays.fold<int>(
+      0,
+      (total, day) =>
+          total + ((day['totalEstimatedMinutes'] as num?)?.round() ?? 0),
+    );
+    final remainingMinutes = publicDays.fold<int>(
+      0,
+      (total, day) => total + ((day['remainingMinutes'] as num?)?.round() ?? 0),
     );
 
     return <String, dynamic>{
@@ -130,20 +220,27 @@ class ItineraryShareHelper {
       'title': _shortText(itinerary['title'] ?? 'Shared Penang Itinerary', 120),
       'area': _shortText(itinerary['area'] ?? 'Penang', 80),
       'availableHours': availableHours,
+      'dayCount': publicDays.length,
+      'startDate': _shortText(
+        itinerary['startDate'] ?? itinerary['targetDate'] ?? '',
+        40,
+      ),
+      'endDate': _shortText(itinerary['endDate'] ?? '', 40),
       'budgetLevel': _shortText(itinerary['budgetLevel'], 30),
       'travelPace': _shortText(itinerary['travelPace'], 30),
       'interests': List<String>.from(
         itinerary['interests'] ?? const <String>[],
       ),
-      'suggestedStartMinutes': schedule.startMinutes,
-      'suggestedEndMinutes': schedule.endMinutes,
+      'suggestedStartMinutes': startMinutes,
+      'suggestedEndMinutes': endMinutes,
       'timelineLabel':
-          '${ItinerarySchedulePlanner.formatTime(schedule.startMinutes)} - '
-          '${ItinerarySchedulePlanner.formatTime(schedule.endMinutes)}',
-      'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
-      'remainingMinutes': schedule.remainingMinutes,
+          '${ItinerarySchedulePlanner.formatTime(startMinutes)} - '
+          '${ItinerarySchedulePlanner.formatTime(endMinutes)}',
+      'totalEstimatedMinutes': totalEstimatedMinutes,
+      'remainingMinutes': remainingMinutes,
       'originalCreatedAt': createdAt?.toIso8601String(),
-      'stops': await Future.wait(schedule.stops.map(_publicStop)),
+      'days': publicDays,
+      'stops': publicStops,
     };
   }
 

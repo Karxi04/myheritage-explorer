@@ -226,17 +226,27 @@ class ItinerarySchedulePlanner {
 
       if (openingWindow == null &&
           '${stop['openingHours'] ?? ''}'.trim().isNotEmpty) {
-        notes.add('Check the listed opening hours before visiting this stop.');
+        notes.add('Opening hours need a quick check before visiting.');
       }
 
       if (travel >= 35) {
+        final fromName = '${planned[index - 1]['name'] ?? 'previous stop'}';
+        final toName = '${stop['name'] ?? 'this stop'}';
         notes.add(
-          'Long transfer from previous stop. Consider grouping nearby places.',
+          'Long trip: $fromName to $toName takes about $travel minutes. Put closer places together if possible.',
         );
       } else if (travel >= 22) {
+        final fromName = '${planned[index - 1]['name'] ?? 'previous stop'}';
         notes.add(
-          'Moderate transfer from previous stop. Buffer time included.',
+          'Travel from $fromName takes about $travel minutes. Keep a small buffer.',
         );
+      }
+
+      final mealSuggestion = GeoapifyPlanner._mealSuggestionText(stop, arrival);
+      if (mealSuggestion == null) {
+        stop.remove('mealSuggestionLabel');
+      } else {
+        stop['mealSuggestionLabel'] = mealSuggestion;
       }
 
       stop
@@ -347,12 +357,12 @@ class ItinerarySchedulePlanner {
         if (nextWindow.closes + 30 < currentWindow.closes) {
           _addNote(
             next,
-            'This stop closes earlier than the previous one. Moving it earlier may be safer.',
+            'This place closes earlier than the stop before it. Move it earlier if the time feels tight.',
           );
         } else if (nextWindow.opens + 60 < currentWindow.opens) {
           _addNote(
             next,
-            'This stop opens earlier than the previous one. It may work better earlier in the route.',
+            'This place opens earlier than the stop before it. It may fit better earlier in the day.',
           );
         }
       }
@@ -361,11 +371,11 @@ class ItinerarySchedulePlanner {
       if (saving >= 10) {
         _addNote(
           current,
-          'Switching this with the next stop may save about $saving minutes of travel.',
+          'Swapping this with the next stop may save about $saving minutes.',
         );
         _addNote(
           next,
-          'Consider moving this before the previous stop to reduce route distance.',
+          'Move this before the previous stop to reduce travel time.',
         );
       }
     }
@@ -408,16 +418,16 @@ class ItinerarySchedulePlanner {
     if (window == null || window.open24Hours) return null;
 
     if (arrival < window.opens) {
-      return 'Arrives before opening at ${formatTime(window.opens)}. Move this stop later or start later.';
+      return 'Too early: opens at ${formatTime(window.opens)}. Move this stop later.';
     }
     if (arrival >= window.closes) {
-      return 'Likely closed by arrival. It closes at ${formatTime(window.closes)}.';
+      return 'Likely closed: closes at ${formatTime(window.closes)}.';
     }
     if (departure > window.closes) {
-      return 'Visit may run past closing at ${formatTime(window.closes)}. Move earlier or shorten the stop.';
+      return 'Time is too late: visit may pass closing at ${formatTime(window.closes)}.';
     }
     if (window.closes - departure <= 30) {
-      return 'Tight closing buffer. This stop closes at ${formatTime(window.closes)}.';
+      return 'Tight timing: closes at ${formatTime(window.closes)}.';
     }
     return null;
   }

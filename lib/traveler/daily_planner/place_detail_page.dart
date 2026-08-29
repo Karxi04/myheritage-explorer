@@ -114,7 +114,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       if (word.length < 3) continue;
       frequencies[word] = (frequencies[word] ?? 0) + 1;
     }
-    return frequencies.values.any((count) => count >= 5);
+    return frequencies.values.any((frequency) => frequency >= 5);
   }
 
   Future<String> _loadReviewerName(String uid) async {
@@ -238,7 +238,13 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         uid: uid,
         prediction: mlPrediction,
       );
-      final flagged = flags.isNotEmpty || mlPrediction.isSuspicious;
+      final moderation = ReviewModerationPolicy.decide(
+        prediction: mlPrediction,
+        ruleFlags: flags,
+        reviewText: reviewText,
+        rating: rating,
+      );
+      final flagged = moderation.isFlagged;
       final reviewerName = await _loadReviewerName(uid);
 
       await AppServices.db.collection('reviews').add({
@@ -252,9 +258,11 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         'source': place['source'] ?? 'registered_vendor',
         'rating': rating,
         'comment': reviewText,
-        'status': flagged ? 'flagged' : 'valid',
-        'flagReason': flagged ? flags.join(' - ') : null,
-        'flagReasons': flags,
+        'status': moderation.reviewStatus,
+        'flagReason': moderation.reasons.isEmpty
+            ? null
+            : moderation.reasons.join(' - '),
+        'flagReasons': moderation.reasons,
         'mlModelVersion': ReviewMlModel.modelVersion,
         'mlSentiment': mlPrediction.sentiment,
         'mlSentimentConfidence': double.parse(
@@ -273,7 +281,10 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         'mlSuspiciousProbability': double.parse(
           mlPrediction.suspiciousProbability.toStringAsFixed(4),
         ),
-        'mlDecision': mlPrediction.isSuspicious ? 'flagged' : 'valid',
+        'mlRiskScore': double.parse(moderation.riskScore.toStringAsFixed(4)),
+        'mlRiskLevel': moderation.riskLevel,
+        'mlNeedsReview': moderation.needsReview,
+        'mlDecision': moderation.decision,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -284,6 +295,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
           context,
           flagged
               ? 'Review submitted and sent to the administrator for checking.'
+              : moderation.needsReview
+              ? 'Review submitted and queued for a quick quality check.'
               : 'Review submitted.',
         );
       }
@@ -391,7 +404,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(.72),
+                          color: Colors.black.withValues(alpha: .72),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
@@ -566,9 +579,14 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             child: ExplorerLabeledValue(
                               label: 'MyHeritage Rating',
                               value: () {
-                                final raw = ((place['score'] as num?) ?? (place['rating'] as num?) ?? 0).toDouble();
+                                final raw =
+                                    ((place['score'] as num?) ??
+                                            (place['rating'] as num?) ??
+                                            0)
+                                        .toDouble();
                                 final s = raw > 0 ? raw : 4.8;
-                                final count = (place['inAppReviewCount'] as num? ?? 0);
+                                final count =
+                                    (place['inAppReviewCount'] as num? ?? 0);
                                 return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
                               }(),
                             ),
@@ -922,35 +940,47 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 const SizedBox(height: 18),
                 const ExplorerSectionTitle(
                   'Ratings & Reviews',
-                  subtitle: 'Authentic community ratings & verified traveler reviews.',
+                  subtitle:
+                      'Authentic community ratings & verified traveler reviews.',
                 ),
                 const SizedBox(height: 10),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: AppServices.db.collection('reviews').snapshots(),
                   builder: (context, snapshot) {
                     final currentNameKey = GeoapifyPlanner.reviewKeyFor(place);
-                    final userReviews = (snapshot.data?.docs ?? []).where((doc) {
-                      final review = doc.data();
-                      if (review['status'] != 'valid') return false;
+                    final userReviews = (snapshot.data?.docs ?? [])
+                        .where((doc) {
+                          final review = doc.data();
+                          if (review['status'] != 'valid') return false;
 
-                      final source = '${review['source'] ?? ''}'.toLowerCase();
-                      final generatedReview =
-                          review['isDemo'] == true ||
-                          review['isPrototype'] == true ||
-                          source.contains('demo') ||
-                          source.contains('prototype') ||
-                          source.contains('seed_demo');
+                          final source = '${review['source'] ?? ''}'
+                              .toLowerCase();
+                          final generatedReview =
+                              review['isDemo'] == true ||
+                              review['isPrototype'] == true ||
+                              source.contains('demo') ||
+                              source.contains('prototype') ||
+                              source.contains('seed_demo');
 
-                      if (generatedReview) return false;
+                          if (generatedReview) return false;
 
-                      final reviewPlaceId = '${review['placeId'] ?? ''}'.trim();
-                      final reviewNameKey = '${review['placeNameKey'] ?? ''}'.trim().toLowerCase();
+                          final reviewPlaceId = '${review['placeId'] ?? ''}'
+                              .trim();
+                          final reviewNameKey =
+                              '${review['placeNameKey'] ?? ''}'
+                                  .trim()
+                                  .toLowerCase();
 
-                      return reviewPlaceId == widget.placeId ||
-                          (currentNameKey.isNotEmpty && reviewNameKey == currentNameKey);
-                    }).map((doc) => doc.data()).toList();
+                          return reviewPlaceId == widget.placeId ||
+                              (currentNameKey.isNotEmpty &&
+                                  reviewNameKey == currentNameKey);
+                        })
+                        .map((doc) => doc.data())
+                        .toList();
 
-                    final verifiedReviews = PlaceReviewsData.getVerifiedReviews(place);
+                    final verifiedReviews = PlaceReviewsData.getVerifiedReviews(
+                      place,
+                    );
                     final allReviews = <Map<String, dynamic>>[
                       ...userReviews,
                       ...verifiedReviews,
@@ -960,25 +990,56 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                     if (allReviews.isNotEmpty) {
                       final sum = allReviews.fold<double>(
                         0.0,
-                        (acc, r) => acc + ((r['rating'] as num?)?.toDouble() ?? 5.0),
+                        (acc, r) =>
+                            acc + ((r['rating'] as num?)?.toDouble() ?? 5.0),
                       );
                       calculatedScore = sum / allReviews.length;
                     }
-                    final double rawPlaceScore = ((place['score'] as num?) ?? (place['rating'] as num?) ?? 0).toDouble();
+                    final double rawPlaceScore =
+                        ((place['score'] as num?) ??
+                                (place['rating'] as num?) ??
+                                0)
+                            .toDouble();
                     final double baseScore = calculatedScore > 0
                         ? calculatedScore
                         : (rawPlaceScore > 0 ? rawPlaceScore : 4.8);
-                    final int totalReviews = allReviews.isNotEmpty ? allReviews.length : 12;
+                    final int totalReviews = allReviews.isNotEmpty
+                        ? allReviews.length
+                        : 12;
 
-                    final int count5 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 5).length;
-                    final int count4 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 4).length;
-                    final int count3 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 3).length;
-                    final int count2 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 2).length;
-                    final int count1 = allReviews.where((r) => ((r['rating'] as num?)?.round() ?? 5) == 1).length;
-                    final int reviewTotal = allReviews.isEmpty ? 1 : allReviews.length;
+                    final int count5 = allReviews
+                        .where(
+                          (r) => ((r['rating'] as num?)?.round() ?? 5) == 5,
+                        )
+                        .length;
+                    final int count4 = allReviews
+                        .where(
+                          (r) => ((r['rating'] as num?)?.round() ?? 5) == 4,
+                        )
+                        .length;
+                    final int count3 = allReviews
+                        .where(
+                          (r) => ((r['rating'] as num?)?.round() ?? 5) == 3,
+                        )
+                        .length;
+                    final int count2 = allReviews
+                        .where(
+                          (r) => ((r['rating'] as num?)?.round() ?? 5) == 2,
+                        )
+                        .length;
+                    final int count1 = allReviews
+                        .where(
+                          (r) => ((r['rating'] as num?)?.round() ?? 5) == 1,
+                        )
+                        .length;
+                    final int reviewTotal = allReviews.isEmpty
+                        ? 1
+                        : allReviews.length;
 
                     const previewCount = 4;
-                    final visibleDocs = showAllReviews ? allReviews : allReviews.take(previewCount).toList();
+                    final visibleDocs = showAllReviews
+                        ? allReviews
+                        : allReviews.take(previewCount).toList();
                     final hiddenCount = allReviews.length - visibleDocs.length;
 
                     return Column(
@@ -990,7 +1051,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                               Row(
                                 children: [
                                   Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         baseScore.toStringAsFixed(1),
@@ -1005,7 +1067,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                       Row(
                                         children: List.generate(5, (i) {
                                           return Icon(
-                                            i < baseScore.round() ? Icons.star_rounded : Icons.star_border_rounded,
+                                            i < baseScore.round()
+                                                ? Icons.star_rounded
+                                                : Icons.star_border_rounded,
                                             color: ExplorerColors.goldDark,
                                             size: 18,
                                           );
@@ -1050,19 +1114,30 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                             children: [
                               ...visibleDocs.asMap().entries.map((entry) {
                                 final review = entry.value;
-                                final dateStr = review['date'] ??
+                                final dateStr =
+                                    review['date'] ??
                                     (asDate(review['createdAt']) != null
-                                        ? DateFormat.yMMMd().format(asDate(review['createdAt'])!)
+                                        ? DateFormat.yMMMd().format(
+                                            asDate(review['createdAt'])!,
+                                          )
                                         : 'Recent review');
-                                final isLastVisible = entry.key == visibleDocs.length - 1;
-                                final isVerified = review['isVerified'] == true || review['userId'] != null;
+                                final isLastVisible =
+                                    entry.key == visibleDocs.length - 1;
+                                final isVerified =
+                                    review['isVerified'] == true ||
+                                    review['userId'] != null;
 
                                 return Column(
                                   children: [
                                     ListTile(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
                                       leading: const CircleAvatar(
-                                        backgroundColor: ExplorerColors.navySoft,
+                                        backgroundColor:
+                                            ExplorerColors.navySoft,
                                         foregroundColor: ExplorerColors.navy,
                                         child: Icon(Icons.person_outline),
                                       ),
@@ -1082,21 +1157,31 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                           if (isVerified) ...[
                                             const SizedBox(width: 5),
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 5,
+                                                    vertical: 1,
+                                                  ),
                                               decoration: BoxDecoration(
                                                 color: const Color(0xFFE8F5E9),
-                                                borderRadius: BorderRadius.circular(4),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
                                               ),
                                               child: const Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  Icon(Icons.verified, size: 10, color: Color(0xFF2E7D32)),
+                                                  Icon(
+                                                    Icons.verified,
+                                                    size: 10,
+                                                    color: Color(0xFF2E7D32),
+                                                  ),
                                                   SizedBox(width: 2),
                                                   Text(
                                                     'Verified',
                                                     style: TextStyle(
                                                       fontSize: 9,
-                                                      fontWeight: FontWeight.w700,
+                                                      fontWeight:
+                                                          FontWeight.w700,
                                                       color: Color(0xFF2E7D32),
                                                     ),
                                                   ),
@@ -1107,14 +1192,20 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         ],
                                       ),
                                       subtitle: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           const SizedBox(height: 5),
                                           Row(
                                             children: List.generate(5, (index) {
-                                              final reviewRating = (review['rating'] as num?)?.round() ?? 5;
+                                              final reviewRating =
+                                                  (review['rating'] as num?)
+                                                      ?.round() ??
+                                                  5;
                                               return Icon(
-                                                index < reviewRating ? Icons.star_rounded : Icons.star_border_rounded,
+                                                index < reviewRating
+                                                    ? Icons.star_rounded
+                                                    : Icons.star_border_rounded,
                                                 color: ExplorerColors.goldDark,
                                                 size: 16,
                                               );
@@ -1140,18 +1231,24 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         ],
                                       ),
                                     ),
-                                    if (!isLastVisible) const Divider(height: 1, indent: 70),
+                                    if (!isLastVisible)
+                                      const Divider(height: 1, indent: 70),
                                   ],
                                 );
                               }),
                               if (allReviews.length > previewCount) ...[
                                 const Divider(height: 1),
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                   child: SizedBox(
                                     width: double.infinity,
                                     child: OutlinedButton.icon(
-                                      onPressed: () => setState(() => showAllReviews = !showAllReviews),
+                                      onPressed: () => setState(
+                                        () => showAllReviews = !showAllReviews,
+                                      ),
                                       icon: Icon(
                                         showAllReviews
                                             ? Icons.keyboard_arrow_up_rounded
@@ -1161,7 +1258,10 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                         showAllReviews
                                             ? 'Show Fewer Reviews'
                                             : 'See More Reviews ($hiddenCount more)',
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1249,7 +1349,11 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
           ),
         ),
         const SizedBox(width: 3),
-        const Icon(Icons.star_rounded, size: 11, color: ExplorerColors.goldDark),
+        const Icon(
+          Icons.star_rounded,
+          size: 11,
+          color: ExplorerColors.goldDark,
+        ),
         const SizedBox(width: 6),
         Expanded(
           child: ClipRRect(
@@ -1257,7 +1361,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
             child: LinearProgressIndicator(
               value: percentage.clamp(0.0, 1.0),
               backgroundColor: const Color(0xFFEEEEEE),
-              valueColor: const AlwaysStoppedAnimation<Color>(ExplorerColors.goldDark),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                ExplorerColors.goldDark,
+              ),
               minHeight: 5,
             ),
           ),
@@ -1361,17 +1467,6 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       ),
     );
   }
-
-  static Widget _placeHero() => Container(
-    color: ExplorerColors.navy,
-    child: const Center(
-      child: Icon(
-        Icons.account_balance_outlined,
-        color: Colors.white70,
-        size: 76,
-      ),
-    ),
-  );
 }
 
 class _WriteReviewPrompt extends StatelessWidget {

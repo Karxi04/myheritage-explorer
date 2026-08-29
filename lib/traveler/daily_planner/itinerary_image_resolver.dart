@@ -76,6 +76,7 @@ class ItineraryImageResolver {
       'suggestedStartMinutes',
       'suggestedEndMinutes',
       'suggestedTimeLabel',
+      'mealSuggestionLabel',
       'scheduleNotes',
       'scheduleStatus',
     ]) {
