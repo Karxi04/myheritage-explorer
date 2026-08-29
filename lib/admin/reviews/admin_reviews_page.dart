@@ -23,7 +23,10 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
     try {
       final count = await AppServices.seedVendorReviews(force: true);
       if (mounted) {
-        showMessage(context, 'Successfully synced $count reviews for all vendors and places.');
+        showMessage(
+          context,
+          'Successfully synced $count reviews for all vendors and places.',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -102,21 +105,27 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
         final q = search.text.trim().toLowerCase();
         final docs = allDocs.where((doc) {
           final data = doc.data();
-          final matchesStatus = filter == 'all' || data['status'] == filter;
+          final matchesStatus = _matchesFilter(data, filter);
           final haystack =
               '${data['comment']} ${data['placeId']} ${data['placeName']} '
-                      '${data['userId']} ${data['reviewerName']} ${data['flagReason']}'
+                      '${data['userId']} ${data['reviewerName']} ${data['flagReason']} '
+                      '${data['flagReasons']} ${data['mlDecision']} ${data['mlRiskLevel']}'
                   .toLowerCase();
           return matchesStatus && haystack.contains(q);
         }).toList();
         final flagged = allDocs
-            .where((doc) => doc.data()['status'] == 'flagged')
+            .where((doc) => _displayModerationStatus(doc.data()) == 'flagged')
             .length;
-        final valid = allDocs
-            .where((doc) => doc.data()['status'] == 'valid')
+        final needsReview = allDocs
+            .where(
+              (doc) => _displayModerationStatus(doc.data()) == 'needs_review',
+            )
+            .length;
+        final normal = allDocs
+            .where((doc) => _displayModerationStatus(doc.data()) == 'normal')
             .length;
         final hidden = allDocs
-            .where((doc) => doc.data()['status'] == 'hidden')
+            .where((doc) => _displayModerationStatus(doc.data()) == 'hidden')
             .length;
 
         return ListView(
@@ -140,8 +149,16 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                 const SizedBox(width: 14),
                 Expanded(
                   child: ExplorerMetricCard(
-                    label: 'Valid Reviews',
-                    value: '$valid',
+                    label: 'Needs Review',
+                    value: '$needsReview',
+                    icon: Icons.rule_folder_outlined,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: ExplorerMetricCard(
+                    label: 'Normal Reviews',
+                    value: '$normal',
                     icon: Icons.verified_outlined,
                   ),
                 ),
@@ -171,23 +188,20 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   SizedBox(
                     width: 210,
                     child: DropdownButtonFormField<String>(
-                      value: filter,
+                      initialValue: filter,
                       decoration: const InputDecoration(
                         labelText: 'Moderation status',
                         isDense: true,
                       ),
-                      items: ['flagged', 'valid', 'hidden', 'all']
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(
-                                value == 'all'
-                                    ? 'All reviews'
-                                    : '${value[0].toUpperCase()}${value.substring(1)}',
-                              ),
-                            ),
-                          )
-                          .toList(),
+                      items:
+                          ['flagged', 'needs_review', 'normal', 'hidden', 'all']
+                              .map(
+                                (value) => DropdownMenuItem(
+                                  value: value,
+                                  child: Text(_statusLabel(value)),
+                                ),
+                              )
+                              .toList(),
                       onChanged: (value) => setState(() => filter = value!),
                     ),
                   ),
@@ -213,7 +227,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                             ),
                           )
                         : const Icon(Icons.auto_fix_high_rounded, size: 16),
-                    label: Text(seeding ? 'Syncing...' : 'Sync All Vendor Reviews'),
+                    label: Text(
+                      seeding ? 'Syncing...' : 'Sync All Vendor Reviews',
+                    ),
                   ),
                 ],
               ),
@@ -231,7 +247,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                       ? FilledButton.icon(
                           onPressed: seeding ? null : _seedReviews,
                           icon: const Icon(Icons.auto_fix_high_rounded),
-                          label: const Text('Generate Vendor Reviews & Flagged Queue'),
+                          label: const Text(
+                            'Generate Vendor Reviews & Flagged Queue',
+                          ),
                         )
                       : null,
                 ),
@@ -240,11 +258,19 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
               ...docs.map((doc) {
                 final data = doc.data();
                 final reviewStatus = '${data['status'] ?? 'flagged'}';
+                final displayStatus = _displayModerationStatus(data);
                 final rating = (data['rating'] ?? 0) as num;
+                final riskScore =
+                    ((data['mlRiskScore'] as num?) ??
+                            (data['mlSuspiciousProbability'] as num?) ??
+                            0)
+                        .toDouble();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ExplorerCard(
-                    borderColor: reviewStatus == 'flagged'
+                    borderColor:
+                        displayStatus == 'flagged' ||
+                            displayStatus == 'needs_review'
                         ? const Color(0xFFF2D390)
                         : ExplorerColors.border,
                     child: Row(
@@ -294,8 +320,10 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                     ),
                                   ),
                                   ExplorerStatusBadge(
-                                    label: reviewStatus.toUpperCase(),
-                                    tone: _tone(reviewStatus),
+                                    label: _statusLabel(
+                                      displayStatus,
+                                    ).toUpperCase(),
+                                    tone: _tone(displayStatus),
                                   ),
                                 ],
                               ),
@@ -326,17 +354,15 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                     _ReviewMeta(
                                       icon: Icons.psychology_outlined,
                                       text:
-                                          'ML risk: ${(((data['mlSuspiciousProbability'] as num).toDouble()) * 100).toStringAsFixed(0)}% • '
+                                          'Risk: ${(riskScore * 100).toStringAsFixed(0)}% '
+                                          '(${data['mlRiskLevel'] ?? _riskLevelFromScore(riskScore)}) • '
                                           'sentiment ${data['mlSentiment'] ?? '-'} '
                                           '(${(((data['mlSentimentConfidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%) • '
                                           '${data['mlRatingMismatch'] == true ? 'rating mismatch' : 'rating aligned'} • '
                                           '${data['mlModelVersion'] ?? 'model'}',
                                       danger:
-                                          (data['mlSuspiciousProbability']
-                                                      as num)
-                                                  .toDouble() >=
-                                              0.60 ||
-                                          data['mlRatingMismatch'] == true,
+                                          displayStatus == 'flagged' ||
+                                          displayStatus == 'needs_review',
                                     ),
                                 ],
                               ),
@@ -347,7 +373,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                         Wrap(
                           spacing: 5,
                           children: [
-                            if (reviewStatus != 'valid')
+                            if (reviewStatus != 'valid' ||
+                                displayStatus == 'needs_review')
                               IconButton(
                                 tooltip: 'Mark as valid',
                                 onPressed: () async {
@@ -355,6 +382,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                     'status': 'valid',
                                     'flagReason': null,
                                     'flagReasons': const <String>[],
+                                    'mlDecision': 'normal',
+                                    'mlRiskLevel': 'low',
+                                    'mlNeedsReview': false,
                                     'moderatedAt': FieldValue.serverTimestamp(),
                                     'moderatedBy':
                                         AppServices.auth.currentUser?.uid,
@@ -366,12 +396,38 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                   color: ExplorerColors.success,
                                 ),
                               ),
+                            if (reviewStatus != 'flagged')
+                              IconButton(
+                                tooltip: 'Flag review',
+                                onPressed: () async {
+                                  await doc.reference.update({
+                                    'status': 'flagged',
+                                    'flagReason':
+                                        'Manually flagged by administrator',
+                                    'flagReasons': [
+                                      'Manually flagged by administrator',
+                                    ],
+                                    'mlDecision': 'flagged',
+                                    'mlRiskLevel': 'high',
+                                    'mlNeedsReview': false,
+                                    'moderatedAt': FieldValue.serverTimestamp(),
+                                    'moderatedBy':
+                                        AppServices.auth.currentUser?.uid,
+                                  });
+                                  await recalculatePlace('${data['placeId']}');
+                                },
+                                icon: const Icon(
+                                  Icons.flag_outlined,
+                                  color: ExplorerColors.warning,
+                                ),
+                              ),
                             if (reviewStatus != 'hidden')
                               IconButton(
                                 tooltip: 'Hide review',
                                 onPressed: () async {
                                   await doc.reference.update({
                                     'status': 'hidden',
+                                    'mlNeedsReview': false,
                                     'moderatedAt': FieldValue.serverTimestamp(),
                                     'moderatedBy':
                                         AppServices.auth.currentUser?.uid,
@@ -405,9 +461,52 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
     );
   }
 
+  static bool _matchesFilter(Map<String, dynamic> data, String filter) {
+    if (filter == 'all') return true;
+    return _displayModerationStatus(data) == filter;
+  }
+
+  static String _displayModerationStatus(Map<String, dynamic> data) {
+    final status = '${data['status'] ?? ''}'.toLowerCase();
+    if (status == 'hidden' || status == 'flagged') return status;
+
+    final decision = '${data['mlDecision'] ?? ''}'.toLowerCase();
+    final riskLevel = '${data['mlRiskLevel'] ?? ''}'.toLowerCase();
+    if (decision == 'flagged') return 'flagged';
+    if (decision == 'needs_review' ||
+        riskLevel == 'medium' ||
+        data['mlNeedsReview'] == true) {
+      return 'needs_review';
+    }
+    if (decision == 'normal' || riskLevel == 'low') return 'normal';
+
+    final legacyRisk =
+        ((data['mlRiskScore'] as num?) ??
+                (data['mlSuspiciousProbability'] as num?))
+            ?.toDouble();
+    if (legacyRisk != null && legacyRisk >= 0.55) return 'needs_review';
+    return 'normal';
+  }
+
+  static String _statusLabel(String status) => switch (status) {
+    'flagged' => 'Flagged',
+    'needs_review' => 'Needs review',
+    'normal' => 'Normal',
+    'hidden' => 'Hidden',
+    'all' => 'All reviews',
+    _ => status,
+  };
+
+  static String _riskLevelFromScore(double score) {
+    if (score >= 0.82) return 'high';
+    if (score >= 0.55) return 'medium';
+    return 'low';
+  }
+
   static ExplorerStatusTone _tone(String status) => switch (status) {
-    'valid' => ExplorerStatusTone.success,
+    'normal' => ExplorerStatusTone.success,
     'flagged' => ExplorerStatusTone.warning,
+    'needs_review' => ExplorerStatusTone.warning,
     'hidden' => ExplorerStatusTone.neutral,
     _ => ExplorerStatusTone.neutral,
   };

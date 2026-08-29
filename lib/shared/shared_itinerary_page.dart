@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_gate.dart';
 import '../core/explorer_ui.dart';
 import '../traveler/traveler_pages.dart';
@@ -139,6 +142,103 @@ class _SharedItineraryContent extends StatefulWidget {
 class _SharedItineraryContentState extends State<_SharedItineraryContent> {
   bool _isSaving = false;
 
+  List<Map<String, dynamic>> _rawStopsFrom(Object? value) {
+    if (value is! List) return const <Map<String, dynamic>>[];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _rawSharedDays() {
+    final rawDays = widget.itinerary['days'];
+    if (rawDays is! List) return const <Map<String, dynamic>>[];
+    return rawDays
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((day) => _rawStopsFrom(day['stops']).isNotEmpty)
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _displayStops() {
+    final days = _rawSharedDays();
+    if (days.isNotEmpty) {
+      return days.expand((day) => _rawStopsFrom(day['stops'])).toList();
+    }
+    return _rawStopsFrom(widget.itinerary['stops']);
+  }
+
+  Future<List<Map<String, dynamic>>> _cloneDaysForAccount() async {
+    final sharedDays = _rawSharedDays();
+    final sourceDays = sharedDays.isNotEmpty
+        ? sharedDays
+        : [
+            {
+              'dayNumber': 1,
+              'date': widget.itinerary['startDate'] ?? widget.itinerary['targetDate'],
+              'dateLabel': widget.itinerary['dateLabel'] ?? '',
+              'weather': const <String, dynamic>{},
+              'stops': _rawStopsFrom(widget.itinerary['stops']),
+            }
+          ];
+    final availableHours =
+        (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4;
+    final pace = '${widget.itinerary['travelPace'] ?? 'Balanced'}';
+    final preferredStart =
+        (widget.itinerary['suggestedStartMinutes'] as num?)?.round();
+    final clonedDays = <Map<String, dynamic>>[];
+
+    for (var index = 0; index < sourceDays.length; index++) {
+      final day = sourceDays[index];
+      final dayStops = _rawStopsFrom(day['stops']);
+      final schedule = ItinerarySchedulePlanner.plan(
+        stops: dayStops,
+        pace: pace,
+        availableHours:
+            (day['availableHours'] as num?)?.toDouble() ?? availableHours,
+        preferredStartMinutes:
+            (day['suggestedStartMinutes'] as num?)?.round() ?? preferredStart,
+      );
+      final resolvedStops = await Future.wait(
+        schedule.stops.asMap().entries.map((entry) async {
+          final stop = await ItineraryImageResolver.resolveStop(
+            Map<String, dynamic>.from(entry.value),
+          );
+          return {
+            ...stop,
+            'sequence': entry.key + 1,
+            'dayNumber': (day['dayNumber'] as num?)?.round() ?? index + 1,
+          };
+        }),
+      );
+      final dayBudget = ItineraryBudgetEstimator.estimateDay(resolvedStops);
+      clonedDays.add({
+        ...day,
+        'dayNumber': (day['dayNumber'] as num?)?.round() ?? index + 1,
+        'stops': resolvedStops,
+        'suggestedStartMinutes': schedule.startMinutes,
+        'suggestedEndMinutes': schedule.endMinutes,
+        'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+        'remainingMinutes': schedule.remainingMinutes,
+        'budget': dayBudget.dayBudget,
+        'budgetLevel': dayBudget.budgetLevel,
+      });
+    }
+
+    return clonedDays;
+  }
+
+  Future<void> _openInstalledApp() async {
+    final shareId = '${widget.itinerary['shareId'] ?? ''}'.trim();
+    if (shareId.isEmpty) return;
+    final uri = Uri(
+      scheme: 'myheritage',
+      host: 'shared-itinerary',
+      queryParameters: {'share': shareId},
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   Widget _previewStop(
     Map<String, dynamic>? stop, {
     double? width,
@@ -207,27 +307,69 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
 
     setState(() => _isSaving = true);
     try {
-      final stops = schedule.stops;
+      final clonedDays = await _cloneDaysForAccount();
+      final stops = clonedDays
+          .expand((day) => _rawStopsFrom(day['stops']))
+          .toList();
+      final tripBudget = ItineraryBudgetEstimator.estimateTrip(
+        clonedDays,
+        fallbackStops: stops,
+      );
+      final totalEstimatedMinutes = clonedDays.fold<int>(
+        0,
+        (total, day) =>
+            total + ((day['totalEstimatedMinutes'] as num?)?.round() ?? 0),
+      );
+      final remainingMinutes = clonedDays.fold<int>(
+        0,
+        (total, day) =>
+            total + ((day['remainingMinutes'] as num?)?.round() ?? 0),
+      );
+      final clonedStartMinutes =
+          (clonedDays.isEmpty
+                  ? null
+                  : (clonedDays.first['suggestedStartMinutes'] as num?)
+                      ?.round()) ??
+          schedule.startMinutes;
+      final clonedEndMinutes = clonedDays.fold<int>(
+        clonedStartMinutes,
+        (latest, day) => max(
+          latest,
+          (day['suggestedEndMinutes'] as num?)?.round() ?? latest,
+        ),
+      );
       final docRef = await FirebaseFirestore.instance
           .collection('itineraries')
           .add({
             'userId': user.uid,
-            'title': '${widget.itinerary['title'] ?? 'Shared Itinerary'} (Saved)',
+            'ownerId': user.uid,
+            'title':
+                '${widget.itinerary['title'] ?? 'Shared Itinerary'} (Saved Copy)',
             'area': widget.itinerary['area'] ?? 'Penang',
             'availableHours':
                 (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
-            'budget':
-                (widget.itinerary['budget'] as num?)?.toDouble() ?? 100,
-            'budgetLevel': widget.itinerary['budgetLevel'] ?? 'Medium',
+            'dailyHours':
+                (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
+            'dayCount': clonedDays.length,
+            'startDate': widget.itinerary['startDate'],
+            'endDate': widget.itinerary['endDate'],
+            'budget': tripBudget.tripBudget,
+            'budgetLevel': tripBudget.budgetLevel,
+            'budgetPreference': widget.itinerary['budgetLevel'] ?? 'Medium',
             'interests': List<String>.from(
               widget.itinerary['interests'] ?? const [],
             ),
             'travelPace': widget.itinerary['travelPace'] ?? 'Balanced',
-            'placeSource': 'Saved from shared link',
-            'suggestedStartMinutes': schedule.startMinutes,
-            'suggestedEndMinutes': schedule.endMinutes,
-            'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
-            'remainingMinutes': schedule.remainingMinutes,
+            'pace': widget.itinerary['travelPace'] ?? 'Balanced',
+            'placeSource': 'Cloned from shared itinerary link',
+            'shareSourceId': widget.itinerary['shareId'],
+            'clonedFromShareId': widget.itinerary['shareId'],
+            'clonedFromOwnerId': widget.itinerary['ownerId'],
+            'suggestedStartMinutes': clonedStartMinutes,
+            'suggestedEndMinutes': clonedEndMinutes,
+            'totalEstimatedMinutes': totalEstimatedMinutes,
+            'remainingMinutes': remainingMinutes,
+            'days': clonedDays,
             'stops': stops,
             'status': 'saved',
             'createdAt': FieldValue.serverTimestamp(),
@@ -269,11 +411,7 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
 
   @override
   Widget build(BuildContext context) {
-    final stops = List<Map<String, dynamic>>.from(
-      (widget.itinerary['stops'] ?? const []).map(
-        (item) => Map<String, dynamic>.from(item),
-      ),
-    );
+    final stops = _displayStops();
     final schedule = ItinerarySchedulePlanner.plan(
       stops: stops,
       pace: '${widget.itinerary['travelPace'] ?? 'Balanced'}',
@@ -333,6 +471,26 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
         child: SafeArea(
           child: Row(
             children: [
+              if (kIsWeb &&
+                  '${widget.itinerary['shareId'] ?? ''}'.trim().isNotEmpty) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: _openInstalledApp,
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text(
+                      'Open in App',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
               Expanded(
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
@@ -483,6 +641,23 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                                     'Navigate Route',
                                     style: TextStyle(fontWeight: FontWeight.w700),
                                   ),
+                                ),
+                              if (kIsWeb &&
+                                  '${widget.itinerary['shareId'] ?? ''}'
+                                      .trim()
+                                      .isNotEmpty)
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: _openInstalledApp,
+                                  icon: const Icon(
+                                    Icons.open_in_new_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Open in App'),
                                 ),
                               OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(

@@ -81,6 +81,15 @@ class _GeoapifyCachedPlaceDetails {
   final Map<String, dynamic> details;
 }
 
+class _TimedCache<T> {
+  const _TimedCache({required this.createdAt, required this.value});
+
+  final DateTime createdAt;
+  final T value;
+
+  bool isFresh(Duration ttl) => DateTime.now().difference(createdAt) < ttl;
+}
+
 class GeoapifyPlanner {
   const GeoapifyPlanner._();
 
@@ -89,10 +98,17 @@ class GeoapifyPlanner {
   static const int _addPlaceSearchLimit = 120;
   static const double _penangLatitude = 5.4141;
   static const double _penangLongitude = 100.3288;
+  static const Duration _firestoreCacheTtl = Duration(minutes: 5);
 
   static final Map<String, _GeoapifyArea> _geocodeCache = {};
   static final Map<String, _GeoapifyCachedPlaces> _placesCache = {};
   static final Map<String, _GeoapifyCachedPlaceDetails> _detailsCache = {};
+  static final Map<String, _TimedCache<List<Map<String, dynamic>>>>
+      _verifiedVendorCache = {};
+  static _TimedCache<List<Map<String, dynamic>>>? _culturalTasksCache;
+  static _TimedCache<Map<String, List<Map<String, dynamic>>>>?
+      _activeVoucherCache;
+  static _TimedCache<Map<String, Map<String, dynamic>>>? _reviewStatsCache;
 
   static const Map<String, List<String>> _interestCategories = {
     'Heritage': [
@@ -465,13 +481,53 @@ class GeoapifyPlanner {
           final searchable = _normalize(
             '${vendor['name'] ?? ''} ${vendor['formattedAddress'] ?? ''} '
             '${vendor['businessCategory'] ?? ''} '
+            '${vendor['description'] ?? ''} ${vendor['area'] ?? ''} '
+            '${(vendor['plannerCategories'] as List?)?.join(' ') ?? ''} '
             '${(vendor['tags'] as List?)?.join(' ') ?? ''}',
           );
           return _matchesSearchQuery(query, searchable);
         })
         .toList();
 
-    candidates.sort((first, second) {
+    if (queryKey.isNotEmpty && GeoapifyConfig.isConfigured) {
+      try {
+        final locatedArea = await _geocodeArea(normalisedArea);
+        final mapResults = <Map<String, dynamic>>[];
+        for (final variant in _searchQueryVariants(query)) {
+          mapResults.addAll(
+            await _searchNamedPenangPlaces(
+              query: variant,
+              area: normalisedArea,
+              locatedArea: locatedArea,
+              selectedInterests: interests,
+            ),
+          );
+          if (mapResults.length >= 12) break;
+          mapResults.addAll(
+            await _searchAutocompletePenangPlaces(
+              query: variant,
+              area: normalisedArea,
+              locatedArea: locatedArea,
+              selectedInterests: interests,
+            ),
+          );
+          if (mapResults.length >= 12) break;
+        }
+        for (final place in mapResults) {
+          final placeId = '${place['placeId'] ?? ''}';
+          if (placeId.isEmpty || excluded.contains(placeId)) continue;
+          place['interestMatchScore'] = _interestMatchScore(place, interests);
+          place['suggestionReason'] = _suggestionReason(place);
+          candidates.add(place);
+        }
+      } catch (_) {
+        // Typed search still returns local registered and curated places.
+      }
+    }
+
+    final searchResults = _deduplicate(candidates);
+
+    searchResults.sort((first, second) {
       final firstScore = _addPlaceRank(
         first,
         queryKey: queryKey,
@@ -487,7 +543,7 @@ class GeoapifyPlanner {
       return secondScore.compareTo(firstScore);
     });
 
-    final selected = candidates.take(limit).toList();
+    final selected = searchResults.take(limit).toList();
     return Future.wait(
       selected.map((vendor) async {
         try {
@@ -528,8 +584,27 @@ class GeoapifyPlanner {
       'Armenian Street',
       'Lebuh Armenian',
     ]);
+    addWhen(
+      (key.contains('bukit mertajam') || key.contains('bm')) &&
+          (key.contains('market') ||
+              key.contains('pasar') ||
+              key.contains('old street')),
+      const [
+        'Pekan Bukit Mertajam Old Market Street',
+        'Jalan Pasar Bukit Mertajam',
+        'BM Old Market Street',
+      ],
+    );
+    addWhen(key.contains('hin') || key.contains('bus depot'), const [
+      'Hin Bus Depot',
+      'Hin Bus Depot George Town',
+    ]);
+    addWhen(key.contains('street art') || key.contains('mural'), const [
+      'Penang Street Art Armenian Street',
+      'Butterworth Art Walk',
+    ]);
 
-    return variants.take(4).toList();
+    return variants.take(6).toList();
   }
 
   static bool _matchesSearchQuery(String query, String searchable) {
@@ -1292,6 +1367,14 @@ class GeoapifyPlanner {
   static Future<List<Map<String, dynamic>>> _loadVerifiedVendors(
     String area,
   ) async {
+    final cacheKey = _normalize(area);
+    final cached = _verifiedVendorCache[cacheKey];
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value
+          .map((vendor) => Map<String, dynamic>.from(vendor))
+          .toList();
+    }
+
     final firestoreVendors = <Map<String, dynamic>>[];
     try {
       final snapshot = await AppServices.db
@@ -1476,7 +1559,12 @@ class GeoapifyPlanner {
       };
     }).toList();
 
-    return _deduplicate([...firestoreVendors, ...curated]);
+    final result = _deduplicate([...firestoreVendors, ...curated]);
+    _verifiedVendorCache[cacheKey] = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map((vendor) => Map<String, dynamic>.from(vendor)).toList(),
+    );
+    return result;
   }
 
   static List<String> _vendorCategories(Map<String, dynamic> data) {
@@ -1552,6 +1640,27 @@ class GeoapifyPlanner {
     return matched / selected.length;
   }
 
+  static List<String> _matchedSelectedInterests(
+    Map<String, dynamic> vendor,
+    List<String> interests,
+  ) {
+    final values = <String>{
+      _normalize('${vendor['category'] ?? ''}'),
+      _normalize('${vendor['matchedInterest'] ?? ''}'),
+      _normalize('${vendor['businessCategory'] ?? ''}'),
+      ...List<String>.from(
+        vendor['plannerCategories'] ?? const <String>[],
+      ).map(_normalize),
+      ...List<String>.from(vendor['tags'] ?? const <String>[]).map(_normalize),
+    }..remove('');
+
+    return interests
+        .where((interest) => interest.trim().isNotEmpty)
+        .where((interest) => interest != 'Local Business')
+        .where((interest) => values.contains(_normalize(interest)))
+        .toList();
+  }
+
   static String _bestVendorInterest(
     Map<String, dynamic> vendor,
     List<String> interests,
@@ -1575,6 +1684,16 @@ class GeoapifyPlanner {
 
   static Future<Map<String, List<Map<String, dynamic>>>>
   _loadActiveVendorVouchers() async {
+    final cached = _activeVoucherCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value.map(
+        (key, value) => MapEntry(
+          key,
+          value.map((item) => Map<String, dynamic>.from(item)).toList(),
+        ),
+      );
+    }
+
     final snapshot = await AppServices.db
         .collection('vouchers')
         .where('status', isEqualTo: 'active')
@@ -1591,17 +1710,33 @@ class GeoapifyPlanner {
       if (expiry != null && expiry.isBefore(now)) continue;
       result.putIfAbsent(vendorId, () => []).add({'id': doc.id, ...data});
     }
+    _activeVoucherCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map(
+        (key, value) => MapEntry(
+          key,
+          value.map((item) => Map<String, dynamic>.from(item)).toList(),
+        ),
+      ),
+    );
     return result;
   }
 
   static Future<List<Map<String, dynamic>>> _loadActiveCulturalTasks() async {
+    final cached = _culturalTasksCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value
+          .map((task) => Map<String, dynamic>.from(task))
+          .toList();
+    }
+
     final snapshot = await AppServices.db
         .collection('cultural_tasks')
         .where('status', isEqualTo: 'active')
         .get();
     final now = DateTime.now();
 
-    return snapshot.docs
+    final result = snapshot.docs
         .map((doc) {
           return {'id': doc.id, ...doc.data()};
         })
@@ -1610,6 +1745,11 @@ class GeoapifyPlanner {
           return deadline == null || !deadline.isBefore(now);
         })
         .toList();
+    _culturalTasksCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map((task) => Map<String, dynamic>.from(task)).toList(),
+    );
+    return result;
   }
 
   static Future<Map<String, Map<String, dynamic>>> _loadPlaceContent() async {
@@ -1695,6 +1835,13 @@ class GeoapifyPlanner {
   }
 
   static Future<Map<String, Map<String, dynamic>>> _loadReviewStats() async {
+    final cached = _reviewStatsCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      );
+    }
+
     final snapshot = await AppServices.db.collection('reviews').get();
     final grouped = <String, List<Map<String, dynamic>>>{};
 
@@ -1765,6 +1912,12 @@ class GeoapifyPlanner {
         'trustLabel': trustLabel,
       };
     });
+    _reviewStatsCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      ),
+    );
     return result;
   }
 
@@ -1913,15 +2066,20 @@ class GeoapifyPlanner {
         }
 
         final category = '${candidate['category'] ?? ''}';
-        final matchedInterest = '${candidate['matchedInterest'] ?? category}';
-        final categoryAlreadySelected = (categoryCounts[category] ?? 0) > 0;
+        final matchedInterests =
+            _matchedSelectedInterests(candidate, selectedInterests);
+        final primaryInterest = matchedInterests.firstWhere(
+          (interest) => (categoryCounts[interest] ?? 0) == 0,
+          orElse: () => '${candidate['matchedInterest'] ?? category}',
+        );
+        final categoryAlreadySelected =
+            (categoryCounts[primaryInterest] ?? 0) > 0;
         final coverageBonus =
-            selectedInterests.contains(matchedInterest) &&
-                !categoryAlreadySelected
-            ? 0.55
-            : 0.0;
-        final duplicatePenalty = (categoryCounts[category] ?? 0) * 0.28;
+            matchedInterests.isNotEmpty && !categoryAlreadySelected ? 1.25 : 0.0;
+        final duplicatePenalty =
+            (categoryCounts[primaryInterest] ?? 0) * 0.62;
         final travelPenalty = min(travelMinutes / 60, 1.0) * 0.25;
+        final mealAdjustment = _mealTimeScore(candidate, currentDayMinute);
         final adjusted =
             _rank(
               candidate,
@@ -1930,6 +2088,7 @@ class GeoapifyPlanner {
               isRainy: isRainy,
             ) +
             coverageBonus +
+            mealAdjustment +
             openingAdjustment -
             duplicatePenalty -
             travelPenalty;
@@ -1944,13 +2103,26 @@ class GeoapifyPlanner {
       if (bestIndex < 0) break;
       final chosen = remainingCandidates.removeAt(bestIndex);
       chosen['travelMinutesBefore'] = bestTravelMinutes;
+      final chosenStartMinute = (preferredStartMinutes ?? 9 * 60) +
+          (availableMinutes - remaining) +
+          bestTravelMinutes;
+      final mealSuggestion = _mealSuggestionText(chosen, chosenStartMinute);
+      if (mealSuggestion == null) {
+        chosen.remove('mealSuggestionLabel');
+      } else {
+        chosen['mealSuggestionLabel'] = mealSuggestion;
+      }
       selected.add(chosen);
       selectedIdentities.add(_placeIdentity(chosen));
       remaining -=
           bestTravelMinutes +
           ((chosen['durationMinutes'] as num?)?.round() ?? 60);
-      final category = '${chosen['category'] ?? ''}';
-      categoryCounts[category] = (categoryCounts[category] ?? 0) + 1;
+      final chosenInterests = _matchedSelectedInterests(chosen, selectedInterests);
+      final countKey = chosenInterests.firstWhere(
+        (interest) => (categoryCounts[interest] ?? 0) == 0,
+        orElse: () => '${chosen['matchedInterest'] ?? chosen['category'] ?? ''}',
+      );
+      categoryCounts[countKey] = (categoryCounts[countKey] ?? 0) + 1;
     }
 
     _optimiseVisitOrder(selected, origin: origin, pace: pace);
@@ -2191,6 +2363,58 @@ class GeoapifyPlanner {
     return earthRadiusKm * c;
   }
 
+  static bool _isFoodPlace(Map<String, dynamic> place) {
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final category = '${place['category'] ?? ''}';
+    final plannerCategories = List<String>.from(
+      place['plannerCategories'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+
+    return category == 'Food' ||
+        plannerCategories.contains('food') ||
+        tags.any(
+          (t) =>
+              t.contains('food') ||
+              t.contains('restaurant') ||
+              t.contains('cafe') ||
+              t.contains('hawker') ||
+              t.contains('kopitiam') ||
+              t.contains('bakery') ||
+              t.contains('market'),
+        ) ||
+        name.contains('restaurant') ||
+        name.contains('cafe') ||
+        name.contains('kopitiam') ||
+        name.contains('market');
+  }
+
+  static String? _mealLabelForMinute(int minutes) {
+    final value = minutes % (24 * 60);
+    if (value >= 7 * 60 && value <= 10 * 60 + 30) return 'Breakfast';
+    if (value >= 11 * 60 + 30 && value <= 14 * 60) return 'Lunch';
+    if (value >= 18 * 60 && value <= 21 * 60) return 'Dinner';
+    return null;
+  }
+
+  static double _mealTimeScore(Map<String, dynamic> place, int startMinutes) {
+    if (!_isFoodPlace(place)) return 0.0;
+    final meal = _mealLabelForMinute(startMinutes);
+    if (meal == null) return -0.22;
+    return meal == 'Breakfast' ? 0.55 : 0.72;
+  }
+
+  static String? _mealSuggestionText(
+    Map<String, dynamic> place,
+    int startMinutes,
+  ) {
+    final meal = _mealLabelForMinute(startMinutes);
+    if (meal == null || !_isFoodPlace(place)) return null;
+    return '$meal stop around ${ItinerarySchedulePlanner.formatTime(startMinutes)}';
+  }
+
   static double _timeOfDayScore(Map<String, dynamic> place, int startMinutes) {
     final tags = List<String>.from(
       place['tags'] ?? const <String>[],
@@ -2198,6 +2422,8 @@ class GeoapifyPlanner {
     final name = '${place['name'] ?? ''}'.toLowerCase();
     final category = '${place['category'] ?? ''}';
     final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final mealScore = _mealTimeScore(place, startMinutes);
+    if (mealScore != 0) return mealScore;
 
     final isMorningCandidate =
         tags.any(
@@ -2554,6 +2780,10 @@ class GeoapifyPlanner {
 
   static String _suggestionReason(Map<String, dynamic> place) {
     final reasons = <String>[];
+    final mealSuggestion = '${place['mealSuggestionLabel'] ?? ''}'.trim();
+    if (mealSuggestion.isNotEmpty) {
+      reasons.add(mealSuggestion);
+    }
     final interest = '${place['matchedInterest'] ?? place['category'] ?? ''}';
     if (interest.trim().isNotEmpty) {
       reasons.add('Matches $interest');
@@ -3358,6 +3588,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                 'imageType': data['imageType'],
                 'imageAttribution': data['imageAttribution'],
                 'imageSourceUrl': data['imageSourceUrl'],
+                'mealSuggestionLabel': data['mealSuggestionLabel'],
                 'suggestionReason': data['suggestionReason'],
                 'distanceMeters': data['distanceMeters'],
                 'matchedInterest': data['matchedInterest'],
@@ -3439,6 +3670,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               'imageType': data['imageType'],
               'imageAttribution': data['imageAttribution'],
               'imageSourceUrl': data['imageSourceUrl'],
+              'mealSuggestionLabel': data['mealSuggestionLabel'],
               'suggestionReason': data['suggestionReason'],
               'distanceMeters': data['distanceMeters'],
               'matchedInterest': data['matchedInterest'],
@@ -4435,6 +4667,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       data['scheduleNotes'] ?? const <String>[],
     );
     final timeLabel = '${data['suggestedTimeLabel'] ?? ''}'.trim();
+    final mealSuggestion = '${data['mealSuggestionLabel'] ?? ''}'.trim();
     final formattedAddress =
         '${data['formattedAddress'] ?? data['area'] ?? ''}'.trim();
     final shortArea = _extractShortArea(formattedAddress);
@@ -4511,6 +4744,29 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                           color: ExplorerColors.goldDark,
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                ],
+                if (mealSuggestion.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.restaurant_menu_outlined,
+                        size: 15,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          mealSuggestion,
+                          style: const TextStyle(
+                            color: ExplorerColors.navy,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],

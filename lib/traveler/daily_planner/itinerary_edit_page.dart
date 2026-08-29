@@ -174,6 +174,7 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         barrierDismissible: false,
         builder: (_) => _AddItineraryStopDialog(
           itinerary: widget.itinerary,
+          selectedDayNumber: selectedDayIndex + 1,
           existingPlaceIds: curStops
               .map((stop) => '${stop['placeId'] ?? ''}')
               .where((id) => id.isNotEmpty)
@@ -281,6 +282,7 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         'phone': detailed['phone'],
         'website': detailed['website'],
         'cuisine': detailed['cuisine'],
+        'mealSuggestionLabel': detailed['mealSuggestionLabel'],
         'suggestionReason': detailed['suggestionReason'],
         'culturalTask': task,
         'culturalTaskId': task?['id'] ?? detailed['activeCulturalTaskId'],
@@ -599,6 +601,8 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                                   const <String>[];
                               final timeLabel =
                                   '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+                              final mealSuggestion =
+                                  '${stop['mealSuggestionLabel'] ?? ''}'.trim();
 
                               return Padding(
                                 key: ValueKey('${_stopIdentity(stop)}_day${selectedDayIndex}_$index'),
@@ -663,6 +667,17 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                                                     fontSize: 10,
                                                   ),
                                                 ),
+                                                if (mealSuggestion.isNotEmpty) ...[
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    mealSuggestion,
+                                                    style: const TextStyle(
+                                                      color: ExplorerColors.navy,
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                           ),
@@ -708,10 +723,12 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 class _AddItineraryStopDialog extends StatefulWidget {
   const _AddItineraryStopDialog({
     required this.itinerary,
+    required this.selectedDayNumber,
     required this.existingPlaceIds,
   });
 
   final Map<String, dynamic> itinerary;
+  final int selectedDayNumber;
   final List<String> existingPlaceIds;
 
   @override
@@ -852,20 +869,20 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Add a Favourite Place',
-                          style: TextStyle(
+                          'Add a Place to Day ${widget.selectedDayNumber}',
+                          style: const TextStyle(
                             color: ExplorerColors.navy,
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        SizedBox(height: 3),
-                        Text(
+                        const SizedBox(height: 3),
+                        const Text(
                           'Browse suggestions or search a place by name.',
                           style: TextStyle(
                             color: ExplorerColors.muted,
@@ -943,7 +960,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                   ? const Center(child: CircularProgressIndicator())
                   : error != null
                   ? ExplorerEmptyState(
-                      title: 'Unable to search registered vendors',
+                      title: 'Unable to search places',
                       subtitle: error,
                       icon: Icons.cloud_off_outlined,
                       action: OutlinedButton.icon(
@@ -956,7 +973,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                   ? ExplorerEmptyState(
                       title: lastQuery.length == 1
                           ? 'Type at least 2 characters'
-                          : 'No matching registered vendors found',
+                          : 'No matching Penang places found',
                       subtitle: lastQuery.length == 1
                           ? 'Continue typing the place name, for example “Clan Jetties”.'
                           : lastQuery.isEmpty
@@ -987,7 +1004,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 14),
               child: Text(
-                'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
+                'MyHeritage vendors and map places | Maps by Geoapify and © OpenStreetMap contributors',
                 style: TextStyle(color: ExplorerColors.muted, fontSize: 9),
               ),
             ),

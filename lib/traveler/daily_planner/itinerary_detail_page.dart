@@ -45,24 +45,24 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
         .doc(widget.itineraryId)
         .snapshots()
         .listen(
-      (snapshot) {
-        if (!mounted) return;
-        if (snapshot.exists && snapshot.data() != null) {
-          setState(() {
-            itinerary = snapshot.data();
-            _processItineraryData();
-            loading = false;
-          });
-        } else if (itinerary == null) {
-          setState(() => loading = false);
-        }
-      },
-      onError: (_) {
-        if (mounted && itinerary == null) {
-          setState(() => loading = false);
-        }
-      },
-    );
+          (snapshot) {
+            if (!mounted) return;
+            if (snapshot.exists && snapshot.data() != null) {
+              setState(() {
+                itinerary = snapshot.data();
+                _processItineraryData();
+                loading = false;
+              });
+            } else if (itinerary == null) {
+              setState(() => loading = false);
+            }
+          },
+          onError: (_) {
+            if (mounted && itinerary == null) {
+              setState(() => loading = false);
+            }
+          },
+        );
   }
 
   void _processItineraryData() {
@@ -88,18 +88,17 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
       }
     }
 
-    if ((days.isEmpty || days.every((d) => (d['stops'] as List?)?.isEmpty == true)) &&
+    if ((days.isEmpty ||
+            days.every((d) => (d['stops'] as List?)?.isEmpty == true)) &&
         allStops.isNotEmpty) {
-      final sDate = asDate(itinerary!['startDate']) ??
+      final sDate =
+          asDate(itinerary!['startDate']) ??
           asDate(itinerary!['targetDate']) ??
           DateTime.now();
       final eDate = asDate(itinerary!['endDate']) ?? sDate;
       final daySpan = max(
         1,
-        _asIntSafe(
-          itinerary!['dayCount'],
-          eDate.difference(sDate).inDays + 1,
-        ),
+        _asIntSafe(itinerary!['dayCount'], eDate.difference(sDate).inDays + 1),
       );
 
       if (daySpan > 1) {
@@ -115,7 +114,8 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
           days.add({
             'dayNumber': i + 1,
             'date': dayDate.toIso8601String(),
-            'dateLabel': 'Day ${i + 1} (${DateFormat('d MMM').format(dayDate)})',
+            'dateLabel':
+                'Day ${i + 1} (${DateFormat('d MMM').format(dayDate)})',
             'stops': dayStops,
             'weather': <String, dynamic>{},
           });
@@ -164,7 +164,10 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
     );
 
     if (confirmed != true) return;
-    await AppServices.db.collection('itineraries').doc(widget.itineraryId).delete();
+    await AppServices.db
+        .collection('itineraries')
+        .doc(widget.itineraryId)
+        .delete();
     if (mounted) {
       showMessage(context, 'Itinerary deleted.');
       Navigator.pop(context);
@@ -182,13 +185,12 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
       _asDoubleSafe(itn['dailyHours'], 4.0),
     );
     final stopsPerHour = stopsList.length / max(1.0, availableH);
-    final actualPace = stopsPerHour > 1.35 ||
-            (stopsList.length >= 5 && availableH <= 4)
+    final actualPace =
+        stopsPerHour > 1.35 || (stopsList.length >= 5 && availableH <= 4)
         ? 'Fast'
-        : stopsPerHour <= 0.55 ||
-                (stopsList.length <= 2 && availableH >= 4)
-            ? 'Relaxed'
-            : selectedPace;
+        : stopsPerHour <= 0.55 || (stopsList.length <= 2 && availableH >= 4)
+        ? 'Relaxed'
+        : selectedPace;
     if (actualPace == selectedPace) return selectedPace;
     return '$selectedPace selected -> $actualPace schedule';
   }
@@ -196,9 +198,7 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
   @override
   Widget build(BuildContext context) {
     if (loading && itinerary == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (itinerary == null) {
@@ -240,7 +240,10 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
     final schedule = ItinerarySchedulePlanner.plan(
       stops: currentStops,
       pace: '${itn['travelPace'] ?? itn['pace'] ?? 'Balanced'}',
-      availableHours: _asDoubleSafe(itn['availableHours'], _asDoubleSafe(itn['dailyHours'], 4.0)),
+      availableHours: _asDoubleSafe(
+        itn['availableHours'],
+        _asDoubleSafe(itn['dailyHours'], 4.0),
+      ),
       preferredStartMinutes: itn['suggestedStartMinutes'] != null
           ? _asIntSafe(itn['suggestedStartMinutes'])
           : null,
@@ -252,7 +255,8 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
     final totalMinutes = schedule.totalEstimatedMinutes;
     final canModify = ItineraryShareHelper.canCurrentUserManage(itn);
     final tripStatus = AppServices.getItineraryStatus(itn);
-    final interests = (itn['interests'] as List?)
+    final interests =
+        (itn['interests'] as List?)
             ?.map((e) => '$e')
             .where((e) => e.isNotEmpty)
             .toList() ??
@@ -265,6 +269,27 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
       fallbackStops: allStops,
     );
     final paceLabel = _paceDisplayLabel(itn, scheduledStops);
+    final totalPlaces = allStops.isNotEmpty
+        ? allStops.length
+        : scheduledStops.length;
+    final totalPlacesLabel = totalPlaces == 1
+        ? '1 place'
+        : '$totalPlaces places';
+    final selectedDayPlacesLabel = scheduledStops.length == 1
+        ? '1 place'
+        : '${scheduledStops.length} places';
+    final dateRangeLabel = startDate == null
+        ? 'Date not set'
+        : '${DateFormat('d MMM yyyy').format(startDate)}'
+              '${endDate != null && endDate != startDate ? ' - ${DateFormat('d MMM yyyy').format(endDate)}' : ''}';
+    final timeWindowLabel = totalMinutes <= 0
+        ? 'Not scheduled'
+        : '${ItinerarySchedulePlanner.formatTime(schedule.startMinutes)} - '
+              '${ItinerarySchedulePlanner.formatTime(schedule.endMinutes)}';
+    final timeHelper = totalMinutes <= 0
+        ? 'Add stops to build a route'
+        : '${(totalMinutes / 60).toStringAsFixed(1)} hrs for '
+              '${dayCount > 1 ? 'selected day' : 'route'}';
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -280,11 +305,25 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
               ),
+              actions: [
+                IconButton(
+                  tooltip: canModify
+                      ? 'Share itinerary link'
+                      : 'Only the owner can share this itinerary',
+                  onPressed: canModify
+                      ? () => ItineraryShareHelper.openShareDialog(context, itn)
+                      : null,
+                  icon: const Icon(Icons.ios_share_outlined),
+                ),
+              ],
             ),
             if (days.length > 1) ...[
               Container(
                 color: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -296,16 +335,21 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: ChoiceChip(
-                          label: Text('${d['dateLabel'] ?? 'Day ${idx + 1}'} ($dStops places)'),
+                          label: Text(
+                            '${d['dateLabel'] ?? 'Day ${idx + 1}'} ($dStops places)',
+                          ),
                           selected: isSel,
                           selectedColor: ExplorerColors.navy,
                           labelStyle: TextStyle(
                             color: isSel ? Colors.white : ExplorerColors.navy,
-                            fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                            fontWeight: isSel
+                                ? FontWeight.w700
+                                : FontWeight.w500,
                             fontSize: 12,
                           ),
                           backgroundColor: Colors.white,
-                          onSelected: (_) => setState(() => selectedDayIndex = idx),
+                          onSelected: (_) =>
+                              setState(() => selectedDayIndex = idx),
                         ),
                       );
                     }).toList(),
@@ -355,51 +399,117 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                           ],
                         ),
                         const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            _ItinerarySummaryItem(
-                              icon: Icons.location_on_outlined,
-                              label: 'Area',
-                              value: '${itn['area'] ?? 'Penang'}',
-                            ),
-                            _ItinerarySummaryItem(
-                              icon: Icons.calendar_today_outlined,
-                              label: 'Duration',
-                              value: dayCount > 1 ? '$dayCount Days' : '1 Day',
-                            ),
-                            _ItinerarySummaryItem(
-                              icon: Icons.route_outlined,
-                              label: 'Day Stops',
-                              value: dayCount > 1
-                                  ? '${scheduledStops.length} (Day ${selectedDayIndex + 1})'
-                                  : '${scheduledStops.length} stops',
-                            ),
-                            _ItinerarySummaryItem(
-                              icon: Icons.schedule_outlined,
-                              label: 'Daily Time',
-                              value: totalMinutes <= 0
-                                  ? '-'
-                                  : '${(totalMinutes / 60).toStringAsFixed(1)} hrs / day',
-                            ),
-                            _ItinerarySummaryItem(
-                              icon: Icons.directions_walk_outlined,
-                              label: 'Pace',
-                              value: paceLabel,
-                            ),
-                            _ItinerarySummaryItem(
-                              icon: Icons.payments_outlined,
-                              label: 'Budget',
-                              value: 'RM ${dayBudget.dayBudget}/day (Trip: RM ${tripBudget.tripBudget}, ${tripBudget.budgetLevel})',
-                            ),
-                            if (createdAt != null)
-                              _ItinerarySummaryItem(
-                                icon: Icons.bookmark_added_outlined,
-                                label: 'Saved',
-                                value: DateFormat.yMMMd().format(createdAt),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: ExplorerColors.navySoft,
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(color: const Color(0xFFB9CBE2)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.event_available_outlined,
+                                color: ExplorerColors.navy,
+                                size: 22,
                               ),
-                          ],
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      dateRangeLabel,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '$totalPlacesLabel across '
+                                      '${dayCount > 1 ? '$dayCount days' : '1 day'}',
+                                      style: const TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final useTwoColumns = constraints.maxWidth >= 330;
+                            final itemWidth = useTwoColumns
+                                ? (constraints.maxWidth - 10) / 2
+                                : constraints.maxWidth;
+                            return Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.location_on_outlined,
+                                  label: 'Area',
+                                  value: '${itn['area'] ?? 'Penang'}',
+                                ),
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.calendar_today_outlined,
+                                  label: 'Duration',
+                                  value: dayCount > 1
+                                      ? '$dayCount Days'
+                                      : '1 Day',
+                                  helper: createdAt == null
+                                      ? null
+                                      : 'Saved ${DateFormat.yMMMd().format(createdAt)}',
+                                ),
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.route_outlined,
+                                  label: dayCount > 1
+                                      ? 'Selected Day'
+                                      : 'Saved Route',
+                                  value: dayCount > 1
+                                      ? 'Day ${selectedDayIndex + 1}'
+                                      : selectedDayPlacesLabel,
+                                  helper: dayCount > 1
+                                      ? selectedDayPlacesLabel
+                                      : null,
+                                ),
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.schedule_outlined,
+                                  label: 'Time Window',
+                                  value: timeWindowLabel,
+                                  helper: timeHelper,
+                                ),
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.directions_walk_outlined,
+                                  label: 'Pace',
+                                  value: paceLabel,
+                                ),
+                                _ItinerarySummaryItem(
+                                  width: itemWidth,
+                                  icon: Icons.payments_outlined,
+                                  label: 'Budget',
+                                  value: 'RM ${tripBudget.tripBudget} total',
+                                  helper: dayCount > 1
+                                      ? 'Selected day RM ${dayBudget.dayBudget}'
+                                      : '${tripBudget.budgetLevel} estimate',
+                                ),
+                              ],
+                            );
+                          },
                         ),
                         if (interests.isNotEmpty) ...[
                           const SizedBox(height: 14),
@@ -490,7 +600,8 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                     const ExplorerCard(
                       child: ExplorerEmptyState(
                         title: 'No saved stops for this day',
-                        subtitle: 'Edit this itinerary to add favourite places.',
+                        subtitle:
+                            'Edit this itinerary to add favourite places.',
                         icon: Icons.add_location_alt_outlined,
                       ),
                     )
@@ -540,6 +651,16 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                         label: const Text('Edit Stops'),
                       ),
                       OutlinedButton.icon(
+                        onPressed: canModify
+                            ? () => ItineraryShareHelper.openShareDialog(
+                                context,
+                                itn,
+                              )
+                            : null,
+                        icon: const Icon(Icons.ios_share_outlined, size: 18),
+                        label: const Text('Share Link'),
+                      ),
+                      OutlinedButton.icon(
                         onPressed: canModify ? _deleteItinerary : null,
                         icon: const Icon(
                           Icons.delete_outline,
@@ -576,19 +697,23 @@ int _asIntSafe(dynamic val, [int fallback = 0]) {
 
 class _ItinerarySummaryItem extends StatelessWidget {
   const _ItinerarySummaryItem({
+    required this.width,
     required this.icon,
     required this.label,
     required this.value,
+    this.helper,
   });
 
+  final double width;
   final IconData icon;
   final String label;
   final String value;
+  final String? helper;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 145,
+      width: width,
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: ExplorerColors.subtle,
@@ -621,6 +746,19 @@ class _ItinerarySummaryItem extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                if (helper != null && helper!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    helper!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -688,8 +826,9 @@ class _ItineraryDayOverview extends StatelessWidget {
                           backgroundColor: selected
                               ? ExplorerColors.navy
                               : ExplorerColors.goldSoft,
-                          foregroundColor:
-                              selected ? Colors.white : ExplorerColors.navy,
+                          foregroundColor: selected
+                              ? Colors.white
+                              : ExplorerColors.navy,
                           child: Text(
                             '$dayNumber',
                             style: const TextStyle(
@@ -727,7 +866,9 @@ class _ItineraryDayOverview extends StatelessWidget {
                                   (day['stops'] as List)
                                       .whereType<Map>()
                                       .take(4)
-                                      .map((stop) => '${stop['name'] ?? 'Place'}')
+                                      .map(
+                                        (stop) => '${stop['name'] ?? 'Place'}',
+                                      )
                                       .join('  |  '),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -783,7 +924,9 @@ class _SavedItineraryStopCard extends StatelessWidget {
     final travelMinutes = _asIntSafe(stop['travelMinutesBefore'], 0);
     final visitMinutes = _asIntSafe(stop['durationMinutes'], 60);
     final timeLabel = '${stop['suggestedTimeLabel'] ?? ''}'.trim();
-    final scheduleNotes = (stop['scheduleNotes'] as List?)
+    final mealSuggestion = '${stop['mealSuggestionLabel'] ?? ''}'.trim();
+    final scheduleNotes =
+        (stop['scheduleNotes'] as List?)
             ?.map((e) => '$e')
             .where((e) => e.isNotEmpty)
             .toList() ??
@@ -865,6 +1008,17 @@ class _SavedItineraryStopCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (mealSuggestion.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          mealSuggestion,
+                          style: const TextStyle(
+                            color: ExplorerColors.navy,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 5),
                       Text(
                         '${stop['formattedAddress'] ?? stop['area'] ?? ''}',
