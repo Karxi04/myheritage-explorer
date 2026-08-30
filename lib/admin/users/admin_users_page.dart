@@ -27,7 +27,7 @@ class _AdminAccountRow {
 class _AdminUsersPageState extends State<AdminUsersPage> {
   final search = TextEditingController();
   late String role;
-  bool syncingVendors = false;
+  bool checkingRoleData = false;
 
   @override
   void initState() {
@@ -45,24 +45,86 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     super.dispose();
   }
 
-  Future<void> _syncCuratedVendors() async {
-    setState(() => syncingVendors = true);
+  String get _roleActionLabel {
+    return switch (role) {
+      'admin' => 'Check Administrator Data',
+      'traveler' => 'View Traveler Records',
+      'vendor' => 'Check Vendor Data',
+      _ => 'View Platform Data',
+    };
+  }
+
+  IconData get _roleActionIcon {
+    return switch (role) {
+      'admin' => Icons.admin_panel_settings_outlined,
+      'traveler' => Icons.explore_outlined,
+      'vendor' => Icons.fact_check_outlined,
+      _ => Icons.dashboard_customize_outlined,
+    };
+  }
+
+  Future<void> _runRoleAction() async {
+    setState(() => checkingRoleData = true);
     try {
-      final count =
-          await MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+      final message = switch (role) {
+        'admin' => await _administratorDataMessage(),
+        'traveler' => await _travelerDataMessage(),
+        'vendor' => await _vendorDataMessage(),
+        _ => await _platformDataMessage(),
+      };
       if (mounted) {
-        showMessage(
-          context,
-          'Successfully synced $count curated venues (Sentosa Food Court BM, BM Yam Rice, etc.) into verified vendors with reviews!',
-        );
+        showMessage(context, message);
       }
     } catch (e) {
       if (mounted) {
-        showMessage(context, 'Sync error: $e', error: true);
+        showMessage(
+          context,
+          'Unable to read ${_roleActionLabel.toLowerCase()}. Please refresh and sign in as administrator.',
+          error: true,
+        );
       }
     } finally {
-      if (mounted) setState(() => syncingVendors = false);
+      if (mounted) setState(() => checkingRoleData = false);
     }
+  }
+
+  Future<String> _administratorDataMessage() async {
+    final snapshot = await AppServices.db.collection('admins').get();
+    final admins = snapshot.docs.map((doc) => doc.data()).toList();
+    final active = admins
+        .where((data) => '${data['status'] ?? ''}' == 'active')
+        .length;
+    return 'Administrator data ready: $active active administrators from ${admins.length} records.';
+  }
+
+  Future<String> _travelerDataMessage() async {
+    final snapshot = await AppServices.db.collection('travelers').get();
+    final travelers = snapshot.docs.map((doc) => doc.data()).toList();
+    final active = travelers
+        .where((data) => '${data['status'] ?? ''}' == 'active')
+        .length;
+    return 'Traveler records ready: $active active travelers from ${travelers.length} records.';
+  }
+
+  Future<String> _vendorDataMessage() async {
+    final snapshot = await AppServices.db.collection('vendors').get();
+    final vendors = snapshot.docs.map((doc) => doc.data()).toList();
+    final active = vendors
+        .where((data) => '${data['status'] ?? ''}' == 'active')
+        .length;
+    final verified = vendors
+        .where((data) => '${data['vendorStatus'] ?? ''}' == 'verified')
+        .length;
+    return 'Vendor data ready: $verified verified vendors and $active active vendors from ${vendors.length} records.';
+  }
+
+  Future<String> _platformDataMessage() async {
+    final snapshots = await Future.wait([
+      AppServices.db.collection('admins').get(),
+      AppServices.db.collection('travelers').get(),
+      AppServices.db.collection('vendors').get(),
+    ]);
+    return 'Platform data ready: ${snapshots[0].size} administrators, ${snapshots[1].size} travelers, and ${snapshots[2].size} vendors.';
   }
 
   List<_AdminAccountRow> _rows({
@@ -156,8 +218,8 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: ExplorerColors.navy,
                 ),
-                onPressed: syncingVendors ? null : _syncCuratedVendors,
-                icon: syncingVendors
+                onPressed: checkingRoleData ? null : _runRoleAction,
+                icon: checkingRoleData
                     ? const SizedBox(
                         width: 14,
                         height: 14,
@@ -166,9 +228,9 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(Icons.storefront_outlined, size: 16),
+                    : Icon(_roleActionIcon, size: 16),
                 label: Text(
-                  syncingVendors ? 'Syncing...' : 'Sync All Curated Vendors',
+                  checkingRoleData ? 'Checking...' : _roleActionLabel,
                 ),
               ),
             ],

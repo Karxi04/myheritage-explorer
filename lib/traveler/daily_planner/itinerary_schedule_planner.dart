@@ -34,9 +34,7 @@ class ItineraryBudgetEstimator {
   static const int lowDailyLimit = 50;
   static const int mediumDailyLimit = 150;
 
-  static ItineraryBudgetEstimate estimateDay(
-    List<Map<String, dynamic>> stops,
-  ) {
+  static ItineraryBudgetEstimate estimateDay(List<Map<String, dynamic>> stops) {
     final dayBudget = stops.fold<int>(
       0,
       (total, stop) => total + estimateStop(stop),
@@ -67,10 +65,7 @@ class ItineraryBudgetEstimator {
 
     if (dayBudgets.isEmpty && fallbackStops.isNotEmpty) {
       dayBudgets.add(
-        fallbackStops.fold<int>(
-          0,
-          (total, stop) => total + estimateStop(stop),
-        ),
+        fallbackStops.fold<int>(0, (total, stop) => total + estimateStop(stop)),
       );
     }
 
@@ -93,15 +88,15 @@ class ItineraryBudgetEstimator {
         .trim()
         .toLowerCase();
     final category = '${stop['category'] ?? ''}'.toLowerCase();
-    final tags = (stop['tags'] as List?)
-            ?.map((tag) => '$tag'.toLowerCase())
-            .toList() ??
+    final tags =
+        (stop['tags'] as List?)?.map((tag) => '$tag'.toLowerCase()).toList() ??
         const <String>[];
 
     if (level.contains('free') || category.contains('free')) return 0;
     if (level.contains('high') || category.contains('fine dining')) return 90;
     if (level.contains('medium')) {
-      if (category.contains('food') || tags.any((tag) => tag.contains('food'))) {
+      if (category.contains('food') ||
+          tags.any((tag) => tag.contains('food'))) {
         return 35;
       }
       return 45;
@@ -206,10 +201,22 @@ class ItinerarySchedulePlanner {
         30,
         (stop['durationMinutes'] as num?)?.round() ?? 60,
       );
+      final buffer = GeoapifyPlanner._bufferMinutesFor(
+        stop,
+        travelMinutes: travel,
+        pace: pace,
+      );
 
+      final mealSlot = GeoapifyPlanner._mealSlotForLabel(
+        '${stop['mealRole'] ?? ''}',
+      );
+      if (mealSlot != null && arrival < mealSlot.start) {
+        arrival = mealSlot.start;
+      }
       final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
       if (openingWindow != null && !openingWindow.open24Hours) {
-        if (arrival < openingWindow.opens && openingWindow.opens < openingWindow.closes) {
+        if (arrival < openingWindow.opens &&
+            openingWindow.opens < openingWindow.closes) {
           arrival = openingWindow.opens;
         }
       }
@@ -226,33 +233,45 @@ class ItinerarySchedulePlanner {
 
       if (openingWindow == null &&
           '${stop['openingHours'] ?? ''}'.trim().isNotEmpty) {
-        notes.add('Opening hours need a quick check before visiting.');
+        notes.add('Check opening hours.');
       }
 
-      if (travel >= 35) {
-        final fromName = '${planned[index - 1]['name'] ?? 'previous stop'}';
-        final toName = '${stop['name'] ?? 'this stop'}';
-        notes.add(
-          'Long trip: $fromName to $toName takes about $travel minutes. Put closer places together if possible.',
-        );
+      if (mealSlot != null && arrival > mealSlot.end) {
+        notes.add('${mealSlot.label}: move earlier.');
+      }
+
+      if (travel >= 35 || (distance != null && distance >= 15000)) {
+        final distanceText = distance == null
+            ? 'distance not available'
+            : _formatDistance(distance.toDouble());
+        notes.add('Far stop: $distanceText, $travel min travel.');
       } else if (travel >= 22) {
-        final fromName = '${planned[index - 1]['name'] ?? 'previous stop'}';
-        notes.add(
-          'Travel from $fromName takes about $travel minutes. Keep a small buffer.',
-        );
+        notes.add('Travel: $travel min from previous stop.');
       }
 
-      final mealSuggestion = GeoapifyPlanner._mealSuggestionText(stop, arrival);
+      final mealSuggestion = stop['optionalFoodExperience'] == true
+          ? 'Optional food exploration stop'
+          : GeoapifyPlanner._mealSuggestionText(stop, arrival);
       if (mealSuggestion == null) {
-        stop.remove('mealSuggestionLabel');
+        stop
+          ..remove('mealSuggestionLabel')
+          ..remove('mealRole');
       } else {
         stop['mealSuggestionLabel'] = mealSuggestion;
+        if (stop['optionalFoodExperience'] == true) {
+          stop['scheduleType'] = 'optional_food';
+        } else {
+          stop
+            ..['mealRole'] = GeoapifyPlanner._mealLabelForMinute(arrival)
+            ..['scheduleType'] = 'meal';
+        }
       }
 
       stop
         ..['sequence'] = index + 1
         ..['travelMinutesBefore'] = travel
         ..['routeDistanceMetersBefore'] = distance
+        ..['bufferMinutesAfter'] = buffer
         ..['suggestedStartMinutes'] = arrival
         ..['suggestedEndMinutes'] = departure
         ..['suggestedTimeLabel'] =
@@ -260,7 +279,7 @@ class ItinerarySchedulePlanner {
         ..['scheduleNotes'] = notes
         ..['scheduleStatus'] = notes.isEmpty ? 'ok' : 'caution';
 
-      cursor = departure;
+      cursor = departure + buffer;
     }
 
     _addOrderSuggestions(planned, pace);
@@ -286,7 +305,17 @@ class ItinerarySchedulePlanner {
     return '$hour12:${minute.toString().padLeft(2, '0')} $suffix';
   }
 
-  static int _suggestedStartWithPreferred(Map<String, dynamic> first, int preferred) {
+  static String _formatDistance(double meters) {
+    if (meters >= 1000) {
+      return '${(meters / 1000).toStringAsFixed(1)} km';
+    }
+    return '${meters.round()} m';
+  }
+
+  static int _suggestedStartWithPreferred(
+    Map<String, dynamic> first,
+    int preferred,
+  ) {
     final window = _openingWindow('${first['openingHours'] ?? ''}');
     if (window == null || window.open24Hours) return preferred;
     if (window.opens > preferred && window.opens < window.closes) {
@@ -355,28 +384,16 @@ class ItinerarySchedulePlanner {
 
       if (nextWindow != null && currentWindow != null) {
         if (nextWindow.closes + 30 < currentWindow.closes) {
-          _addNote(
-            next,
-            'This place closes earlier than the stop before it. Move it earlier if the time feels tight.',
-          );
+          _addNote(next, 'Closes earlier. Move up if needed.');
         } else if (nextWindow.opens + 60 < currentWindow.opens) {
-          _addNote(
-            next,
-            'This place opens earlier than the stop before it. It may fit better earlier in the day.',
-          );
+          _addNote(next, 'Opens earlier. Try earlier in the day.');
         }
       }
 
       final saving = _swapSavingMinutes(stops, index, pace);
       if (saving >= 10) {
-        _addNote(
-          current,
-          'Swapping this with the next stop may save about $saving minutes.',
-        );
-        _addNote(
-          next,
-          'Move this before the previous stop to reduce travel time.',
-        );
+        _addNote(current, 'Swap with next: save ~$saving min.');
+        _addNote(next, 'Move before previous: shorter route.');
       }
     }
   }
@@ -418,16 +435,16 @@ class ItinerarySchedulePlanner {
     if (window == null || window.open24Hours) return null;
 
     if (arrival < window.opens) {
-      return 'Too early: opens at ${formatTime(window.opens)}. Move this stop later.';
+      return 'Opens at ${formatTime(window.opens)}.';
     }
     if (arrival >= window.closes) {
-      return 'Likely closed: closes at ${formatTime(window.closes)}.';
+      return 'Closed by ${formatTime(window.closes)}.';
     }
     if (departure > window.closes) {
-      return 'Time is too late: visit may pass closing at ${formatTime(window.closes)}.';
+      return 'May pass closing (${formatTime(window.closes)}).';
     }
     if (window.closes - departure <= 30) {
-      return 'Tight timing: closes at ${formatTime(window.closes)}.';
+      return 'Closes soon (${formatTime(window.closes)}).';
     }
     return null;
   }
@@ -575,33 +592,44 @@ class ScheduleNoteList extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: notes.take(3).map((note) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: ExplorerColors.goldDark,
-                  size: 15,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    note,
-                    style: const TextStyle(
-                      color: ExplorerColors.navy,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
+        children: [
+          ...notes.take(2).map((note) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: ExplorerColors.goldDark,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      note,
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            );
+          }),
+          if (notes.length > 2)
+            Text(
+              '+${notes.length - 2} more route tip',
+              style: const TextStyle(
+                color: ExplorerColors.goldDark,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }

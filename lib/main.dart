@@ -13,17 +13,16 @@ import 'traveler/traveler_pages.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
-const _deepLinkEventChannel = EventChannel('myheritage_explorer/deep_link_events');
+const _deepLinkEventChannel = EventChannel(
+  'myheritage_explorer/deep_link_events',
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
   SystemNotificationService.instance.init();
-  MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
   runApp(const MyHeritageApp());
 }
 
@@ -67,7 +66,6 @@ class MyHeritageApp extends StatelessWidget {
   }
 }
 
-
 class _SharedLinkTarget {
   const _SharedLinkTarget({this.shareId, this.encodedItinerary})
     : assert(shareId != null || encodedItinerary != null);
@@ -85,8 +83,8 @@ class _SharedLinkTarget {
 }
 
 _SharedLinkTarget? _sharedLinkTargetFromUri(Uri uri) {
-  final queryShare =
-      (uri.queryParameters['share'] ?? uri.queryParameters['id'])?.trim();
+  final queryShare = (uri.queryParameters['share'] ?? uri.queryParameters['id'])
+      ?.trim();
   if (queryShare != null && queryShare.isNotEmpty) {
     return _SharedLinkTarget(shareId: queryShare);
   }
@@ -186,9 +184,7 @@ class _AppEntryState extends State<_AppEntry> {
     if (browserTarget != null) return browserTarget.page();
 
     if (!_checkedInitialDeepLink) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_initialDeepLinkTarget != null) {
