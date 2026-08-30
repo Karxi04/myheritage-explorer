@@ -249,6 +249,12 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
           : null,
     );
     final scheduledStops = schedule.stops;
+    final mainScheduledStops = scheduledStops
+        .where((stop) => stop['optionalFoodExperience'] != true)
+        .toList();
+    final optionalFoodStops = scheduledStops
+        .where((stop) => stop['optionalFoodExperience'] == true)
+        .toList();
     final createdAt = asDate(itn['createdAt']);
     final startDate = asDate(itn['startDate']) ?? asDate(itn['targetDate']);
     final endDate = asDate(itn['endDate']) ?? startDate;
@@ -607,25 +613,56 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                     )
                   else
                     Column(
-                      children: scheduledStops.asMap().entries.map((entry) {
-                        final stop = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 11),
-                          child: _SavedItineraryStopCard(
-                            number: entry.key + 1,
-                            stop: stop,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PlaceDetailPage(
-                                  placeId: '${stop['placeId'] ?? ''}',
-                                  place: stop,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ...mainScheduledStops.asMap().entries.map((entry) {
+                          final stop = entry.value;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 11),
+                            child: _SavedItineraryStopCard(
+                              number: entry.key + 1,
+                              stop: stop,
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PlaceDetailPage(
+                                    placeId: '${stop['placeId'] ?? ''}',
+                                    place: stop,
+                                  ),
                                 ),
                               ),
                             ),
+                          );
+                        }),
+                        if (optionalFoodStops.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          const ExplorerSectionTitle(
+                            'Optional Food Exploration',
+                            subtitle:
+                                'Extra food stops saved from food exploration mode.',
                           ),
-                        );
-                      }).toList(),
+                          const SizedBox(height: 10),
+                          ...optionalFoodStops.asMap().entries.map((entry) {
+                            final stop = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 11),
+                              child: _SavedItineraryStopCard(
+                                number: entry.key + 1,
+                                stop: stop,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PlaceDetailPage(
+                                      placeId: '${stop['placeId'] ?? ''}',
+                                      place: stop,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+                      ],
                     ),
                   const SizedBox(height: 16),
                   Wrap(
@@ -923,6 +960,7 @@ class _SavedItineraryStopCard extends StatelessWidget {
     final reviewCount = rawReviewCount > 0 ? rawReviewCount : 12;
     final travelMinutes = _asIntSafe(stop['travelMinutesBefore'], 0);
     final visitMinutes = _asIntSafe(stop['durationMinutes'], 60);
+    final bufferMinutes = _asIntSafe(stop['bufferMinutesAfter'], 0);
     final timeLabel = '${stop['suggestedTimeLabel'] ?? ''}'.trim();
     final mealSuggestion = '${stop['mealSuggestionLabel'] ?? ''}'.trim();
     final scheduleNotes =
@@ -1001,7 +1039,8 @@ class _SavedItineraryStopCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         '${timeLabel.isEmpty ? '' : '$timeLabel - '}'
-                        '${stop['category'] ?? 'Place'} - $visitMinutes minutes',
+                        '${stop['category'] ?? 'Place'} - $visitMinutes minutes'
+                        '${bufferMinutes > 0 ? ' + $bufferMinutes min buffer' : ''}',
                         style: const TextStyle(
                           color: ExplorerColors.goldDark,
                           fontSize: 10,

@@ -104,10 +104,10 @@ class GeoapifyPlanner {
   static final Map<String, _GeoapifyCachedPlaces> _placesCache = {};
   static final Map<String, _GeoapifyCachedPlaceDetails> _detailsCache = {};
   static final Map<String, _TimedCache<List<Map<String, dynamic>>>>
-      _verifiedVendorCache = {};
+  _verifiedVendorCache = {};
   static _TimedCache<List<Map<String, dynamic>>>? _culturalTasksCache;
   static _TimedCache<Map<String, List<Map<String, dynamic>>>>?
-      _activeVoucherCache;
+  _activeVoucherCache;
   static _TimedCache<Map<String, Map<String, dynamic>>>? _reviewStatsCache;
 
   static const Map<String, List<String>> _interestCategories = {
@@ -160,7 +160,8 @@ class GeoapifyPlanner {
       final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
         'latitude': lat.toString(),
         'longitude': lng.toString(),
-        'daily': 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum',
+        'daily':
+            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum',
         'timezone': 'auto',
         'forecast_days': '7',
       });
@@ -177,45 +178,130 @@ class GeoapifyPlanner {
             final code = codes[idx].toInt();
             final temp = temps.isNotEmpty ? temps[idx].round() : 30;
             final rain = rains.isNotEmpty ? rains[idx].toDouble() : 0.0;
-            final isRainy = code >= 51 || rain > 0.5;
-
-            String condition;
-            String advice;
-            if (code >= 95 || rain > 5) {
-              condition = 'Thunderstorms';
-              advice = 'Heavy rain expected ($temp°C) • Indoor cultural museums & covered food courts prioritized.';
-            } else if (isRainy) {
-              condition = 'Scattered Showers';
-              advice = 'Showers expected ($temp°C) • Indoor heritage attractions & food courts prioritized.';
-            } else if (code >= 1 && code <= 3) {
-              condition = 'Partly Cloudy';
-              advice = 'Pleasant weather ($temp°C) • Great for exploring both indoor sights and heritage trails.';
-            } else {
-              condition = 'Sunny & Warm';
-              advice = 'Bright skies ($temp°C) • Perfect for outdoor heritage walking tours & scenic sights.';
-            }
+            final severity = _weatherSeverity(
+              weatherCode: code,
+              precipitationMm: rain,
+              temperatureC: temp,
+            );
+            final isRainy =
+                severity == 'thunderstorm' ||
+                severity == 'heavy_rain' ||
+                severity == 'moderate_rain' ||
+                severity == 'light_showers';
+            final weatherCopy = _weatherCopy(
+              severity: severity,
+              temperatureC: temp,
+            );
 
             return {
               'temperature': '$temp°C',
-              'condition': condition,
+              'condition': weatherCopy.condition,
               'isRainy': isRainy,
-              'advice': advice,
+              'advice': weatherCopy.advice,
               'weatherCode': code,
+              'weatherSeverity': severity,
+              'precipitationMm': rain,
+              'outdoorFriendly': weatherCopy.outdoorFriendly,
+              'indoorPriority': weatherCopy.indoorPriority,
             };
           }
         }
       }
     } catch (_) {}
 
-    final isRainy = dayIndex % 2 == 1;
     return {
       'temperature': '30°C',
-      'condition': isRainy ? 'Scattered Showers' : 'Partly Cloudy',
-      'isRainy': isRainy,
-      'advice': isRainy
-          ? 'Afternoon rain possible (30°C) • Indoor cultural attractions prioritized.'
-          : 'Fair tropical weather (30°C) • Great for heritage walks & local sights.',
-      'weatherCode': isRainy ? 51 : 2,
+      'condition': 'Partly Cloudy',
+      'isRainy': false,
+      'advice':
+          'Fair tropical weather (30°C) • Keep outdoor heritage walks, with shaded or indoor breaks midday.',
+      'weatherCode': 2,
+      'weatherSeverity': 'fair',
+      'precipitationMm': 0.0,
+      'outdoorFriendly': true,
+      'indoorPriority': false,
+    };
+  }
+
+  static String _weatherSeverity({
+    required int weatherCode,
+    required double precipitationMm,
+    required int temperatureC,
+  }) {
+    if (weatherCode >= 95 || precipitationMm >= 8) return 'thunderstorm';
+    if (precipitationMm >= 5 || weatherCode == 82) return 'heavy_rain';
+    if (precipitationMm >= 2.5 ||
+        (weatherCode >= 61 && weatherCode <= 67) ||
+        weatherCode == 81) {
+      return 'moderate_rain';
+    }
+    if (precipitationMm > 0.2 ||
+        (weatherCode >= 51 && weatherCode <= 57) ||
+        weatherCode == 80) {
+      return 'light_showers';
+    }
+    if (temperatureC >= 34) return 'hot';
+    if (weatherCode >= 1 && weatherCode <= 3) return 'cloudy';
+    return 'fair';
+  }
+
+  static ({
+    String condition,
+    String advice,
+    bool outdoorFriendly,
+    bool indoorPriority,
+  })
+  _weatherCopy({required String severity, required int temperatureC}) {
+    return switch (severity) {
+      'thunderstorm' => (
+        condition: 'Thunderstorms',
+        advice:
+            'Heavy rain expected ($temperatureC°C) • Choose indoor museums, galleries and covered food courts first.',
+        outdoorFriendly: false,
+        indoorPriority: true,
+      ),
+      'heavy_rain' => (
+        condition: 'Heavy Rain',
+        advice:
+            'Heavy rain expected ($temperatureC°C) • Prefer indoor attractions and keep outdoor stops as backups.',
+        outdoorFriendly: false,
+        indoorPriority: true,
+      ),
+      'moderate_rain' => (
+        condition: 'Rain Showers',
+        advice:
+            'Rain showers expected ($temperatureC°C) • Mix indoor stops with short outdoor visits between showers.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'light_showers' => (
+        condition: 'Light Showers',
+        advice:
+            'Light showers possible ($temperatureC°C) • Outdoor heritage stops are still okay with indoor backup nearby.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'hot' => (
+        condition: 'Hot & Sunny',
+        advice:
+            'Hot weather ($temperatureC°C) • Keep outdoor sights, add shade, hydration and indoor rest breaks.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'cloudy' => (
+        condition: 'Partly Cloudy',
+        advice:
+            'Pleasant weather ($temperatureC°C) • Good for both outdoor trails and indoor cultural stops.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      _ => (
+        condition: 'Sunny & Warm',
+        advice:
+            'Bright skies ($temperatureC°C) • Good for outdoor heritage walks, scenic sights and local food stops.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
     };
   }
 
@@ -228,6 +314,7 @@ class GeoapifyPlanner {
     int? preferredStartMinutes,
     DateTime? startDate,
     int dayCount = 1,
+    bool foodExplorationEnabled = false,
   }) async {
     final normalizedArea = _normalisePenangArea(area);
     if (normalizedArea.isEmpty) {
@@ -237,7 +324,8 @@ class GeoapifyPlanner {
       throw Exception('Select at least one travel interest.');
     }
 
-    final tripStartDate = startDate ?? DateTime.now().add(const Duration(days: 1));
+    final tripStartDate =
+        startDate ?? DateTime.now().add(const Duration(days: 1));
     final tripEndDate = tripStartDate.add(Duration(days: max(0, dayCount - 1)));
 
     _GeoapifyArea? locatedArea;
@@ -253,6 +341,10 @@ class GeoapifyPlanner {
     final culturalTasks = await _loadActiveCulturalTasks();
     final reviewStats = await _loadReviewStats();
     final voucherMap = await _loadActiveVendorVouchers();
+    final coveredMealLabels = _coveredMealLabels(
+      preferredStartMinutes ?? 9 * 60,
+      (availableHours * 60).round(),
+    );
 
     final candidates = vendors
         .map((vendor) {
@@ -294,11 +386,17 @@ class GeoapifyPlanner {
           };
         })
         .where((vendor) {
-          return _vendorMatchesInterests(vendor, interests) &&
+          final supportsMealPlanning =
+              coveredMealLabels.isNotEmpty && _isFoodPlace(vendor);
+          final matchesPreference =
+              _vendorMatchesInterests(vendor, interests) &&
               _budgetAllowed(
                 userBudget: budgetLevel,
                 placeBudget: '${vendor['budgetLevel'] ?? 'Medium'}',
               );
+          return matchesPreference ||
+              supportsMealPlanning ||
+              (foodExplorationEnabled && _isFoodPlace(vendor));
         })
         .toList();
 
@@ -327,7 +425,9 @@ class GeoapifyPlanner {
     final daySchedules = <PlannerDaySchedule>[];
     final allEnrichedStops = <Map<String, dynamic>>[];
     final globallyUsedKeys = <String>{};
-    final remainingCandidates = List<Map<String, dynamic>>.from(activeCandidates);
+    final remainingCandidates = List<Map<String, dynamic>>.from(
+      activeCandidates,
+    );
 
     final originLat = locatedArea?.latitude ?? _penangLatitude;
     final originLng = locatedArea?.longitude ?? _penangLongitude;
@@ -341,6 +441,7 @@ class GeoapifyPlanner {
         dayIdx,
       );
       final isRainy = dayForecast['isRainy'] == true;
+      final weatherSeverity = '${dayForecast['weatherSeverity'] ?? 'fair'}';
 
       final availableCandidates = remainingCandidates.where((c) {
         final keys = _allPlaceKeys(c);
@@ -366,6 +467,8 @@ class GeoapifyPlanner {
         userBudget: budgetLevel,
         preferredStartMinutes: preferredStartMinutes,
         isRainy: isRainy,
+        weatherSeverity: weatherSeverity,
+        foodExplorationEnabled: foodExplorationEnabled,
         usedKeys: globallyUsedKeys,
         origin: locatedArea == null
             ? null
@@ -415,9 +518,13 @@ class GeoapifyPlanner {
     );
 
     return GeoapifyPlannerResult(
-      places: daySchedules.isNotEmpty ? daySchedules.first.places : allEnrichedStops,
+      places: daySchedules.isNotEmpty
+          ? daySchedules.first.places
+          : allEnrichedStops,
       totalEstimatedMinutes: totalMinutesAllDays,
-      remainingMinutes: daySchedules.isNotEmpty ? daySchedules.first.remainingMinutes : 0,
+      remainingMinutes: daySchedules.isNotEmpty
+          ? daySchedules.first.remainingMinutes
+          : 0,
       days: daySchedules,
       startDate: tripStartDate,
       endDate: tripEndDate,
@@ -1385,10 +1492,12 @@ class GeoapifyPlanner {
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final address = '${data['formattedAddress'] ?? data['shopLocation'] ?? data['area'] ?? ''}';
-        final vendorArea = '${data['area'] ?? data['city'] ?? (address.isNotEmpty ? address : area)}';
-        final name =
-            '${data['businessName'] ?? data['displayName'] ?? ''}'.trim();
+        final address =
+            '${data['formattedAddress'] ?? data['shopLocation'] ?? data['area'] ?? ''}';
+        final vendorArea =
+            '${data['area'] ?? data['city'] ?? (address.isNotEmpty ? address : area)}';
+        final name = '${data['businessName'] ?? data['displayName'] ?? ''}'
+            .trim();
         if (name.isEmpty) continue;
 
         final rawLocation = data['location'];
@@ -1430,8 +1539,7 @@ class GeoapifyPlanner {
         final storedImageCandidates = List<String>.from(
           data['imageCandidates'] ?? const <String>[],
         ).where((url) => url.trim().isNotEmpty).toList();
-        final website =
-            '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
+        final website = '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
         final mapPreview = location == null
             ? ''
             : ItineraryImageResolver.staticMapPreview(
@@ -1447,7 +1555,8 @@ class GeoapifyPlanner {
               '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
           'businessCategory': '${data['businessCategory'] ?? ''}',
           'plannerCategories': plannerCategories,
-          'description': '${data['description'] ?? data['businessDescription'] ?? ''}',
+          'description':
+              '${data['description'] ?? data['businessDescription'] ?? ''}',
           'formattedAddress': address.isNotEmpty ? address : vendorArea,
           'area': vendorArea,
           'areaRelevanceScore': _areaTextRelevance(
@@ -1474,7 +1583,8 @@ class GeoapifyPlanner {
             address: address.isNotEmpty ? address : vendorArea,
             website: website,
             phone: '${data['phone'] ?? data['contactNumber'] ?? ''}',
-            openingHours: '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+            openingHours:
+                '${data['openingHours'] ?? data['businessHours'] ?? ''}',
             imageType: imageUrl.isNotEmpty
                 ? 'place_photo'
                 : mapPreview.isNotEmpty
@@ -1484,7 +1594,8 @@ class GeoapifyPlanner {
           'matchedInterest': category,
           'phone': '${data['phone'] ?? data['contactNumber'] ?? ''}',
           'website': website,
-          'openingHours': '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+          'openingHours':
+              '${data['openingHours'] ?? data['businessHours'] ?? ''}',
           'location': location,
           'mapUrl': '${data['mapUrl'] ?? ''}',
           'trustLabel': '${data['trustLabel'] ?? 'Verified Vendor'}',
@@ -1498,7 +1609,8 @@ class GeoapifyPlanner {
       final name = '${place['name']}';
       final address = '${place['formattedAddress'] ?? place['address']}';
       final category = '${place['category']}';
-      final duration = (place['durationMinutes'] as num?)?.round() ??
+      final duration =
+          (place['durationMinutes'] as num?)?.round() ??
           switch (category) {
             'Food' => 60,
             'Nature' => 90,
@@ -1555,7 +1667,8 @@ class GeoapifyPlanner {
         'location': {'latitude': lat, 'longitude': lng},
         'mapUrl': '${place['mapUrl'] ?? googleMapsUrl}',
         'trustLabel': 'Real Map Verified',
-        if (place['culturalTask'] != null) 'culturalTask': place['culturalTask'],
+        if (place['culturalTask'] != null)
+          'culturalTask': place['culturalTask'],
       };
     }).toList();
 
@@ -1974,6 +2087,8 @@ class GeoapifyPlanner {
     required int? preferredStartMinutes,
     required Map<String, double>? origin,
     bool isRainy = false,
+    String weatherSeverity = 'fair',
+    bool foodExplorationEnabled = false,
     Set<String>? usedKeys,
   }) async {
     final paceMultiplier = switch (pace) {
@@ -1982,33 +2097,40 @@ class GeoapifyPlanner {
       _ => 1.0,
     };
 
-    final remainingCandidates = candidates.map((place) {
-      final base = (place['durationMinutes'] as num?)?.round() ?? 60;
-      return {
-        ...place,
-        'durationMinutes': max(30, (base * paceMultiplier).round()),
-      };
-    }).toList()
-      ..sort(
-        (first, second) => _rank(
-          second,
-          userBudget: userBudget,
-          preferredStartMinutes: preferredStartMinutes,
-          isRainy: isRainy,
-        ).compareTo(
-          _rank(
-            first,
-            userBudget: userBudget,
-            preferredStartMinutes: preferredStartMinutes,
-            isRainy: isRainy,
-          ),
-        ),
-      );
+    final remainingCandidates =
+        candidates.map((place) {
+          final base = (place['durationMinutes'] as num?)?.round() ?? 60;
+          return {
+            ...place,
+            'durationMinutes': max(30, (base * paceMultiplier).round()),
+          };
+        }).toList()..sort(
+          (first, second) =>
+              _rank(
+                second,
+                userBudget: userBudget,
+                preferredStartMinutes: preferredStartMinutes,
+                isRainy: isRainy,
+                weatherSeverity: weatherSeverity,
+              ).compareTo(
+                _rank(
+                  first,
+                  userBudget: userBudget,
+                  preferredStartMinutes: preferredStartMinutes,
+                  isRainy: isRainy,
+                  weatherSeverity: weatherSeverity,
+                ),
+              ),
+        );
 
     final selected = <Map<String, dynamic>>[];
     final selectedIdentities = <String>{};
     final categoryCounts = <String, int>{};
+    final selectedMealLabels = <String>{};
+    var optionalFoodCount = 0;
     var remaining = availableMinutes;
+    final routeStartMinute = preferredStartMinutes ?? 9 * 60;
+    final routeEndMinute = routeStartMinute + availableMinutes;
 
     final maxStops = availableMinutes <= 150
         ? 2
@@ -2022,13 +2144,24 @@ class GeoapifyPlanner {
       var bestIndex = -1;
       var bestScore = -double.infinity;
       var bestTravelMinutes = 0;
+      var bestBufferMinutes = 0;
+      String? bestMealLabel;
+      var bestOptionalFood = false;
+      final currentRouteMinute =
+          routeStartMinute + (availableMinutes - remaining);
+      final pendingMealLabel = _pendingMealLabel(
+        currentRouteMinute,
+        routeEndMinute,
+        selectedMealLabels,
+      );
 
       for (var index = 0; index < remainingCandidates.length; index++) {
         final candidate = remainingCandidates[index];
         final identity = _placeIdentity(candidate);
         final candidateKeys = _allPlaceKeys(candidate);
         if (selectedIdentities.contains(identity) ||
-            (usedKeys != null && candidateKeys.any((k) => usedKeys.contains(k)))) {
+            (usedKeys != null &&
+                candidateKeys.any((k) => usedKeys.contains(k)))) {
           continue;
         }
         final previousLocation = selected.isEmpty
@@ -2043,12 +2176,37 @@ class GeoapifyPlanner {
               );
         final visitMinutes =
             (candidate['durationMinutes'] as num?)?.round() ?? 60;
-        if (travelMinutes + visitMinutes > remaining) continue;
+        final currentDayMinute = currentRouteMinute + travelMinutes;
+        final candidateMealLabel = _mealLabelForMinute(currentDayMinute);
+        final isFoodPlace = _isFoodPlace(candidate);
+        final isMealCandidate =
+            isFoodPlace &&
+            candidateMealLabel != null &&
+            !selectedMealLabels.contains(candidateMealLabel);
+        final isPendingMealCandidate =
+            isMealCandidate &&
+            pendingMealLabel != null &&
+            candidateMealLabel == pendingMealLabel;
+        final isOptionalFoodCandidate =
+            isFoodPlace &&
+            candidateMealLabel == null &&
+            foodExplorationEnabled &&
+            optionalFoodCount < 2 &&
+            selected.length >= 2;
+        if (pendingMealLabel != null && !isPendingMealCandidate) {
+          continue;
+        }
+        if (isFoodPlace && !isMealCandidate && !isOptionalFoodCandidate) {
+          continue;
+        }
+        final bufferMinutes = _bufferMinutesFor(
+          candidate,
+          travelMinutes: travelMinutes,
+          pace: pace,
+        );
+        if (travelMinutes + visitMinutes + bufferMinutes > remaining) continue;
 
         // Opening hours verification based on estimated visit time
-        final currentDayMinute = (preferredStartMinutes ?? 9 * 60) +
-            (availableMinutes - remaining) +
-            travelMinutes;
         final window = ItinerarySchedulePlanner._openingWindow(
           '${candidate['openingHours'] ?? ''}',
         );
@@ -2066,8 +2224,10 @@ class GeoapifyPlanner {
         }
 
         final category = '${candidate['category'] ?? ''}';
-        final matchedInterests =
-            _matchedSelectedInterests(candidate, selectedInterests);
+        final matchedInterests = _matchedSelectedInterests(
+          candidate,
+          selectedInterests,
+        );
         final primaryInterest = matchedInterests.firstWhere(
           (interest) => (categoryCounts[interest] ?? 0) == 0,
           orElse: () => '${candidate['matchedInterest'] ?? category}',
@@ -2075,60 +2235,104 @@ class GeoapifyPlanner {
         final categoryAlreadySelected =
             (categoryCounts[primaryInterest] ?? 0) > 0;
         final coverageBonus =
-            matchedInterests.isNotEmpty && !categoryAlreadySelected ? 1.25 : 0.0;
-        final duplicatePenalty =
-            (categoryCounts[primaryInterest] ?? 0) * 0.62;
+            matchedInterests.isNotEmpty && !categoryAlreadySelected
+            ? 1.25
+            : 0.0;
+        final duplicatePenalty = (categoryCounts[primaryInterest] ?? 0) * 0.62;
         final travelPenalty = min(travelMinutes / 60, 1.0) * 0.25;
         final mealAdjustment = _mealTimeScore(candidate, currentDayMinute);
+        final optionalFoodPenalty = isOptionalFoodCandidate ? 0.55 : 0.0;
         final adjusted =
             _rank(
               candidate,
               userBudget: userBudget,
               preferredStartMinutes: preferredStartMinutes,
               isRainy: isRainy,
+              weatherSeverity: weatherSeverity,
             ) +
             coverageBonus +
             mealAdjustment +
             openingAdjustment -
             duplicatePenalty -
-            travelPenalty;
+            travelPenalty -
+            optionalFoodPenalty;
 
         if (adjusted > bestScore) {
           bestScore = adjusted;
           bestIndex = index;
           bestTravelMinutes = travelMinutes;
+          bestBufferMinutes = bufferMinutes;
+          bestMealLabel = isMealCandidate ? candidateMealLabel : null;
+          bestOptionalFood = isOptionalFoodCandidate;
         }
       }
 
-      if (bestIndex < 0) break;
+      if (bestIndex < 0) {
+        if (pendingMealLabel != null &&
+            !selectedMealLabels.contains(pendingMealLabel)) {
+          selectedMealLabels.add(pendingMealLabel);
+          continue;
+        }
+        break;
+      }
       final chosen = remainingCandidates.removeAt(bestIndex);
       chosen['travelMinutesBefore'] = bestTravelMinutes;
-      final chosenStartMinute = (preferredStartMinutes ?? 9 * 60) +
-          (availableMinutes - remaining) +
-          bestTravelMinutes;
+      chosen['bufferMinutesAfter'] = bestBufferMinutes;
+      final chosenStartMinute =
+          routeStartMinute + (availableMinutes - remaining) + bestTravelMinutes;
       final mealSuggestion = _mealSuggestionText(chosen, chosenStartMinute);
-      if (mealSuggestion == null) {
+      if (bestOptionalFood) {
+        optionalFoodCount++;
+        chosen['durationMinutes'] = max(
+          35,
+          ((chosen['durationMinutes'] as num?)?.round() ?? 45),
+        );
+        chosen['optionalFoodExperience'] = true;
+        chosen['scheduleType'] = 'optional_food';
+        chosen['mealSuggestionLabel'] = 'Optional food exploration stop';
+      } else if (mealSuggestion == null) {
         chosen.remove('mealSuggestionLabel');
+        chosen.remove('optionalFoodExperience');
+        chosen.remove('scheduleType');
       } else {
+        chosen['durationMinutes'] = max(
+          45,
+          ((chosen['durationMinutes'] as num?)?.round() ?? 60),
+        );
+        chosen['mealRole'] = bestMealLabel;
+        chosen['scheduleType'] = 'meal';
         chosen['mealSuggestionLabel'] = mealSuggestion;
       }
       selected.add(chosen);
       selectedIdentities.add(_placeIdentity(chosen));
+      if (_isFoodPlace(chosen) && bestMealLabel != null) {
+        selectedMealLabels.add(bestMealLabel);
+      }
       remaining -=
           bestTravelMinutes +
-          ((chosen['durationMinutes'] as num?)?.round() ?? 60);
-      final chosenInterests = _matchedSelectedInterests(chosen, selectedInterests);
+          ((chosen['durationMinutes'] as num?)?.round() ?? 60) +
+          bestBufferMinutes;
+      final chosenInterests = _matchedSelectedInterests(
+        chosen,
+        selectedInterests,
+      );
       final countKey = chosenInterests.firstWhere(
         (interest) => (categoryCounts[interest] ?? 0) == 0,
-        orElse: () => '${chosen['matchedInterest'] ?? chosen['category'] ?? ''}',
+        orElse: () =>
+            '${chosen['matchedInterest'] ?? chosen['category'] ?? ''}',
       );
       categoryCounts[countKey] = (categoryCounts[countKey] ?? 0) + 1;
     }
 
-    _optimiseVisitOrder(selected, origin: origin, pace: pace);
+    _optimiseVisitOrder(
+      selected,
+      origin: origin,
+      pace: pace,
+      preferredStartMinutes: preferredStartMinutes,
+    );
 
     if (GeoapifyConfig.useRoutingApi) {
-      await _applyRoutingTimes(selected);
+      await _applyRoutingTimes(selected, pace: pace);
     }
 
     var totalEstimatedMinutes = selected.fold<int>(
@@ -2136,7 +2340,8 @@ class GeoapifyPlanner {
       (total, place) =>
           total +
           ((place['durationMinutes'] as num?)?.round() ?? 60) +
-          ((place['travelMinutesBefore'] as num?)?.round() ?? 0),
+          ((place['travelMinutesBefore'] as num?)?.round() ?? 0) +
+          ((place['bufferMinutesAfter'] as num?)?.round() ?? 0),
     );
 
     while (selected.length > 1 && totalEstimatedMinutes > availableMinutes) {
@@ -2146,7 +2351,8 @@ class GeoapifyPlanner {
         (total, place) =>
             total +
             ((place['durationMinutes'] as num?)?.round() ?? 60) +
-            ((place['travelMinutesBefore'] as num?)?.round() ?? 0),
+            ((place['travelMinutesBefore'] as num?)?.round() ?? 0) +
+            ((place['bufferMinutesAfter'] as num?)?.round() ?? 0),
       );
     }
 
@@ -2165,6 +2371,7 @@ class GeoapifyPlanner {
     List<Map<String, dynamic>> selected, {
     required Map<String, double>? origin,
     required String pace,
+    required int? preferredStartMinutes,
   }) {
     if (selected.length < 2) {
       if (selected.isNotEmpty) {
@@ -2175,16 +2382,24 @@ class GeoapifyPlanner {
 
     final unordered = List<Map<String, dynamic>>.from(selected);
     unordered.sort((a, b) {
-      final winA = ItinerarySchedulePlanner._openingWindow('${a['openingHours'] ?? ''}');
-      final winB = ItinerarySchedulePlanner._openingWindow('${b['openingHours'] ?? ''}');
-      final openA = winA?.open24Hours == true ? 9 * 60 : (winA?.opens ?? 9 * 60);
-      final openB = winB?.open24Hours == true ? 9 * 60 : (winB?.opens ?? 9 * 60);
+      final winA = ItinerarySchedulePlanner._openingWindow(
+        '${a['openingHours'] ?? ''}',
+      );
+      final winB = ItinerarySchedulePlanner._openingWindow(
+        '${b['openingHours'] ?? ''}',
+      );
+      final openA = winA?.open24Hours == true
+          ? 9 * 60
+          : (winA?.opens ?? 9 * 60);
+      final openB = winB?.open24Hours == true
+          ? 9 * 60
+          : (winB?.opens ?? 9 * 60);
       return openA.compareTo(openB);
     });
 
     final ordered = <Map<String, dynamic>>[];
     Map<String, double>? current = origin;
-    var accumulatedTime = 9 * 60;
+    var accumulatedTime = preferredStartMinutes ?? 9 * 60;
 
     while (unordered.isNotEmpty) {
       var bestIndex = 0;
@@ -2202,11 +2417,26 @@ class GeoapifyPlanner {
               )
             : 2.0;
 
-        final win = ItinerarySchedulePlanner._openingWindow('${candidate['openingHours'] ?? ''}');
+        final mealSlot = _mealSlotForLabel('${candidate['mealRole'] ?? ''}');
+        final win = ItinerarySchedulePlanner._openingWindow(
+          '${candidate['openingHours'] ?? ''}',
+        );
         final opensAt = win?.open24Hours == true ? 0 : (win?.opens ?? 9 * 60);
-        final closesAt = win?.open24Hours == true ? 24 * 60 : (win?.closes ?? 22 * 60);
+        final closesAt = win?.open24Hours == true
+            ? 24 * 60
+            : (win?.closes ?? 22 * 60);
 
         double timePenalty = 0.0;
+        if (mealSlot != null) {
+          final estimatedArrival = accumulatedTime + (distanceKm * 10).round();
+          if (estimatedArrival < mealSlot.start) {
+            timePenalty += (mealSlot.start - estimatedArrival) * 0.02;
+          } else if (estimatedArrival > mealSlot.end) {
+            timePenalty += 80.0;
+          } else {
+            timePenalty -= 12.0;
+          }
+        }
         if (accumulatedTime < opensAt) {
           timePenalty += (opensAt - accumulatedTime) * 0.08;
         } else if (accumulatedTime >= closesAt) {
@@ -2228,14 +2458,25 @@ class GeoapifyPlanner {
               next['location'],
               pace,
             );
+      final buffer = _bufferMinutesFor(next, travelMinutes: travel, pace: pace);
       next['travelMinutesBefore'] = travel;
+      next['bufferMinutesAfter'] = buffer;
       ordered.add(next);
       current = _coordinateMap(next['location']) ?? current;
 
-      final win = ItinerarySchedulePlanner._openingWindow('${next['openingHours'] ?? ''}');
+      final win = ItinerarySchedulePlanner._openingWindow(
+        '${next['openingHours'] ?? ''}',
+      );
       final opensAt = win?.open24Hours == true ? 0 : (win?.opens ?? 9 * 60);
-      accumulatedTime = max(accumulatedTime + travel, opensAt) +
-          ((next['durationMinutes'] as num?)?.round() ?? 60);
+      final mealSlot = _mealSlotForLabel('${next['mealRole'] ?? ''}');
+      var effectiveArrival = max(accumulatedTime + travel, opensAt);
+      if (mealSlot != null && effectiveArrival < mealSlot.start) {
+        effectiveArrival = mealSlot.start;
+      }
+      accumulatedTime =
+          effectiveArrival +
+          ((next['durationMinutes'] as num?)?.round() ?? 60) +
+          buffer;
     }
 
     selected
@@ -2244,8 +2485,9 @@ class GeoapifyPlanner {
   }
 
   static Future<void> _applyRoutingTimes(
-    List<Map<String, dynamic>> selected,
-  ) async {
+    List<Map<String, dynamic>> selected, {
+    required String pace,
+  }) async {
     if (selected.length < 2) return;
 
     final points = <Map<String, double>>[];
@@ -2292,9 +2534,12 @@ class GeoapifyPlanner {
         final seconds = _asDouble(leg['time']);
         final distance = _asDouble(leg['distance']);
         if (seconds != null) {
-          selected[index + 1]['travelMinutesBefore'] = max(
-            1,
-            (seconds / 60).ceil(),
+          final travelMinutes = max(1, (seconds / 60).ceil());
+          selected[index + 1]['travelMinutesBefore'] = travelMinutes;
+          selected[index + 1]['bufferMinutesAfter'] = _bufferMinutesFor(
+            selected[index + 1],
+            travelMinutes: travelMinutes,
+            pace: pace,
           );
         }
         if (distance != null) {
@@ -2367,13 +2612,15 @@ class GeoapifyPlanner {
     final tags = List<String>.from(
       place['tags'] ?? const <String>[],
     ).map((t) => t.toLowerCase()).toList();
-    final name = '${place['name'] ?? ''}'.toLowerCase();
-    final category = '${place['category'] ?? ''}';
+    final name =
+        '${place['name'] ?? ''} ${place['businessName'] ?? ''} ${place['displayName'] ?? ''}'
+            .toLowerCase();
+    final category = '${place['category'] ?? ''}'.toLowerCase();
     final plannerCategories = List<String>.from(
       place['plannerCategories'] ?? const <String>[],
     ).map((t) => t.toLowerCase()).toList();
 
-    return category == 'Food' ||
+    return category == 'food' ||
         plannerCategories.contains('food') ||
         tags.any(
           (t) =>
@@ -2383,11 +2630,23 @@ class GeoapifyPlanner {
               t.contains('hawker') ||
               t.contains('kopitiam') ||
               t.contains('bakery') ||
+              t.contains('dessert') ||
+              t.contains('tea') ||
               t.contains('market'),
         ) ||
         name.contains('restaurant') ||
         name.contains('cafe') ||
+        name.contains('coffee') ||
         name.contains('kopitiam') ||
+        name.contains('hawker') ||
+        name.contains('food court') ||
+        name.contains('bakery') ||
+        name.contains('dessert') ||
+        name.contains('tea') ||
+        name.contains('nasi') ||
+        name.contains('laksa') ||
+        name.contains('roti') ||
+        name.contains('char koay') ||
         name.contains('market');
   }
 
@@ -2398,6 +2657,48 @@ class GeoapifyPlanner {
     if (value >= 18 * 60 && value <= 21 * 60) return 'Dinner';
     return null;
   }
+
+  static Set<String> _coveredMealLabels(
+    int startMinutes,
+    int availableMinutes,
+  ) {
+    final endMinutes = startMinutes + availableMinutes;
+    final labels = <String>{};
+    for (final slot in _mealSlots) {
+      if (endMinutes >= slot.start && startMinutes <= slot.end) {
+        labels.add(slot.label);
+      }
+    }
+    return labels;
+  }
+
+  static ({String label, int start, int end})? _mealSlotForLabel(String label) {
+    for (final slot in _mealSlots) {
+      if (slot.label == label) return slot;
+    }
+    return null;
+  }
+
+  static String? _pendingMealLabel(
+    int currentMinute,
+    int endMinute,
+    Set<String> selectedMealLabels,
+  ) {
+    for (final slot in _mealSlots) {
+      if (selectedMealLabels.contains(slot.label)) continue;
+      if (endMinute < slot.start + 30) continue;
+      if (currentMinute >= slot.start - 20 && currentMinute <= slot.end) {
+        return slot.label;
+      }
+    }
+    return null;
+  }
+
+  static const List<({String label, int start, int end})> _mealSlots = [
+    (label: 'Breakfast', start: 7 * 60, end: 10 * 60 + 30),
+    (label: 'Lunch', start: 11 * 60 + 30, end: 14 * 60),
+    (label: 'Dinner', start: 18 * 60, end: 21 * 60),
+  ];
 
   static double _mealTimeScore(Map<String, dynamic> place, int startMinutes) {
     if (!_isFoodPlace(place)) return 0.0;
@@ -2413,6 +2714,25 @@ class GeoapifyPlanner {
     final meal = _mealLabelForMinute(startMinutes);
     if (meal == null || !_isFoodPlace(place)) return null;
     return '$meal stop around ${ItinerarySchedulePlanner.formatTime(startMinutes)}';
+  }
+
+  static int _bufferMinutesFor(
+    Map<String, dynamic> place, {
+    required int travelMinutes,
+    required String pace,
+  }) {
+    final isMeal = _isFoodPlace(place);
+    if (pace == 'Relaxed') {
+      if (travelMinutes >= 30) return 15;
+      return isMeal ? 10 : 8;
+    }
+    if (pace == 'Fast' || pace == 'Packed') {
+      if (travelMinutes >= 35) return 8;
+      return isMeal ? 5 : 0;
+    }
+    if (travelMinutes >= 30) return 10;
+    if (travelMinutes >= 18) return 5;
+    return isMeal ? 5 : 0;
   }
 
   static double _timeOfDayScore(Map<String, dynamic> place, int startMinutes) {
@@ -2479,11 +2799,86 @@ class GeoapifyPlanner {
     }
   }
 
+  static bool _isOutdoorPlace(Map<String, dynamic> place) {
+    final category = '${place['category'] ?? ''}'.toLowerCase();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((tag) => tag.toLowerCase()).toList();
+    final terms = <String>[category, name, desc, ...tags];
+
+    return terms.any(
+      (term) =>
+          term.contains('nature') ||
+          term.contains('park') ||
+          term.contains('garden') ||
+          term.contains('beach') ||
+          term.contains('viewpoint') ||
+          term.contains('trail') ||
+          term.contains('hill') ||
+          term.contains('waterfront') ||
+          term.contains('outdoor') ||
+          term.contains('street art') ||
+          term.contains('walking'),
+    );
+  }
+
+  static bool _isIndoorFriendlyPlace(Map<String, dynamic> place) {
+    final category = '${place['category'] ?? ''}'.toLowerCase();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((tag) => tag.toLowerCase()).toList();
+    final terms = <String>[category, name, desc, ...tags];
+
+    return terms.any(
+      (term) =>
+          term.contains('museum') ||
+          term.contains('gallery') ||
+          term.contains('mansion') ||
+          term.contains('cafe') ||
+          term.contains('restaurant') ||
+          term.contains('food court') ||
+          term.contains('mall') ||
+          term.contains('market') ||
+          term.contains('covered') ||
+          term.contains('indoor') ||
+          term.contains('heritage house') ||
+          term.contains('temple'),
+    );
+  }
+
+  static double _weatherScore(
+    Map<String, dynamic> place, {
+    required String weatherSeverity,
+    required bool isRainy,
+  }) {
+    final isOutdoor = _isOutdoorPlace(place);
+    final indoorFriendly = _isIndoorFriendlyPlace(place);
+
+    return switch (weatherSeverity) {
+      'thunderstorm' ||
+      'heavy_rain' => isOutdoor ? -0.75 : (indoorFriendly ? 0.40 : 0.12),
+      'moderate_rain' => isOutdoor ? -0.30 : (indoorFriendly ? 0.20 : 0.06),
+      'light_showers' => isOutdoor ? -0.08 : (indoorFriendly ? 0.10 : 0.03),
+      'hot' => isOutdoor ? -0.10 : (indoorFriendly ? 0.08 : 0.02),
+      'cloudy' => isOutdoor ? 0.24 : (indoorFriendly ? 0.04 : 0.0),
+      'fair' => isOutdoor ? 0.28 : (indoorFriendly ? 0.02 : 0.0),
+      _ =>
+        isRainy
+            ? (isOutdoor ? -0.18 : (indoorFriendly ? 0.14 : 0.04))
+            : (isOutdoor ? 0.22 : 0.0),
+    };
+  }
+
   static double _rank(
     Map<String, dynamic> place, {
     String? userBudget,
     int? preferredStartMinutes,
     bool isRainy = false,
+    String weatherSeverity = 'fair',
   }) {
     final score = (place['score'] as num?)?.toDouble() ?? 0;
     final reviewCount = (place['inAppReviewCount'] as num?)?.toDouble() ?? 0;
@@ -2536,15 +2931,11 @@ class GeoapifyPlanner {
         ? 0.30
         : 0.0;
 
-    // Weather & Rain adaptation: prioritize covered indoor cultural venues during rain
-    final category = '${place['category'] ?? ''}'.toLowerCase();
-    final isOutdoor = category.contains('nature') ||
-        category.contains('park') ||
-        category.contains('beach') ||
-        category.contains('viewpoint');
-    final weatherBonus = isRainy
-        ? (isOutdoor ? -0.85 : 0.45)
-        : (isOutdoor ? 0.25 : 0.0);
+    final weatherBonus = _weatherScore(
+      place,
+      weatherSeverity: weatherSeverity,
+      isRainy: isRainy,
+    );
 
     return (score / 5) * 0.48 +
         min(reviewCount / 10, 1.0) * 0.18 +
@@ -3330,13 +3721,26 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   final selectedInterests = <String>{'Heritage'};
   DateTime tripStartDate = DateTime.now().add(const Duration(days: 1));
   DateTime tripEndDate = DateTime.now().add(const Duration(days: 1));
-  int get tripDays => max(1, tripEndDate.difference(DateTime(tripStartDate.year, tripStartDate.month, tripStartDate.day)).inDays + 1);
+  int get tripDays => max(
+    1,
+    tripEndDate
+            .difference(
+              DateTime(
+                tripStartDate.year,
+                tripStartDate.month,
+                tripStartDate.day,
+              ),
+            )
+            .inDays +
+        1,
+  );
   int selectedDayIndex = 0;
   List<PlannerDaySchedule> generatedDays = [];
   TimeOfDay startTime = const TimeOfDay(hour: 9, minute: 0);
   double availableHours = 4;
   String budgetLevel = 'Medium';
   String pace = 'Balanced';
+  bool foodExplorationEnabled = false;
   bool loading = false;
   int totalEstimatedMinutes = 0;
   int remainingMinutes = 0;
@@ -3391,6 +3795,11 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         if (['Relaxed', 'Balanced', 'Fast', 'Packed'].contains(savedPace)) {
           pace = savedPace == 'Packed' ? 'Fast' : savedPace;
         }
+        final plannerPrefs = profile['lastPlannerPreferences'];
+        if (plannerPrefs is Map) {
+          foodExplorationEnabled =
+              plannerPrefs['foodExplorationEnabled'] == true;
+        }
       });
     } catch (_) {
       // Existing defaults remain available when the profile is unavailable.
@@ -3424,6 +3833,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         preferredStartMinutes: preferredStartMinutes,
         startDate: tripStartDate,
         dayCount: tripDays,
+        foodExplorationEnabled: foodExplorationEnabled,
       );
 
       ItineraryImageResolver.clearCache();
@@ -3487,6 +3897,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             'budgetLevel': budgetLevel,
             'travelPace': pace,
             'startMinutes': preferredStartMinutes,
+            'foodExplorationEnabled': foodExplorationEnabled,
             'tripStartDate': Timestamp.fromDate(tripStartDate),
             'placeSource': 'Registered MyHeritage vendors and verified places',
           },
@@ -3523,7 +3934,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   }
 
   ItineraryScheduleResult _currentSchedule() {
-    final currentStops = generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length
+    final currentStops =
+        generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length
         ? generatedDays[selectedDayIndex].places
         : results;
     return ItinerarySchedulePlanner.plan(
@@ -3538,7 +3950,11 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     if (results.isEmpty && generatedDays.isEmpty) return;
     final uid = AppServices.auth.currentUser?.uid;
     if (uid == null) {
-      showMessage(context, 'Please sign in to save your itinerary.', error: true);
+      showMessage(
+        context,
+        'Please sign in to save your itinerary.',
+        error: true,
+      );
       return;
     }
 
@@ -3597,6 +4013,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                 'formattedAddress': data['formattedAddress'],
                 'durationMinutes': data['durationMinutes'] ?? 60,
                 'travelMinutesBefore': data['travelMinutesBefore'] ?? 0,
+                'routeDistanceMetersBefore': data['routeDistanceMetersBefore'],
+                'bufferMinutesAfter': data['bufferMinutesAfter'] ?? 0,
+                'mealRole': data['mealRole'],
+                'scheduleType': data['scheduleType'],
+                'optionalFoodExperience':
+                    data['optionalFoodExperience'] == true,
                 'budgetLevel': data['budgetLevel'],
                 'cuisine': data['cuisine'],
                 'diet': data['diet'],
@@ -3679,6 +4101,11 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               'formattedAddress': data['formattedAddress'],
               'durationMinutes': data['durationMinutes'] ?? 60,
               'travelMinutesBefore': data['travelMinutesBefore'] ?? 0,
+              'routeDistanceMetersBefore': data['routeDistanceMetersBefore'],
+              'bufferMinutesAfter': data['bufferMinutesAfter'] ?? 0,
+              'mealRole': data['mealRole'],
+              'scheduleType': data['scheduleType'],
+              'optionalFoodExperience': data['optionalFoodExperience'] == true,
               'budgetLevel': data['budgetLevel'],
               'cuisine': data['cuisine'],
               'diet': data['diet'],
@@ -3718,7 +4145,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         });
       }
 
-      final tripArea = area.text.trim().isEmpty ? activeHub.name : area.text.trim();
+      final tripArea = area.text.trim().isEmpty
+          ? activeHub.name
+          : area.text.trim();
       final tripTitle = tripDays > 1
           ? '$tripArea $tripDays-Day Tour'
           : '$tripArea Cultural Day';
@@ -3765,7 +4194,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Itinerary saved with trip notifications enabled!'),
+            content: const Text(
+              'Itinerary saved with trip notifications enabled!',
+            ),
             backgroundColor: ExplorerColors.navy,
             action: SnackBarAction(
               label: 'View',
@@ -3826,7 +4257,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     if (fullAddress.isEmpty) return area.text.trim();
     final parts = fullAddress.split(',');
     if (parts.length >= 2) {
-      final town = parts[parts.length - 2].replaceAll(RegExp(r'\d+'), '').trim();
+      final town = parts[parts.length - 2]
+          .replaceAll(RegExp(r'\d+'), '')
+          .trim();
       if (town.isNotEmpty && town.length < 24) return town;
     }
     return parts.first.trim();
@@ -3836,6 +4269,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   Widget build(BuildContext context) {
     final schedule = _currentSchedule();
     final scheduledResults = schedule.stops;
+    final mainScheduleResults = scheduledResults
+        .where((place) => place['optionalFoodExperience'] != true)
+        .toList();
+    final optionalFoodResults = scheduledResults
+        .where((place) => place['optionalFoodExperience'] == true)
+        .toList();
     final displayTotalMinutes = schedule.totalEstimatedMinutes;
     final displayRemainingMinutes = schedule.remainingMinutes;
 
@@ -3932,7 +4371,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       shrinkWrap: true,
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       itemCount: suggestions.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1, color: ExplorerColors.goldSoft),
+                      separatorBuilder: (_, __) => const Divider(
+                        height: 1,
+                        color: ExplorerColors.goldSoft,
+                      ),
                       itemBuilder: (context, index) {
                         final sub = suggestions[index];
                         return ListTile(
@@ -3980,15 +4422,21 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: activeHub.subAreas.map((sub) {
-                      final isSelected = area.text.toLowerCase().contains(sub.name.toLowerCase());
+                      final isSelected = area.text.toLowerCase().contains(
+                        sub.name.toLowerCase(),
+                      );
                       return Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: ChoiceChip(
                           label: Text(sub.name),
                           labelStyle: TextStyle(
                             fontSize: 11,
-                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            color: isSelected ? Colors.white : ExplorerColors.navy,
+                            fontWeight: isSelected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: isSelected
+                                ? Colors.white
+                                : ExplorerColors.navy,
                           ),
                           selected: isSelected,
                           selectedColor: ExplorerColors.navy,
@@ -4049,16 +4497,25 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                               final picked = await showDatePicker(
                                 context: context,
                                 initialDate: tripStartDate,
-                                firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                                firstDate: DateTime.now().subtract(
+                                  const Duration(days: 30),
+                                ),
+                                lastDate: DateTime.now().add(
+                                  const Duration(days: 365),
+                                ),
                               );
                               if (picked != null) {
                                 setState(() {
                                   tripStartDate = picked;
                                   if (tripEndDate.isBefore(tripStartDate)) {
                                     tripEndDate = tripStartDate;
-                                  } else if (tripEndDate.difference(tripStartDate).inDays > 4) {
-                                    tripEndDate = tripStartDate.add(const Duration(days: 4));
+                                  } else if (tripEndDate
+                                          .difference(tripStartDate)
+                                          .inDays >
+                                      4) {
+                                    tripEndDate = tripStartDate.add(
+                                      const Duration(days: 4),
+                                    );
                                   }
                                 });
                               }
@@ -4086,7 +4543,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      DateFormat('d MMM yyyy').format(tripStartDate),
+                                      DateFormat(
+                                        'd MMM yyyy',
+                                      ).format(tripStartDate),
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: ExplorerColors.navy,
@@ -4120,9 +4579,13 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             onTap: () async {
                               final picked = await showDatePicker(
                                 context: context,
-                                initialDate: tripEndDate.isBefore(tripStartDate) ? tripStartDate : tripEndDate,
+                                initialDate: tripEndDate.isBefore(tripStartDate)
+                                    ? tripStartDate
+                                    : tripEndDate,
                                 firstDate: tripStartDate,
-                                lastDate: tripStartDate.add(const Duration(days: 4)),
+                                lastDate: tripStartDate.add(
+                                  const Duration(days: 4),
+                                ),
                               );
                               if (picked != null) {
                                 setState(() => tripEndDate = picked);
@@ -4151,7 +4614,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      DateFormat('d MMM yyyy').format(tripEndDate),
+                                      DateFormat(
+                                        'd MMM yyyy',
+                                      ).format(tripEndDate),
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: ExplorerColors.navy,
@@ -4171,14 +4636,21 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: ExplorerColors.navySoft,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline, size: 14, color: ExplorerColors.navy),
+                      const Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: ExplorerColors.navy,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Total Duration: $tripDays ${tripDays > 1 ? "Days" : "Day"} (${DateFormat("d MMM").format(tripStartDate)} - ${DateFormat("d MMM yyyy").format(tripEndDate)})',
@@ -4379,12 +4851,40 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                                 selectedInterests.add(item);
                               } else {
                                 selectedInterests.remove(item);
+                                if (item == 'Food') {
+                                  foodExplorationEnabled = false;
+                                }
                               }
                             });
                           },
                         );
                       }).toList(),
                 ),
+                if (selectedInterests.contains('Food')) ...[
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    value: foodExplorationEnabled,
+                    onChanged: (value) =>
+                        setState(() => foodExplorationEnabled = value),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    dense: true,
+                    title: const Text(
+                      'Explore local food',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Add optional dessert, tea or snack stops outside main meals.',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Row(
                   children: [
@@ -4521,16 +5021,21 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             const SizedBox(height: 10),
           ],
           if (scheduledResults.isNotEmpty) ...[
-            if (generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length) ...[
+            if (generatedDays.isNotEmpty &&
+                selectedDayIndex < generatedDays.length) ...[
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                  color:
+                      (generatedDays[selectedDayIndex].weather['isRainy'] ==
+                          true)
                       ? const Color(0xFFEBF3FC)
                       : const Color(0xFFFFF9EB),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                    color:
+                        (generatedDays[selectedDayIndex].weather['isRainy'] ==
+                            true)
                         ? const Color(0xFFB9D7F6)
                         : const Color(0xFFFFE299),
                   ),
@@ -4539,10 +5044,13 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
-                      (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                      (generatedDays[selectedDayIndex].weather['isRainy'] ==
+                              true)
                           ? Icons.beach_access_outlined
                           : Icons.wb_sunny_outlined,
-                      color: (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                      color:
+                          (generatedDays[selectedDayIndex].weather['isRainy'] ==
+                              true)
                           ? const Color(0xFF1976D2)
                           : const Color(0xFFF57C00),
                       size: 24,
@@ -4557,7 +5065,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
-                              color: (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                              color:
+                                  (generatedDays[selectedDayIndex]
+                                          .weather['isRainy'] ==
+                                      true)
                                   ? const Color(0xFF0D47A1)
                                   : const Color(0xFFE65100),
                             ),
@@ -4567,7 +5078,10 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             '${generatedDays[selectedDayIndex].weather['advice'] ?? ''}',
                             style: TextStyle(
                               fontSize: 11,
-                              color: (generatedDays[selectedDayIndex].weather['isRainy'] == true)
+                              color:
+                                  (generatedDays[selectedDayIndex]
+                                          .weather['isRainy'] ==
+                                      true)
                                   ? const Color(0xFF1565C0)
                                   : const Color(0xFFBF360C),
                             ),
@@ -4582,8 +5096,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             ] else ...[
               PlannerWeatherCard(
                 area: activeHub.name,
-                latitude: activeHub.subAreas.isNotEmpty ? activeHub.subAreas.first.latitude : 5.4164,
-                longitude: activeHub.subAreas.isNotEmpty ? activeHub.subAreas.first.longitude : 100.3327,
+                latitude: activeHub.subAreas.isNotEmpty
+                    ? activeHub.subAreas.first.latitude
+                    : 5.4164,
+                longitude: activeHub.subAreas.isNotEmpty
+                    ? activeHub.subAreas.first.longitude
+                    : 100.3327,
               ),
               const SizedBox(height: 10),
             ],
@@ -4609,12 +5127,33 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               ),
             )
           else ...[
-            ...scheduledResults.asMap().entries.map(
+            const ExplorerSectionTitle(
+              'Main Schedule',
+              subtitle:
+                  'Meals, travel time, attraction visits and buffer time.',
+            ),
+            const SizedBox(height: 10),
+            ...mainScheduleResults.asMap().entries.map(
               (entry) => Padding(
                 padding: const EdgeInsets.only(bottom: 11),
                 child: _placeCard(context, entry.value, entry.key + 1),
               ),
             ),
+            if (optionalFoodResults.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              const ExplorerSectionTitle(
+                'Optional Food Exploration',
+                subtitle:
+                    'Extra local food stops shown because food exploration is enabled.',
+              ),
+              const SizedBox(height: 10),
+              ...optionalFoodResults.asMap().entries.map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 11),
+                  child: _placeCard(context, entry.value, entry.key + 1),
+                ),
+              ),
+            ],
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 14),
               child: Column(
@@ -4640,10 +5179,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   const SizedBox(height: 8),
                   const Text(
                     'Save to your account to track cultural tasks and earn explorer points.',
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 10,
-                    ),
+                    style: TextStyle(color: ExplorerColors.muted, fontSize: 10),
                   ),
                 ],
               ),
@@ -4668,8 +5204,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     );
     final timeLabel = '${data['suggestedTimeLabel'] ?? ''}'.trim();
     final mealSuggestion = '${data['mealSuggestionLabel'] ?? ''}'.trim();
-    final formattedAddress =
-        '${data['formattedAddress'] ?? data['area'] ?? ''}'.trim();
+    final bufferMinutes = (data['bufferMinutesAfter'] as num?)?.round() ?? 0;
+    final formattedAddress = '${data['formattedAddress'] ?? data['area'] ?? ''}'
+        .trim();
     final shortArea = _extractShortArea(formattedAddress);
 
     return ExplorerCard(
@@ -4831,19 +5368,25 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                         Icons.directions_walk_outlined,
                         '${data['travelMinutesBefore']} min travel',
                       ),
+                    if (bufferMinutes > 0)
+                      _meta(
+                        Icons.more_time_outlined,
+                        '$bufferMinutes min buffer',
+                      ),
                     _meta(
                       Icons.payments_outlined,
                       '${data['budgetLevel'] ?? 'Low'} budget',
                     ),
-                    _meta(
-                      Icons.star_rounded,
-                      () {
-                        final raw = ((data['score'] as num?) ?? (data['rating'] as num?) ?? 0).toDouble();
-                        final s = raw > 0 ? raw : 4.8;
-                        final count = (data['inAppReviewCount'] as num? ?? 0);
-                        return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
-                      }(),
-                    ),
+                    _meta(Icons.star_rounded, () {
+                      final raw =
+                          ((data['score'] as num?) ??
+                                  (data['rating'] as num?) ??
+                                  0)
+                              .toDouble();
+                      final s = raw > 0 ? raw : 4.8;
+                      final count = (data['inAppReviewCount'] as num? ?? 0);
+                      return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
+                    }()),
                   ],
                 ),
                 if (formattedAddress.isNotEmpty) ...[
@@ -5014,14 +5557,17 @@ class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
       final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
         'latitude': lat.toString(),
         'longitude': lng.toString(),
-        'current': 'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m',
+        'current':
+            'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m',
         'forecast_days': '1',
         'timezone': 'auto',
       });
       final response = await http.get(uri).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
-        final current = Map<String, dynamic>.from(json['current'] as Map? ?? {});
+        final current = Map<String, dynamic>.from(
+          json['current'] as Map? ?? {},
+        );
         final temp = (current['temperature_2m'] as num?)?.round() ?? 30;
         final code = (current['weather_code'] as num?)?.toInt() ?? 0;
         final rain = (current['precipitation'] as num?)?.toDouble() ?? 0.0;
@@ -5033,22 +5579,26 @@ class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
 
         if (code >= 95 || rain > 5) {
           cond = 'Thunderstorms Forecast';
-          advice = 'Heavy rain possible. Prioritize indoor heritage museums, craft galleries & covered food courts.';
+          advice =
+              'Heavy rain possible. Prioritize indoor heritage museums, craft galleries & covered food courts.';
           ic = Icons.thunderstorm_outlined;
           color = Colors.deepPurple;
         } else if (code >= 51 || rain > 0) {
           cond = 'Scattered Showers';
-          advice = 'Rain showers expected. Carry an umbrella and schedule outdoor photo walks between showers.';
+          advice =
+              'Rain showers expected. Carry an umbrella and schedule outdoor photo walks between showers.';
           ic = Icons.beach_access_outlined;
           color = Colors.blue;
         } else if (code >= 1 && code <= 3) {
           cond = 'Partly Cloudy';
-          advice = 'Pleasant weather for cultural walks, street art viewing & heritage trail exploration.';
+          advice =
+              'Pleasant weather for cultural walks, street art viewing & heritage trail exploration.';
           ic = Icons.cloud_outlined;
           color = ExplorerColors.navy;
         } else {
           cond = 'Sunny & Warm';
-          advice = 'Bright skies. Stay hydrated, use sun protection, and enjoy outdoor sights & beaches.';
+          advice =
+              'Bright skies. Stay hydrated, use sun protection, and enjoy outdoor sights & beaches.';
           ic = Icons.wb_sunny_outlined;
           color = Colors.orange;
         }
@@ -5072,7 +5622,8 @@ class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
         loading = false;
         temperature = '30°C';
         condition = 'Tropical Fair';
-        tip = 'Warm tropical weather. Stay hydrated and carry an umbrella for sudden afternoon tropical rain.';
+        tip =
+            'Warm tropical weather. Stay hydrated and carry an umbrella for sudden afternoon tropical rain.';
         icon = Icons.wb_sunny_outlined;
         iconColor = Colors.orange;
       });
@@ -5091,9 +5642,16 @@ class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
         ),
         child: const Row(
           children: [
-            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
             SizedBox(width: 10),
-            Text('Checking local weather & travel advice...', style: TextStyle(fontSize: 11, color: ExplorerColors.muted)),
+            Text(
+              'Checking local weather & travel advice...',
+              style: TextStyle(fontSize: 11, color: ExplorerColors.muted),
+            ),
           ],
         ),
       );
@@ -5126,13 +5684,26 @@ class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
               InkWell(
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const WeatherReminderPage()),
+                  MaterialPageRoute(
+                    builder: (_) => const WeatherReminderPage(),
+                  ),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Forecast', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: ExplorerColors.goldDark)),
-                    Icon(Icons.chevron_right, size: 14, color: ExplorerColors.goldDark),
+                    Text(
+                      'Forecast',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: ExplorerColors.goldDark,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 14,
+                      color: ExplorerColors.goldDark,
+                    ),
                   ],
                 ),
               ),
