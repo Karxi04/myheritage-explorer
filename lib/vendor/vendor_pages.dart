@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -14,6 +14,6 @@ part 'dashboard/vendor_dashboard_page.dart';
 part 'vouchers/vendor_vouchers_page.dart';
 part 'vouchers/voucher_editor_page.dart';
 part 'redemption/vendor_qr_scanner_page.dart';
+part 'history/vendor_voucher_history_page.dart';
 part 'analytics/vendor_analytics_page.dart';
 part 'profile/vendor_profile_page.dart';
-

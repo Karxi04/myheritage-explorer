@@ -151,9 +151,11 @@ class VoucherDetailPage extends StatelessWidget {
                           .where((doc) => doc.data()['voucherId'] == voucherId)
                           .length ??
                       0;
-                  final claimLimit =
-                      ((voucher['perTouristClaimLimit'] as num?)?.toInt() ?? 1)
-                          .clamp(1, 10);
+                  final rawClaimLimit =
+                      (voucher['perTouristClaimLimit'] as num?)?.toInt() ?? 0;
+                  final int? claimLimit = rawClaimLimit > 0
+                      ? rawClaimLimit
+                      : null;
                   final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
                   final inventory =
                       (voucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
@@ -169,7 +171,7 @@ class VoucherDetailPage extends StatelessWidget {
                       inventory > 0 &&
                       cost > 0 &&
                       points >= cost &&
-                      claimedCount < claimLimit;
+                      (claimLimit == null || claimedCount < claimLimit);
                   final location = voucher['location'];
 
                   return ListView(
@@ -261,7 +263,11 @@ class VoucherDetailPage extends StatelessWidget {
                               ListTile(
                                 leading: const Icon(Icons.person_outline),
                                 title: const Text('Your claim allowance'),
-                                trailing: Text('$claimedCount / $claimLimit'),
+                                trailing: Text(
+                                  claimLimit == null
+                                      ? 'Unlimited ($claimedCount claimed)'
+                                      : '$claimedCount / $claimLimit',
+                                ),
                               ),
                               if (startsAt != null)
                                 ListTile(
@@ -297,7 +303,8 @@ class VoucherDetailPage extends StatelessWidget {
                                 ? 'Voucher expired'
                                 : inventory <= 0
                                 ? 'Fully claimed'
-                                : claimedCount >= claimLimit
+                                : claimLimit != null &&
+                                      claimedCount >= claimLimit
                                 ? 'Claim limit reached'
                                 : points < cost
                                 ? 'Need ${cost - points} more points'

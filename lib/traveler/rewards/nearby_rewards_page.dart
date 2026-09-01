@@ -111,9 +111,11 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
     required int points,
     required int cost,
     required int claimedCount,
-    required int claimLimit,
+    required int? claimLimit,
   }) {
-    if (claimedCount >= claimLimit) return 'Claim limit reached';
+    if (claimLimit != null && claimedCount >= claimLimit) {
+      return 'Claim limit reached';
+    }
     if (cost <= 0) return 'Voucher unavailable';
     if (points < cost) {
       return 'Need ${cost - points} more points';
@@ -198,11 +200,13 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
               final voucher = item.doc.data();
               final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
               final claimedCount = claimedCounts[item.doc.id] ?? 0;
-              final claimLimit =
-                  ((voucher['perTouristClaimLimit'] as num?)?.toInt() ?? 1)
-                      .clamp(1, 10);
+              final rawClaimLimit =
+                  (voucher['perTouristClaimLimit'] as num?)?.toInt() ?? 0;
+              final int? claimLimit = rawClaimLimit > 0 ? rawClaimLimit : null;
               final canClaim =
-                  claimedCount < claimLimit && points >= cost && cost > 0;
+                  (claimLimit == null || claimedCount < claimLimit) &&
+                  points >= cost &&
+                  cost > 0;
 
               return Card(
                 child: Padding(

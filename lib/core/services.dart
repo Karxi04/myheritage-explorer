@@ -36,10 +36,29 @@ class VoucherClaimReceipt {
   final DateTime? expiresAt;
 }
 
+class VoucherRedemptionSession {
+  const VoucherRedemptionSession({
+    required this.claimId,
+    required this.token,
+    required this.pin,
+    required this.expiresAt,
+  });
+
+  final String claimId;
+  final String token;
+  final String pin;
+  final DateTime expiresAt;
+
+  String get qrPayload => 'MHE1|$claimId|$token';
+}
+
 class AppServices {
+  static const redemptionSessionDuration = Duration(minutes: 3);
   static final auth = FirebaseAuth.instance;
   static final db = FirebaseFirestore.instance;
   static final storage = FirebaseStorage.instance;
+  static final Map<String, DateTime> _nearbyRewardAlertTimes =
+      <String, DateTime>{};
 
   static DocumentReference<Map<String, dynamic>> adminRef(String uid) =>
       db.collection('admins').doc(uid);
@@ -744,23 +763,9 @@ class AppServices {
       final currentPoints = (traveler['points'] as num?)?.toInt() ?? 0;
       final inventory =
           (currentVoucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
-      final claimLimit =
-          ((currentVoucher['perTouristClaimLimit'] as num?)?.toInt() ?? 1)
-              .clamp(1, 10);
-      final claimSlots = <DocumentReference<Map<String, dynamic>>>[
-        legacyClaimRef,
-        for (var sequence = 2; sequence <= claimLimit; sequence++)
-          db
-              .collection('claimed_vouchers')
-              .doc('${uid}_${voucherId}_$sequence'),
-      ];
-      final claimSlotSnapshots = <DocumentSnapshot<Map<String, dynamic>>>[];
-      for (final slot in claimSlots) {
-        claimSlotSnapshots.add(await transaction.get(slot));
-      }
-      final currentClaimCount = claimSlotSnapshots
-          .where((snapshot) => snapshot.exists)
-          .length;
+      final rawClaimLimit =
+          (currentVoucher['perTouristClaimLimit'] as num?)?.toInt() ?? 0;
+      final int? claimLimit = rawClaimLimit > 0 ? rawClaimLimit : null;
 
       if (cost <= 0) {
         throw Exception(
@@ -790,18 +795,31 @@ class AppServices {
       if (inventory <= 0) {
         throw Exception('This reward is fully claimed.');
       }
-      if (currentClaimCount >= claimLimit) {
-        throw Exception(
-          claimLimit == 1
-              ? 'You already claimed this voucher.'
-              : 'You have reached the limit of $claimLimit claims for this voucher.',
-        );
-      }
+      var claimSequence = 1;
+      while (true) {
+        if (claimLimit != null && claimSequence > claimLimit) {
+          throw Exception(
+            claimLimit == 1
+                ? 'You already claimed this voucher.'
+                : 'You have reached the limit of $claimLimit claims for this voucher.',
+          );
+        }
+        if (claimSequence > 10000) {
+          throw Exception('Unable to allocate another voucher claim.');
+        }
 
-      final availableSlotIndex = claimSlotSnapshots.indexWhere(
-        (snapshot) => !snapshot.exists,
-      );
-      claimRef = claimSlots[availableSlotIndex];
+        final slot = claimSequence == 1
+            ? legacyClaimRef
+            : db
+                  .collection('claimed_vouchers')
+                  .doc('${uid}_${voucherId}_$claimSequence');
+        final slotSnapshot = await transaction.get(slot);
+        if (!slotSnapshot.exists) {
+          claimRef = slot;
+          break;
+        }
+        claimSequence += 1;
+      }
 
       final pointsAfterClaim = currentPoints - cost;
       claimedTitle = '${currentVoucher['title'] ?? 'Voucher'}'.trim();
@@ -845,10 +863,10 @@ class AppServices {
         'pointCost': cost,
         'pointsBeforeClaim': currentPoints,
         'pointsAfterClaim': pointsAfterClaim,
+        'travelerName':
+            '${traveler['displayName'] ?? traveler['name'] ?? signedInUser.displayName ?? 'Tourist'}',
         'interestTags': interestTags,
-        'token': randomToken(),
-        'redemptionPin': randomNumericCode(),
-        'claimSequence': currentClaimCount + 1,
+        'claimSequence': claimSequence,
         'claimLimit': claimLimit,
         'status': 'claimed',
         'claimedAt': FieldValue.serverTimestamp(),
@@ -876,6 +894,62 @@ class AppServices {
     );
   }
 
+  static Future<VoucherRedemptionSession> startRedemptionSession(
+    String claimId,
+  ) async {
+    final signedInUser = auth.currentUser;
+    if (signedInUser == null) {
+      throw Exception('Please sign in as a traveler first.');
+    }
+
+    final claimRef = db.collection('claimed_vouchers').doc(claimId);
+    final token = randomToken();
+    final pin = randomNumericCode();
+    final now = DateTime.now();
+    var sessionExpiry = now.add(redemptionSessionDuration);
+
+    await db.runTransaction((transaction) async {
+      final claimSnapshot = await transaction.get(claimRef);
+      if (!claimSnapshot.exists) {
+        throw Exception('Voucher claim was not found.');
+      }
+
+      final claim = claimSnapshot.data()!;
+      final ownerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
+      if (ownerId != signedInUser.uid) {
+        throw Exception('This voucher does not belong to your account.');
+      }
+      if (claim['status'] != 'claimed') {
+        throw Exception('Only active vouchers can create a redemption code.');
+      }
+
+      final voucherExpiry = asDate(claim['expiresAt']);
+      if (voucherExpiry != null && !voucherExpiry.isAfter(now)) {
+        throw Exception('This voucher has expired.');
+      }
+      if (voucherExpiry != null && voucherExpiry.isBefore(sessionExpiry)) {
+        sessionExpiry = voucherExpiry;
+      }
+      if (sessionExpiry.difference(now) < const Duration(seconds: 30)) {
+        throw Exception('This voucher expires too soon to start a session.');
+      }
+
+      transaction.update(claimRef, {
+        'redemptionSessionToken': token,
+        'redemptionSessionPin': pin,
+        'redemptionSessionCreatedAt': FieldValue.serverTimestamp(),
+        'redemptionSessionExpiresAt': Timestamp.fromDate(sessionExpiry),
+      });
+    });
+
+    return VoucherRedemptionSession(
+      claimId: claimId,
+      token: token,
+      pin: pin,
+      expiresAt: sessionExpiry,
+    );
+  }
+
   static Future<
     ({
       DocumentReference<Map<String, dynamic>> claimRef,
@@ -886,10 +960,12 @@ class AppServices {
   _resolveRedemptionCode(String rawCode, String vendorId) async {
     final code = rawCode.trim();
     final parts = code.split('|');
-    if (parts.length == 2 && parts.every((part) => part.isNotEmpty)) {
+    if (parts.length == 3 &&
+        parts.first == 'MHE1' &&
+        parts.every((part) => part.isNotEmpty)) {
       return (
-        claimRef: db.collection('claimed_vouchers').doc(parts[0]),
-        qrToken: parts[1],
+        claimRef: db.collection('claimed_vouchers').doc(parts[1]),
+        qrToken: parts[2],
         pin: null,
       );
     }
@@ -903,8 +979,11 @@ class AppServices {
         .get();
     final matchingClaims = matches.docs.where((doc) {
       final data = doc.data();
-      return '${data['redemptionPin'] ?? ''}' == code &&
-          data['status'] == 'claimed';
+      final sessionExpiry = asDate(data['redemptionSessionExpiresAt']);
+      return '${data['redemptionSessionPin'] ?? ''}' == code &&
+          data['status'] == 'claimed' &&
+          sessionExpiry != null &&
+          sessionExpiry.isAfter(DateTime.now());
     }).toList();
     if (matchingClaims.isEmpty) {
       throw Exception('Invalid or expired redemption PIN.');
@@ -919,6 +998,25 @@ class AppServices {
       qrToken: null,
       pin: code,
     );
+  }
+
+  static void _validateRedemptionSession(
+    Map<String, dynamic> claim,
+    ({String? qrToken, String? pin}) code,
+  ) {
+    final sessionExpiry = asDate(claim['redemptionSessionExpiresAt']);
+    if (sessionExpiry == null || !sessionExpiry.isAfter(DateTime.now())) {
+      throw Exception(
+        'This redemption code has expired. Ask the tourist to generate a new 3-minute code.',
+      );
+    }
+    if (code.qrToken != null &&
+        claim['redemptionSessionToken'] != code.qrToken) {
+      throw Exception('Invalid or replaced voucher QR code.');
+    }
+    if (code.pin != null && claim['redemptionSessionPin'] != code.pin) {
+      throw Exception('Invalid or replaced redemption PIN.');
+    }
   }
 
   static Future<String> redeemClaim(String rawCode, String vendorId) async {
@@ -949,12 +1047,10 @@ class AppServices {
       }
 
       final claim = claimSnapshot.data()!;
-      if (resolved.qrToken != null && claim['token'] != resolved.qrToken) {
-        throw Exception('Invalid voucher token.');
-      }
-      if (resolved.pin != null && claim['redemptionPin'] != resolved.pin) {
-        throw Exception('Invalid redemption PIN.');
-      }
+      _validateRedemptionSession(claim, (
+        qrToken: resolved.qrToken,
+        pin: resolved.pin,
+      ));
       if (claim['vendorId'] != vendorId) {
         throw Exception('This voucher belongs to another vendor.');
       }
@@ -977,6 +1073,10 @@ class AppServices {
         'status': 'redeemed',
         'redeemedAt': FieldValue.serverTimestamp(),
         'redemptionMethod': resolved.pin == null ? 'qr' : 'pin',
+        'redemptionSessionToken': FieldValue.delete(),
+        'redemptionSessionPin': FieldValue.delete(),
+        'redemptionSessionExpiresAt': FieldValue.delete(),
+        'redemptionSessionUsedAt': FieldValue.serverTimestamp(),
       });
       transaction.set(redemptionRef, {
         'claimId': claimRef.id,
@@ -1028,12 +1128,10 @@ class AppServices {
     }
 
     final claim = claimSnapshot.data()!;
-    if (resolved.qrToken != null && claim['token'] != resolved.qrToken) {
-      throw Exception('Invalid voucher token.');
-    }
-    if (resolved.pin != null && claim['redemptionPin'] != resolved.pin) {
-      throw Exception('Invalid redemption PIN.');
-    }
+    _validateRedemptionSession(claim, (
+      qrToken: resolved.qrToken,
+      pin: resolved.pin,
+    ));
     if (claim['vendorId'] != vendorId) {
       throw Exception('This voucher belongs to another vendor.');
     }
@@ -1184,33 +1282,37 @@ class AppServices {
     }
 
     matches.sort((a, b) => a.distance.compareTo(b.distance));
+    try {
+      final previousNotifications = await db
+          .collection('notifications')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+      for (final notification in previousNotifications.docs) {
+        final data = notification.data();
+        if (data['type'] != 'voucher_nearby') continue;
+        final voucherId = '${data['referenceId'] ?? ''}';
+        final notifiedAt = asDate(data['createdAt']);
+        if (voucherId.isNotEmpty && notifiedAt != null) {
+          final key = '${user.uid}_$voucherId';
+          final cached = _nearbyRewardAlertTimes[key];
+          if (cached == null || notifiedAt.isAfter(cached)) {
+            _nearbyRewardAlertTimes[key] = notifiedAt;
+          }
+        }
+      }
+    } catch (_) {
+      // Local suppression below still prevents repeated alerts this session.
+    }
+
     var alertCount = 0;
     for (final match in matches.take(3)) {
       final voucher = match.doc.data();
-      final alertRef = db
-          .collection('reward_proximity_alerts')
-          .doc('${user.uid}_${match.doc.id}');
-      var shouldNotify = false;
-
-      await db.runTransaction((transaction) async {
-        shouldNotify = false;
-        final previous = await transaction.get(alertRef);
-        final lastNotifiedAt = asDate(previous.data()?['lastNotifiedAt']);
-        if (lastNotifiedAt != null &&
-            now.difference(lastNotifiedAt) < const Duration(hours: 24)) {
-          return;
-        }
-        transaction.set(alertRef, {
-          'userId': user.uid,
-          'voucherId': match.doc.id,
-          'vendorId': voucher['vendorId'],
-          'lastDistanceMeters': match.distance.round(),
-          'lastNotifiedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        shouldNotify = true;
-      });
-
-      if (!shouldNotify) continue;
+      final alertKey = '${user.uid}_${match.doc.id}';
+      final lastNotifiedAt = _nearbyRewardAlertTimes[alertKey];
+      if (lastNotifiedAt != null &&
+          now.difference(lastNotifiedAt) < const Duration(hours: 24)) {
+        continue;
+      }
       final distanceLabel = match.distance < 1000
           ? '${match.distance.round()} m away'
           : '${(match.distance / 1000).toStringAsFixed(1)} km away';
@@ -1222,6 +1324,7 @@ class AppServices {
         type: 'voucher_nearby',
         referenceId: match.doc.id,
       );
+      _nearbyRewardAlertTimes[alertKey] = now;
       alertCount += 1;
     }
     return alertCount;

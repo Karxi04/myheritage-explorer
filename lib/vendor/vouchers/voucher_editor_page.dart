@@ -16,11 +16,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
   late final TextEditingController terms;
   late final TextEditingController pointCost;
   late final TextEditingController inventory;
+  late final TextEditingController claimLimit;
   late DateTime startsAt;
   late DateTime expiry;
   GeoPoint? voucherLocation;
   double notificationRadiusMeters = 750.0;
-  int perTouristClaimLimit = 1;
+  bool unlimitedClaimsPerTourist = true;
   bool busy = false;
 
   @override
@@ -34,6 +35,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
     terms = TextEditingController(text: '${data['terms'] ?? ''}');
     pointCost = TextEditingController(text: '${data['pointCost'] ?? 200}');
     inventory = TextEditingController(text: '${data['inventoryLimit'] ?? 50}');
+    final savedClaimLimit =
+        (data['perTouristClaimLimit'] as num?)?.toInt() ?? 0;
+    unlimitedClaimsPerTourist = savedClaimLimit <= 0;
+    claimLimit = TextEditingController(
+      text: savedClaimLimit > 0 ? '$savedClaimLimit' : '1',
+    );
     startsAt =
         asDate(data['startsAt']) ??
         DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
@@ -45,8 +52,6 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         : null;
     notificationRadiusMeters =
         ((data['notificationRadiusMeters'] ?? 750.0) as num).toDouble();
-    perTouristClaimLimit =
-        ((data['perTouristClaimLimit'] as num?)?.toInt() ?? 1).clamp(1, 5);
   }
 
   DateTime _endOfDay(DateTime value) =>
@@ -55,6 +60,9 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
   Future<void> save() async {
     final cost = int.tryParse(pointCost.text);
     final limit = int.tryParse(inventory.text);
+    final selectedClaimLimit = unlimitedClaimsPerTourist
+        ? 0
+        : int.tryParse(claimLimit.text);
     final normalizedExpiry = _endOfDay(expiry);
     final normalizedStart = DateTime(
       startsAt.year,
@@ -68,6 +76,9 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         cost <= 0 ||
         limit == null ||
         limit <= 0 ||
+        selectedClaimLimit == null ||
+        selectedClaimLimit < 0 ||
+        (!unlimitedClaimsPerTourist && selectedClaimLimit == 0) ||
         !normalizedStart.isBefore(normalizedExpiry) ||
         !normalizedExpiry.isAfter(DateTime.now())) {
       showMessage(
@@ -129,7 +140,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         'pointCost': cost,
         'inventoryLimit': limit,
         'startsAt': Timestamp.fromDate(normalizedStart),
-        'perTouristClaimLimit': perTouristClaimLimit,
+        'perTouristClaimLimit': selectedClaimLimit,
         'expiresAt': Timestamp.fromDate(normalizedExpiry),
         if (voucherLocation != null) 'location': voucherLocation,
         'notificationRadiusMeters': notificationRadiusMeters,
@@ -184,6 +195,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
     terms.dispose();
     pointCost.dispose();
     inventory.dispose();
+    claimLimit.dispose();
     super.dispose();
   }
 
@@ -268,22 +280,30 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
               setState(() => notificationRadiusMeters = value ?? 750.0),
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<int>(
-          initialValue: perTouristClaimLimit,
-          decoration: const InputDecoration(
-            labelText: 'Claims allowed per tourist',
-            helperText: 'Limit how many copies one tourist can claim.',
-          ),
-          items: const [
-            DropdownMenuItem(value: 1, child: Text('1 claim')),
-            DropdownMenuItem(value: 2, child: Text('2 claims')),
-            DropdownMenuItem(value: 3, child: Text('3 claims')),
-            DropdownMenuItem(value: 4, child: Text('4 claims')),
-            DropdownMenuItem(value: 5, child: Text('5 claims')),
-          ],
+        SwitchListTile(
+          value: unlimitedClaimsPerTourist,
           onChanged: (value) =>
-              setState(() => perTouristClaimLimit = value ?? 1),
+              setState(() => unlimitedClaimsPerTourist = value),
+          title: const Text('Unlimited claims per tourist'),
+          subtitle: const Text(
+            'The voucher inventory still limits the total number available.',
+          ),
+          tileColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
+        if (!unlimitedClaimsPerTourist) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: claimLimit,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Claims allowed per tourist',
+              helperText: 'Enter any whole number greater than zero.',
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         ListTile(
           tileColor: Colors.white,

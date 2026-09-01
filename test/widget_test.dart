@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:myheritage_explorer/core/helpers.dart';
+import 'package:myheritage_explorer/core/services.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
 
 void main() {
@@ -29,6 +30,19 @@ void main() {
       stableNotificationId('claim-123', 3),
       isNot(stableNotificationId('claim-123', 1)),
     );
+  });
+
+  test('voucher redemption sessions use a versioned QR and short expiry', () {
+    final session = VoucherRedemptionSession(
+      claimId: 'claim-123',
+      token: 'temporary-token',
+      pin: '123456',
+      expiresAt: DateTime(2026, 9, 2, 12, 3),
+    );
+
+    expect(session.qrPayload, 'MHE1|claim-123|temporary-token');
+    expect(AppServices.redemptionSessionDuration, const Duration(minutes: 3));
+    expect(session.pin, matches(RegExp(r'^\d{6}$')));
   });
 
   test('review model flags negative text with a high star rating', () {

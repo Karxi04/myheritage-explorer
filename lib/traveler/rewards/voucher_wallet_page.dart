@@ -9,12 +9,51 @@ class VoucherWalletPage extends StatefulWidget {
 
 class _VoucherWalletPageState extends State<VoucherWalletPage> {
   String filter = 'All';
-  final Set<String> revealedQrCodes = <String>{};
+  final Set<String> startingSessions = <String>{};
+  Timer? sessionTicker;
 
   @override
   void initState() {
     super.initState();
     unawaited(AppServices.syncVoucherExpiryReminders());
+    sessionTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    sessionTicker?.cancel();
+    super.dispose();
+  }
+
+  String _sessionCountdown(DateTime expiry) {
+    final remaining = expiry.difference(DateTime.now());
+    if (remaining <= Duration.zero) return 'Code expired';
+    final minutes = remaining.inMinutes;
+    final seconds = remaining.inSeconds.remainder(60);
+    return 'Code expires in $minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _startRedemptionSession(String claimId) async {
+    if (startingSessions.contains(claimId)) return;
+    setState(() => startingSessions.add(claimId));
+    try {
+      await AppServices.startRedemptionSession(claimId);
+      if (mounted) {
+        showMessage(context, 'A new QR code and PIN are active for 3 minutes.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => startingSessions.remove(claimId));
+    }
   }
 
   String _displayStatus(Map<String, dynamic> claim) {
@@ -191,10 +230,20 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                 final claimedAt = asDate(claim['claimedAt']);
                 final redeemedAt = asDate(claim['redeemedAt']);
                 final expiry = asDate(claim['expiresAt']);
-                final token = '${claim['token'] ?? ''}'.trim();
-                final redemptionPin = '${claim['redemptionPin'] ?? ''}'.trim();
-                final canDisplayQr = status == 'Active' && token.isNotEmpty;
-                final qrRevealed = revealedQrCodes.contains(doc.id);
+                final sessionToken = '${claim['redemptionSessionToken'] ?? ''}'
+                    .trim();
+                final sessionPin = '${claim['redemptionSessionPin'] ?? ''}'
+                    .trim();
+                final sessionExpiry = asDate(
+                  claim['redemptionSessionExpiresAt'],
+                );
+                final sessionActive =
+                    status == 'Active' &&
+                    sessionToken.isNotEmpty &&
+                    sessionPin.isNotEmpty &&
+                    sessionExpiry != null &&
+                    sessionExpiry.isAfter(DateTime.now());
+                final startingSession = startingSessions.contains(doc.id);
                 final vendorAddress = '${claim['vendorAddress'] ?? ''}'.trim();
                 final location = claim['location'];
                 final locationLabel = vendorAddress.isNotEmpty
@@ -254,50 +303,69 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        if (canDisplayQr && !qrRevealed)
+                        if (status == 'Active' && !sessionActive)
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: () =>
-                                  setState(() => revealedQrCodes.add(doc.id)),
-                              icon: const Icon(Icons.qr_code_2),
-                              label: const Text('Redeem Voucher'),
+                              onPressed: startingSession
+                                  ? null
+                                  : () => _startRedemptionSession(doc.id),
+                              icon: startingSession
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.qr_code_2),
+                              label: Text(
+                                sessionExpiry != null
+                                    ? 'Generate New 3-Minute Code'
+                                    : 'Generate 3-Minute Redemption Code',
+                              ),
                             ),
                           )
-                        else if (canDisplayQr) ...[
+                        else if (sessionActive) ...[
                           const Center(
                             child: Text(
-                              'Show this QR code to the vendor.',
+                              'Show this temporary code to the vendor.',
                               style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Center(
+                            child: ExplorerStatusBadge(
+                              label: _sessionCountdown(sessionExpiry),
+                              tone: ExplorerStatusTone.danger,
+                              icon: Icons.timer_outlined,
                             ),
                           ),
                           const SizedBox(height: 10),
                           Center(
                             child: QrImageView(
-                              data: '${doc.id}|$token',
+                              data: 'MHE1|${doc.id}|$sessionToken',
                               size: 220,
                             ),
                           ),
-                          if (redemptionPin.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            const Center(
-                              child: Text(
-                                'Scanner not working? Give the vendor this PIN:',
-                                textAlign: TextAlign.center,
+                          const SizedBox(height: 12),
+                          const Center(
+                            child: Text(
+                              'Scanner not working? Give the vendor this PIN:',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Center(
+                            child: SelectableText(
+                              sessionPin,
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 6,
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Center(
-                              child: SelectableText(
-                                redemptionPin,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 6,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ] else
                           Center(
                             child: Text(

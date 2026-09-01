@@ -21,14 +21,19 @@ class _RewardsPageState extends State<RewardsPage> {
   String category = 'All';
   String sortMode = 'Recommended';
   bool favouritesOnly = false;
+  bool nearbyOnly = false;
+  bool loadingLocation = false;
+  Position? cataloguePosition;
 
   String _claimLabel({
     required int points,
     required int cost,
     required int claimedCount,
-    required int claimLimit,
+    required int? claimLimit,
   }) {
-    if (claimedCount >= claimLimit) return 'Claim limit reached';
+    if (claimLimit != null && claimedCount >= claimLimit) {
+      return 'Claim limit reached';
+    }
     if (cost <= 0) return 'Voucher unavailable';
     if (points < cost) return 'Need ${cost - points} more points';
     return 'Claim for $cost points';
@@ -45,6 +50,56 @@ class _RewardsPageState extends State<RewardsPage> {
       voucher['terms'],
     ].map((value) => '${value ?? ''}'.toLowerCase()).join(' ');
     return searchable.contains(query);
+  }
+
+  double? _distanceTo(Map<String, dynamic> voucher) {
+    final position = cataloguePosition;
+    final location = voucher['location'];
+    if (position == null || location is! GeoPoint) return null;
+    return Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      location.latitude,
+      location.longitude,
+    );
+  }
+
+  Future<bool> _loadCataloguePosition() async {
+    if (cataloguePosition != null) return true;
+    if (loadingLocation) return false;
+    setState(() => loadingLocation = true);
+    try {
+      final position = await determinePosition();
+      if (!mounted) return false;
+      setState(() => cataloguePosition = position);
+      return true;
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => loadingLocation = false);
+    }
+  }
+
+  Future<void> _setNearbyOnly(bool selected) async {
+    if (!selected) {
+      setState(() => nearbyOnly = false);
+      return;
+    }
+    if (await _loadCataloguePosition() && mounted) {
+      setState(() => nearbyOnly = true);
+    }
+  }
+
+  Future<void> _setSortMode(String value) async {
+    if (value == 'Nearest' && !await _loadCataloguePosition()) return;
+    if (mounted) setState(() => sortMode = value);
   }
 
   Future<void> _confirmClaim(
@@ -219,8 +274,16 @@ class _RewardsPageState extends State<RewardsPage> {
                       '${voucher['vendorCategory'] ?? ''}' == category;
                   final matchesFavourite =
                       !favouritesOnly || favouriteVoucherIds.contains(doc.id);
+                  final distance = _distanceTo(voucher);
+                  final nearbyRadius =
+                      ((voucher['notificationRadiusMeters'] ?? 750) as num)
+                          .toDouble();
+                  final matchesNearby =
+                      !nearbyOnly ||
+                      (distance != null && distance <= nearbyRadius);
                   return matchesCategory &&
                       matchesFavourite &&
+                      matchesNearby &&
                       _matchesSearch(voucher);
                 }).toList();
 
@@ -238,6 +301,11 @@ class _RewardsPageState extends State<RewardsPage> {
                               .compareTo(
                                 asDate(b.data()['expiresAt']) ?? DateTime(2100),
                               ),
+                    );
+                  case 'Nearest':
+                    filtered.sort(
+                      (a, b) => (_distanceTo(a.data()) ?? double.infinity)
+                          .compareTo(_distanceTo(b.data()) ?? double.infinity),
                     );
                   default:
                     filtered.sort(
@@ -295,6 +363,26 @@ class _RewardsPageState extends State<RewardsPage> {
                                   setState(() => favouritesOnly = selected),
                             ),
                           ),
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              avatar: loadingLocation
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.near_me, size: 16),
+                              label: const Text('Nearby'),
+                              selected: nearbyOnly,
+                              onSelected: loadingLocation
+                                  ? null
+                                  : (selected) =>
+                                        unawaited(_setNearbyOnly(selected)),
+                            ),
+                          ),
                           ...['All', ...categories].map(
                             (item) => Padding(
                               padding: const EdgeInsets.only(right: 8),
@@ -327,9 +415,16 @@ class _RewardsPageState extends State<RewardsPage> {
                             value: 'Expiring soon',
                             child: Text('Expiring soon'),
                           ),
+                          DropdownMenuItem(
+                            value: 'Nearest',
+                            child: Text('Nearest to me'),
+                          ),
                         ],
-                        onChanged: (value) =>
-                            setState(() => sortMode = value ?? 'Recommended'),
+                        onChanged: loadingLocation
+                            ? null
+                            : (value) => unawaited(
+                                _setSortMode(value ?? 'Recommended'),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -350,15 +445,19 @@ class _RewardsPageState extends State<RewardsPage> {
                         final cost =
                             (voucher['pointCost'] as num?)?.toInt() ?? 0;
                         final claimedCount = claimedCounts[doc.id] ?? 0;
-                        final claimLimit =
-                            ((voucher['perTouristClaimLimit'] as num?)
-                                        ?.toInt() ??
-                                    1)
-                                .clamp(1, 10);
+                        final rawClaimLimit =
+                            (voucher['perTouristClaimLimit'] as num?)
+                                ?.toInt() ??
+                            0;
+                        final int? claimLimit = rawClaimLimit > 0
+                            ? rawClaimLimit
+                            : null;
                         final canClaim =
-                            claimedCount < claimLimit && points >= cost;
+                            (claimLimit == null || claimedCount < claimLimit) &&
+                            points >= cost;
                         final favourite = favouriteVoucherIds.contains(doc.id);
                         final expiry = asDate(voucher['expiresAt']);
+                        final distance = _distanceTo(voucher);
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -420,6 +519,16 @@ class _RewardsPageState extends State<RewardsPage> {
                                       '${voucher['vendorCategory']}',
                                       style: const TextStyle(
                                         color: ExplorerColors.muted,
+                                      ),
+                                    ),
+                                  if (distance != null)
+                                    Text(
+                                      distance < 1000
+                                          ? '${distance.round()} m away'
+                                          : '${(distance / 1000).toStringAsFixed(1)} km away',
+                                      style: const TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   const SizedBox(height: 6),
