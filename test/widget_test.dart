@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myheritage_explorer/core/services.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
 
 void main() {
@@ -99,9 +100,7 @@ void main() {
     expect(candidates.first, 'https://example.com/broken.jpg');
     expect(
       candidates[1],
-      startsWith(
-        'https://commons.wikimedia.org/wiki/Special:Redirect/file/',
-      ),
+      startsWith('https://commons.wikimedia.org/wiki/Special:Redirect/file/'),
     );
   });
 
@@ -127,6 +126,76 @@ void main() {
 
     expect(resolved['suggestedTimeLabel'], '10:00 AM - 11:00 AM');
     expect(resolved['suggestedStartMinutes'], 600);
-    expect(List<String>.from(resolved['scheduleNotes']), ['Move this earlier.']);
+    expect(List<String>.from(resolved['scheduleNotes']), [
+      'Move this earlier.',
+    ]);
+  });
+
+  test(
+    'named itinerary destinations do not accept another same-state area',
+    () {
+      final destination = MalaysianAreaSearchEngine.findSpecificSubArea(
+        'Bukit Mertajam, Pulau Pinang',
+      );
+
+      expect(destination?.name, 'Bukit Mertajam');
+      expect(
+        MalaysianAreaSearchEngine.matchesSpecificDestination(
+          selectedArea: 'Bukit Mertajam, Pulau Pinang',
+          vendorAddress: 'Jalan Pasar, 14000 Bukit Mertajam, Penang',
+        ),
+        isTrue,
+      );
+      expect(
+        MalaysianAreaSearchEngine.matchesSpecificDestination(
+          selectedArea: 'Bukit Mertajam, Pulau Pinang',
+          vendorAddress: 'Armenian Street, George Town, Penang',
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('destination aliases resolve while a state-wide choice stays broad', () {
+    expect(
+      MalaysianAreaSearchEngine.findSpecificSubArea(
+        'Georgetown, Pulau Pinang',
+      )?.name,
+      'George Town',
+    );
+    expect(
+      MalaysianAreaSearchEngine.findSpecificSubArea('Penang, Malaysia'),
+      isNull,
+    );
+  });
+
+  test('trip reminders prefer 3 days before and fall back to 2 days', () {
+    final tripStart = DateTime(2026, 9, 10, 9);
+
+    final threeDayReminder = AppServices.nextTripReminderTime(
+      tripStartDate: tripStart,
+      now: DateTime(2026, 9, 1, 12),
+    );
+    expect(threeDayReminder, DateTime(2026, 9, 7, 8));
+    expect(
+      AppServices.tripReminderLeadDays(
+        tripStartDate: tripStart,
+        reminderTime: threeDayReminder!,
+      ),
+      3,
+    );
+
+    final twoDayReminder = AppServices.nextTripReminderTime(
+      tripStartDate: tripStart,
+      now: DateTime(2026, 9, 7, 9),
+    );
+    expect(twoDayReminder, DateTime(2026, 9, 8, 8));
+    expect(
+      AppServices.tripReminderLeadDays(
+        tripStartDate: tripStart,
+        reminderTime: twoDayReminder!,
+      ),
+      2,
+    );
   });
 }

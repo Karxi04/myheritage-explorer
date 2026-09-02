@@ -382,7 +382,7 @@ class GeoapifyPlanner {
             'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
             'activeVouchers': vouchers.take(3).toList(),
             'activeVoucherCount': vouchers.length,
-            if (task != null) 'culturalTask': task,
+            ...?task == null ? null : {'culturalTask': task},
           };
         })
         .where((vendor) {
@@ -411,16 +411,37 @@ class GeoapifyPlanner {
       );
     }
 
+    final minimumAreaScore = _minimumAreaTextScore(normalizedArea);
     final areaMatchedCandidates = candidates.where((c) {
       final areaScore = (c['areaRelevanceScore'] as num?)?.toDouble() ?? 0.0;
-      return areaScore >= 0.7;
+      return areaScore >= minimumAreaScore;
     }).toList();
-
-    // For multi-day trips, expand to full candidates pool if area matches are fewer than needed
-    final minRequired = dayCount * 4;
-    final activeCandidates = (areaMatchedCandidates.length >= minRequired)
+    final generationArea = locatedArea;
+    final localCandidates = generationArea == null
         ? areaMatchedCandidates
-        : candidates;
+        : candidates
+              .where(
+                (candidate) => _isLocalCandidate(
+                  candidate,
+                  locatedArea: generationArea,
+                  selectedArea: normalizedArea,
+                ),
+              )
+              .toList();
+    final activeCandidates = localCandidates.isNotEmpty
+        ? localCandidates
+        : areaMatchedCandidates;
+
+    if (activeCandidates.isEmpty) {
+      return GeoapifyPlannerResult(
+        places: const [],
+        totalEstimatedMinutes: 0,
+        remainingMinutes: (availableHours * 60).round(),
+        startDate: tripStartDate,
+        endDate: tripEndDate,
+        dayCount: dayCount,
+      );
+    }
 
     final daySchedules = <PlannerDaySchedule>[];
     final allEnrichedStops = <Map<String, dynamic>>[];
@@ -450,14 +471,12 @@ class GeoapifyPlanner {
 
       final poolForDay = availableCandidates.isNotEmpty
           ? availableCandidates
-          : candidates.where((c) {
+          : activeCandidates.where((c) {
               final keys = _allPlaceKeys(c);
               return !keys.any((k) => globallyUsedKeys.contains(k));
             }).toList();
 
-      final poolToUse = poolForDay.isNotEmpty
-          ? poolForDay
-          : (candidates.isNotEmpty ? candidates : activeCandidates);
+      final poolToUse = poolForDay.isNotEmpty ? poolForDay : activeCandidates;
 
       final built = await _buildItinerary(
         candidates: poolToUse,
@@ -470,6 +489,12 @@ class GeoapifyPlanner {
         weatherSeverity: weatherSeverity,
         foodExplorationEnabled: foodExplorationEnabled,
         usedKeys: globallyUsedKeys,
+        maxLegDistanceKm: locatedArea == null
+            ? 18.0
+            : min(
+                18.0,
+                max(7.0, _localSearchRadiusMeters(normalizedArea) / 1000 * .65),
+              ),
         origin: locatedArea == null
             ? null
             : {
@@ -547,6 +572,14 @@ class GeoapifyPlanner {
     final voucherMap = await _loadActiveVendorVouchers();
     final excluded = excludedPlaceIds.toSet();
     final queryKey = _normalize(query);
+    _GeoapifyArea? locatedArea;
+    if (GeoapifyConfig.isConfigured) {
+      try {
+        locatedArea = await _geocodeArea(normalisedArea);
+      } catch (_) {
+        // Area text relevance still keeps registered-vendor search local.
+      }
+    }
 
     final candidates = vendors
         .map((vendor) {
@@ -561,8 +594,19 @@ class GeoapifyPlanner {
               voucherMap[vendorId] ?? const <Map<String, dynamic>>[];
           final matchedInterest = _bestVendorInterest(vendor, interests);
           final interestMatchScore = _interestMatchScore(vendor, interests);
+          final vendorLocation = _coordinateMap(vendor['location']);
+          final distanceMeters = locatedArea == null || vendorLocation == null
+              ? (vendor['distanceMeters'] as num?)?.toDouble() ?? 0.0
+              : _haversineKm(
+                      locatedArea.latitude,
+                      locatedArea.longitude,
+                      vendorLocation['latitude']!,
+                      vendorLocation['longitude']!,
+                    ) *
+                    1000;
           final enriched = <String, dynamic>{
             ...vendor,
+            'distanceMeters': distanceMeters,
             'category': matchedInterest,
             'matchedInterest': matchedInterest,
             'interestMatchScore': interestMatchScore,
@@ -573,7 +617,7 @@ class GeoapifyPlanner {
             'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
             'activeVouchers': vouchers.take(3).toList(),
             'activeVoucherCount': vouchers.length,
-            if (task != null) 'culturalTask': task,
+            ...?task == null ? null : {'culturalTask': task},
           };
           enriched['suggestionReason'] = _suggestionReason(enriched);
           return enriched;
@@ -581,6 +625,17 @@ class GeoapifyPlanner {
         .where((vendor) {
           final placeId = '${vendor['placeId'] ?? ''}';
           if (placeId.isEmpty || excluded.contains(placeId)) return false;
+          final areaScore =
+              (vendor['areaRelevanceScore'] as num?)?.toDouble() ?? 0.0;
+          final addSearchArea = locatedArea;
+          final localEnough = addSearchArea == null
+              ? areaScore >= _minimumAreaTextScore(normalisedArea)
+              : _isLocalCandidate(
+                  vendor,
+                  locatedArea: addSearchArea,
+                  selectedArea: normalisedArea,
+                );
+          if (!localEnough) return false;
           if (queryKey.isEmpty) {
             return interests.isEmpty ||
                 _vendorMatchesInterests(vendor, interests);
@@ -596,9 +651,8 @@ class GeoapifyPlanner {
         })
         .toList();
 
-    if (queryKey.isNotEmpty && GeoapifyConfig.isConfigured) {
+    if (queryKey.isNotEmpty && locatedArea != null) {
       try {
-        final locatedArea = await _geocodeArea(normalisedArea);
         final mapResults = <Map<String, dynamic>>[];
         for (final variant in _searchQueryVariants(query)) {
           mapResults.addAll(
@@ -804,12 +858,116 @@ class GeoapifyPlanner {
     return MalaysianAreaSearchEngine.normalise(area);
   }
 
-  static bool _isPenangArea(String value) {
-    return MalaysianAreaSearchEngine.isSupportedArea(value);
+  static bool _isAreaResultCompatible({
+    required String selectedArea,
+    required String address,
+    required int distanceMeters,
+    int maxDistanceMeters = 25000,
+  }) {
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null) {
+      if (MalaysianAreaSearchEngine.matchesSpecificDestination(
+        selectedArea: selectedArea,
+        vendorAddress: address,
+      )) {
+        return true;
+      }
+      return distanceMeters <=
+          min(maxDistanceMeters, _localSearchRadiusMeters(selectedArea));
+    }
+
+    final areaScore = _areaTextRelevance(
+      selectedArea: selectedArea,
+      vendorAddress: address,
+    );
+    return areaScore >= 0.65 || distanceMeters <= maxDistanceMeters;
   }
 
-  static bool _isPenangAddress(String value) {
-    return MalaysianAreaSearchEngine.isSupportedArea(value);
+  static int _localSearchRadiusMeters(String selectedArea) {
+    final key = _normalize(selectedArea);
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null) {
+      final destinationKey = _normalize(specificDestination.name);
+      if (destinationKey.contains('langkawi')) return 18000;
+      if (destinationKey.contains('cameron highlands') ||
+          destinationKey.contains('kundasang') ||
+          destinationKey.contains('sekinchan') ||
+          destinationKey.contains('balik pulau') ||
+          destinationKey.contains('sungai lembing')) {
+        return 12000;
+      }
+      return 7000;
+    }
+    final isStateWide =
+        key == 'malaysia' ||
+        [
+          'penang',
+          'pulau pinang',
+          'selangor',
+          'perak',
+          'kedah',
+          'kelantan',
+          'terengganu',
+          'pahang',
+          'johor',
+          'sabah',
+          'sarawak',
+          'melaka',
+          'malacca',
+          'perlis',
+          'labuan',
+        ].contains(key);
+    if (isStateWide) return 65000;
+    if (key.contains('kuala lumpur') || key == 'kl') return 18000;
+    return 14000;
+  }
+
+  static double _minimumAreaTextScore(String selectedArea) {
+    return MalaysianAreaSearchEngine.findSpecificSubArea(selectedArea) == null
+        ? 0.65
+        : 0.95;
+  }
+
+  static bool _isLocalCandidate(
+    Map<String, dynamic> candidate, {
+    required _GeoapifyArea locatedArea,
+    required String selectedArea,
+  }) {
+    final address =
+        '${candidate['formattedAddress'] ?? ''} ${candidate['area'] ?? ''}';
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null &&
+        MalaysianAreaSearchEngine.matchesSpecificDestination(
+          selectedArea: selectedArea,
+          vendorAddress: address,
+        )) {
+      return true;
+    }
+
+    final areaScore =
+        (candidate['areaRelevanceScore'] as num?)?.toDouble() ??
+        _areaTextRelevance(selectedArea: selectedArea, vendorAddress: address);
+    if (specificDestination == null && areaScore >= 0.65) return true;
+
+    final candidatePoint = _coordinateMap(candidate['location']);
+    if (candidatePoint == null) return false;
+
+    final distanceMeters =
+        _haversineKm(
+          locatedArea.latitude,
+          locatedArea.longitude,
+          candidatePoint['latitude']!,
+          candidatePoint['longitude']!,
+        ) *
+        1000;
+    candidate['distanceMeters'] = distanceMeters;
+    return distanceMeters <= _localSearchRadiusMeters(selectedArea);
   }
 
   static String _categoryFromSearchText(
@@ -890,7 +1048,7 @@ class GeoapifyPlanner {
     required List<String> selectedInterests,
   }) async {
     final uri = Uri.https(_host, '/v1/geocode/autocomplete', {
-      'text': '$query, Penang, Malaysia',
+      'text': '$query, $area',
       'type': 'amenity',
       'format': 'json',
       'lang': 'en',
@@ -930,8 +1088,7 @@ class GeoapifyPlanner {
       if (latitude == null ||
           longitude == null ||
           placeId.isEmpty ||
-          !_isUsefulPlaceName(name) ||
-          !_isPenangAddress(formattedAddress)) {
+          !_isUsefulPlaceName(name)) {
         continue;
       }
 
@@ -953,6 +1110,13 @@ class GeoapifyPlanner {
                   ) *
                   1000)
               .round();
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+      )) {
+        continue;
+      }
 
       results.add({
         'placeId': 'geoapify_$placeId',
@@ -999,7 +1163,7 @@ class GeoapifyPlanner {
     required List<String> selectedInterests,
   }) async {
     final uri = Uri.https(_host, '/v1/geocode/search', {
-      'text': '$query, Penang, Malaysia',
+      'text': '$query, $area',
       'format': 'json',
       'lang': 'en',
       'limit': '15',
@@ -1037,8 +1201,7 @@ class GeoapifyPlanner {
       if (latitude == null ||
           longitude == null ||
           placeId.isEmpty ||
-          !_isUsefulPlaceName(name) ||
-          !_isPenangAddress(formattedAddress)) {
+          !_isUsefulPlaceName(name)) {
         continue;
       }
 
@@ -1060,6 +1223,13 @@ class GeoapifyPlanner {
                   ) *
                   1000)
               .round();
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+      )) {
+        continue;
+      }
 
       results.add({
         'placeId': 'geoapify_$placeId',
@@ -1104,15 +1274,20 @@ class GeoapifyPlanner {
     if (cached != null) return cached;
 
     final query = _normalisePenangArea(area);
-    final uri = Uri.https(_host, '/v1/geocode/search', {
+    final knownCenter = MalaysianAreaSearchEngine.findKnownCenter(query);
+    final parameters = <String, String>{
       'text': query,
       'format': 'json',
       'lang': 'en',
       'limit': '1',
       'filter': 'countrycode:my',
-      'bias': 'proximity:$_penangLongitude,$_penangLatitude',
       'apiKey': GeoapifyConfig.apiKey,
-    });
+    };
+    if (knownCenter != null) {
+      parameters['bias'] =
+          'proximity:${knownCenter['longitude']},${knownCenter['latitude']}';
+    }
+    final uri = Uri.https(_host, '/v1/geocode/search', parameters);
 
     final response = await http
         .get(uri, headers: const {'Accept': 'application/json'})
@@ -1290,10 +1465,6 @@ class GeoapifyPlanner {
           '${properties['formatted'] ?? locatedArea.displayName}'.trim();
       if (formattedAddress.isEmpty) continue;
 
-      if (_isPenangArea(area) && !_isPenangAddress(formattedAddress)) {
-        continue;
-      }
-
       final exactImageUrl = _normaliseImageUrl(
         _firstText([media['image'], properties['image'], rawSource['image']]),
       );
@@ -1317,6 +1488,14 @@ class GeoapifyPlanner {
                   1000)
               .round();
       if (!usePlaceBoundary && distanceMeters > radiusMeters + 300) continue;
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+        maxDistanceMeters: radiusMeters + 300,
+      )) {
+        continue;
+      }
 
       final website = _firstText([
         properties['website'],
@@ -2089,6 +2268,7 @@ class GeoapifyPlanner {
     bool isRainy = false,
     String weatherSeverity = 'fair',
     bool foodExplorationEnabled = false,
+    double maxLegDistanceKm = 18.0,
     Set<String>? usedKeys,
   }) async {
     final paceMultiplier = switch (pace) {
@@ -2167,11 +2347,23 @@ class GeoapifyPlanner {
         final previousLocation = selected.isEmpty
             ? origin
             : _coordinateMap(selected.last['location']);
+        final candidateLocation = _coordinateMap(candidate['location']);
+        final distanceKm = previousLocation != null && candidateLocation != null
+            ? _haversineKm(
+                previousLocation['latitude']!,
+                previousLocation['longitude']!,
+                candidateLocation['latitude']!,
+                candidateLocation['longitude']!,
+              )
+            : 0.0;
+        if (selected.isNotEmpty && distanceKm > maxLegDistanceKm) {
+          continue;
+        }
         final travelMinutes = previousLocation == null
             ? 0
             : _estimatedTravelMinutes(
                 previousLocation,
-                candidate['location'],
+                candidateLocation,
                 pace,
               );
         final visitMinutes =
@@ -2239,7 +2431,9 @@ class GeoapifyPlanner {
             ? 1.25
             : 0.0;
         final duplicatePenalty = (categoryCounts[primaryInterest] ?? 0) * 0.62;
-        final travelPenalty = min(travelMinutes / 60, 1.0) * 0.25;
+        final travelPenalty =
+            min(travelMinutes / 45, 2.0) * 0.80 +
+            max(0.0, distanceKm - 3.0) * 0.12;
         final mealAdjustment = _mealTimeScore(candidate, currentDayMinute);
         final optionalFoodPenalty = isOptionalFoodCandidate ? 0.55 : 0.0;
         final adjusted =
@@ -2573,7 +2767,7 @@ class GeoapifyPlanner {
       'Fast' || 'Packed' => 5.5,
       _ => 4.5,
     };
-    return max(5, min(60, ((distanceKm / walkingSpeed) * 60).round()));
+    return max(5, min(180, ((distanceKm / walkingSpeed) * 60).round()));
   }
 
   static Map<String, double>? _coordinateMap(Object? raw) {
