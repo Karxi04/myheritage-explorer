@@ -23,22 +23,155 @@ class _GroupChatPageState extends State<GroupChatPage> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
+
     if (text.isEmpty) return;
 
     final user = AppServices.auth.currentUser;
+
     if (user == null) return;
 
-    final name = user.displayName ?? 'Member';
+    final senderId = user.uid;
+
+    // Get proper traveler display name.
+    final travelerSnapshot =
+    await AppServices.travelerRef(senderId).get();
+
+    final travelerData =
+        travelerSnapshot.data() ??
+            const <String, dynamic>{};
+
+    final senderName =
+    '${travelerData['displayName'] ??
+        user.displayName ??
+        user.email?.split('@').first ??
+        'Member'}'
+        .trim();
+
     _input.clear();
 
-    await _messagesRef.add({
-      'text': text,
-      'senderId': user.uid,
-      'senderName': name,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    try {
+      // ============================================================
+      // 1. SAVE GROUP MESSAGE
+      // ============================================================
 
-    _scrollToBottom();
+      final messageRef =
+      await _messagesRef.add({
+        'text': text,
+        'senderId': senderId,
+        'senderName': senderName,
+        'timestamp':
+        FieldValue.serverTimestamp(),
+      });
+
+      // ============================================================
+      // 2. GET CURRENT GROUP MEMBERS
+      // ============================================================
+
+      final groupSnapshot =
+      await AppServices.db
+          .collection('travel_groups')
+          .doc(widget.groupId)
+          .get();
+
+      final group =
+          groupSnapshot.data() ??
+              const <String, dynamic>{};
+
+      final memberIds =
+      List<String>.from(
+        group['memberIds'] ??
+            const <String>[],
+      );
+
+      final groupName =
+      '${group['name'] ??
+          widget.groupName}'
+          .trim();
+
+      // ============================================================
+      // 3. CREATE IN-APP NOTIFICATION FOR EVERY OTHER MEMBER
+      //
+      // Spark-compatible:
+      // no Firebase Cloud Function required.
+      // ============================================================
+
+      final notificationBatch =
+      AppServices.db.batch();
+
+      var notificationCount = 0;
+
+      for (final memberId in memberIds) {
+        if (memberId.isEmpty ||
+            memberId == senderId) {
+          continue;
+        }
+
+        final notificationRef =
+        AppServices.db
+            .collection('notifications')
+            .doc();
+
+        notificationBatch.set(
+          notificationRef,
+          {
+            'userId': memberId,
+
+            'title':
+            'New message in $groupName',
+
+            'message':
+            '$senderName: $text',
+
+            'type': 'group_message',
+
+            'referenceId':
+            widget.groupId,
+
+            'groupId':
+            widget.groupId,
+
+            'groupName':
+            groupName,
+
+            'messageId':
+            messageRef.id,
+
+            'senderId':
+            senderId,
+
+            'senderName':
+            senderName,
+
+            'read': false,
+
+            'pushStatus':
+            'pending',
+
+            'pushAttempts':
+            0,
+
+            'createdAt':
+            FieldValue.serverTimestamp(),
+          },
+        );
+
+        notificationCount++;
+      }
+
+      if (notificationCount > 0) {
+        await notificationBatch.commit();
+      }
+
+      _scrollToBottom();
+    } catch (error) {
+      if (!mounted) return;
+
+      showMessage(
+        context,
+        'Unable to send message: $error',
+        error: true,
+      );
+    }
   }
 
   void _scrollToBottom() {

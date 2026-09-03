@@ -321,6 +321,7 @@ class _PrivateChatPageState extends State<PrivateChatPage> {
         message: text,
         type: 'private_chat',
         referenceId: widget.chatId,
+        chatId: widget.chatId,
       );
 
       _scrollToBottom();

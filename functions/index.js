@@ -837,3 +837,17 @@ const chatAssistantModule =
 
 exports.chatAssistant =
   chatAssistantModule.chatAssistant;
+
+
+ // ------------------------------------------------------------
+ // Push notifications + SOS notifications
+ // ------------------------------------------------------------
+
+ const pushNotifications =
+   require('./push_notifications');
+
+ exports.onSosAlertCreated =
+   pushNotifications.onSosAlertCreated;
+
+ exports.onNotificationCreated =
+   pushNotifications.onNotificationCreated;

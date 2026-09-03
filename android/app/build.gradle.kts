@@ -1,10 +1,14 @@
 plugins {
     id("com.android.application")
+
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
     // END: FlutterFire Configuration
+
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+
+    // Flutter Gradle Plugin must be applied
+    // after Android and Kotlin plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -14,10 +18,15 @@ android {
     // Required by current Flutter plugins
     compileSdk = 36
 
-    // Highest NDK version required by the current plugins
+    // Highest NDK version required by current plugins
     ndkVersion = "28.2.13676358"
 
     compileOptions {
+        // ========================================================
+        // REQUIRED FOR flutter_local_notifications
+        // ========================================================
+        isCoreLibraryDesugaringEnabled = true
+
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -31,12 +40,13 @@ android {
 
         minSdk = flutter.minSdkVersion
 
-        // Keep targetSdk separate from compileSdk.
-        // This does not need to be changed just to fix this error.
         targetSdk = flutter.targetSdkVersion
 
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Recommended for notification/plugin compatibility
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -44,6 +54,16 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+// ================================================================
+// REQUIRED FOR flutter_local_notifications
+// ================================================================
+
+dependencies {
+    coreLibraryDesugaring(
+        "com.android.tools:desugar_jdk_libs:2.1.4"
+    )
 }
 
 flutter {

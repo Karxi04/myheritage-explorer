@@ -26,8 +26,11 @@ class _SosPanicPageState extends State<SosPanicPage> {
       final name = profile?['displayName'] ?? 'A Companion';
       
       final leaderId = widget.group['leaderId'];
-      
-      await AppServices.db.collection('sos_alerts').add({
+
+      final sosRef =
+      await AppServices.db
+          .collection('sos_alerts')
+          .add({
         'senderId': uid,
         'senderName': name,
         'groupId': widget.groupId,
@@ -38,6 +41,10 @@ class _SosPanicPageState extends State<SosPanicPage> {
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
+        'location': GeoPoint(
+          pos.latitude,
+          pos.longitude,
+        ),
       });
 
       // Also update user_locations for the shared view
@@ -48,6 +55,29 @@ class _SosPanicPageState extends State<SosPanicPage> {
         'activeGroupId': widget.groupId,
         'sharingEnabled': true,
       }, SetOptions(merge: true));
+
+      if ('$leaderId'.isNotEmpty &&
+          '$leaderId' != uid) {
+        await AppServices.notify(
+          userId: '$leaderId',
+
+          title:
+          'Emergency SOS from $name',
+
+          message:
+          '$name triggered an SOS in '
+              '${widget.group['name'] ?? 'your travel group'}. '
+              'Open the app to view their emergency location.',
+
+          type: 'sos',
+
+          referenceId:
+          sosRef.id,
+
+          groupId:
+          widget.groupId,
+        );
+      }
 
       if (mounted) {
         showDialog(

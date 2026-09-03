@@ -474,6 +474,8 @@ class AppServices {
     required String message,
     String type = 'general',
     String? referenceId,
+    String? groupId,
+    String? chatId,
   }) async {
     await db.collection('notifications').add({
       'userId': userId,
@@ -481,8 +483,24 @@ class AppServices {
       'message': message,
       'type': type,
       'referenceId': referenceId,
+
+      if (groupId != null)
+        'groupId': groupId,
+
+      if (chatId != null)
+        'chatId': chatId,
+
       'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
+
+      // ==========================================================
+      // USED BY OUR SPARK NOTIFICATION SERVER
+      // ==========================================================
+
+      'pushStatus': 'pending',
+      'pushAttempts': 0,
+
+      'createdAt':
+      FieldValue.serverTimestamp(),
     });
   }
 
