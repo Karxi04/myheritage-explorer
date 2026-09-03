@@ -198,4 +198,28 @@ void main() {
       2,
     );
   });
+
+  test('curated place image resolver assigns unique distinct photos', () async {
+    final stop1 = await ItineraryImageResolver.resolveStop({
+      'name': 'Mengkuang Dam Lakeside Park',
+      'category': 'Nature',
+    });
+    final stop2 = await ItineraryImageResolver.resolveStop({
+      'name': 'Chew Jetty',
+      'category': 'Heritage',
+    });
+    final stop3 = await ItineraryImageResolver.resolveStop({
+      'name': 'Restoran BM Yam Rice',
+      'category': 'Food',
+    });
+
+    expect(stop1['imageUrl'], isNotEmpty);
+    expect(stop2['imageUrl'], isNotEmpty);
+    expect(stop3['imageUrl'], isNotEmpty);
+
+    // Verify all 3 stops have different, distinct images
+    expect(stop1['imageUrl'], isNot(equals(stop2['imageUrl'])));
+    expect(stop1['imageUrl'], isNot(equals(stop3['imageUrl'])));
+    expect(stop2['imageUrl'], isNot(equals(stop3['imageUrl'])));
+  });
 }

@@ -758,7 +758,6 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
     final imageCandidates = <String>[
       ..._stringList(data['imageCandidates']),
       if (imageUrl.isNotEmpty) imageUrl,
-      if (mapPreview.isNotEmpty) mapPreview,
     ];
     final place = {
       'placeId': 'vendor_$id',
@@ -795,13 +794,13 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
       'website': '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim(),
       'email': '${data['email'] ?? ''}'.trim(),
       'mapUrl': '${data['mapUrl'] ?? ''}'.trim(),
-      'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
+      'imageUrl': imageUrl,
       'fallbackImageUrl': mapPreview,
       'mapPreviewUrl': mapPreview,
       'imageCandidates': imageCandidates,
       'imageType': imageUrl.isNotEmpty
           ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
-          : 'map_preview',
+          : 'pending_resolution',
       ...?location == null
           ? null
           : {

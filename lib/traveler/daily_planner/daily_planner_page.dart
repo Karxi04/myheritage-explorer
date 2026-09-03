@@ -1146,8 +1146,8 @@ class GeoapifyPlanner {
             '&mlon=$longitude#map=18/$latitude/$longitude',
         'mapPreviewUrl': mapPreviewUrl,
         'fallbackImageUrl': mapPreviewUrl,
-        'imageUrl': mapPreviewUrl,
-        'imageType': 'map_preview',
+        'imageUrl': '',
+        'imageType': 'pending_resolution',
         'trustLabel': 'Insufficient Data',
         'searchMatchScore': 1.20,
       });
@@ -1258,8 +1258,8 @@ class GeoapifyPlanner {
             'https://www.openstreetmap.org/?mlat=$latitude'
             '&mlon=$longitude#map=18/$latitude/$longitude',
         'mapPreviewUrl': mapPreviewUrl,
-        'imageUrl': mapPreviewUrl,
-        'imageType': 'map_preview',
+        'imageUrl': '',
+        'imageType': 'pending_resolution',
         'trustLabel': 'Insufficient Data',
         'searchMatchScore': 1.0,
       });
@@ -1472,10 +1472,10 @@ class GeoapifyPlanner {
         latitude: latitudeValue,
         longitude: longitudeValue,
       );
-      final imageUrl = exactImageUrl.isNotEmpty ? exactImageUrl : mapPreviewUrl;
+      final imageUrl = exactImageUrl;
       final imageType = exactImageUrl.isNotEmpty
           ? 'place_photo'
-          : 'map_preview';
+          : 'pending_resolution';
 
       final distanceMeters =
           (properties['distance'] as num?)?.round() ??
@@ -1747,17 +1747,16 @@ class GeoapifyPlanner {
           'durationMinutes': duration,
           'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
           'score': (data['score'] as num?)?.toDouble() ?? 4.8,
-          'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
+          'imageUrl': imageUrl,
           'fallbackImageUrl': mapPreview,
           'mapPreviewUrl': mapPreview,
           'imageCandidates': [
             ...storedImageCandidates,
             if (imageUrl.isNotEmpty) imageUrl,
-            if (mapPreview.isNotEmpty) mapPreview,
           ],
           'imageType': imageUrl.isNotEmpty
               ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
-              : 'map_preview',
+              : 'pending_resolution',
           'dataCompletenessScore': _dataCompletenessScore(
             address: address.isNotEmpty ? address : vendorArea,
             website: website,
@@ -1828,16 +1827,15 @@ class GeoapifyPlanner {
         'durationMinutes': duration,
         'budgetLevel': '${place['budgetLevel'] ?? 'Medium'}',
         'score': (place['score'] as num?)?.toDouble() ?? 4.8,
-        'imageUrl': '${place['imageUrl'] ?? mapPreview}',
+        'imageUrl': '${place['imageUrl'] ?? ''}',
         'fallbackImageUrl': mapPreview,
         'mapPreviewUrl': mapPreview,
         'imageCandidates': [
           if ('${place['imageUrl'] ?? ''}'.isNotEmpty) '${place['imageUrl']}',
-          if (mapPreview.isNotEmpty) mapPreview,
         ],
         'imageType': '${place['imageUrl'] ?? ''}'.isNotEmpty
             ? 'curated_place_photo'
-            : 'map_preview',
+            : 'pending_resolution',
         'dataCompletenessScore': 0.95,
         'matchedInterest': category,
         'phone': '${place['phone'] ?? ''}',
@@ -2304,6 +2302,7 @@ class GeoapifyPlanner {
         );
 
     final selected = <Map<String, dynamic>>[];
+    final selectedNames = <String>{};
     final selectedIdentities = <String>{};
     final categoryCounts = <String, int>{};
     final selectedMealLabels = <String>{};
@@ -2337,11 +2336,15 @@ class GeoapifyPlanner {
 
       for (var index = 0; index < remainingCandidates.length; index++) {
         final candidate = remainingCandidates[index];
+        final candidateName = _normalize('${candidate['name'] ?? ''}');
         final identity = _placeIdentity(candidate);
         final candidateKeys = _allPlaceKeys(candidate);
-        if (selectedIdentities.contains(identity) ||
+        if (selectedNames.contains(candidateName) ||
+            selectedIdentities.contains(identity) ||
+            candidateKeys.any((k) => selectedIdentities.contains(k)) ||
             (usedKeys != null &&
-                candidateKeys.any((k) => usedKeys.contains(k)))) {
+                (usedKeys.contains('name:$candidateName') ||
+                 candidateKeys.any((k) => usedKeys.contains(k))))) {
           continue;
         }
         final previousLocation = selected.isEmpty
@@ -2498,7 +2501,10 @@ class GeoapifyPlanner {
         chosen['mealSuggestionLabel'] = mealSuggestion;
       }
       selected.add(chosen);
+      final chosenName = _normalize('${chosen['name'] ?? ''}');
+      if (chosenName.isNotEmpty) selectedNames.add(chosenName);
       selectedIdentities.add(_placeIdentity(chosen));
+      selectedIdentities.addAll(_allPlaceKeys(chosen));
       if (_isFoodPlace(chosen) && bestMealLabel != null) {
         selectedMealLabels.add(bestMealLabel);
       }
@@ -3192,7 +3198,7 @@ class GeoapifyPlanner {
     for (final place in places) {
       final name = _normalize('${place['name'] ?? ''}');
       if (name.isEmpty) continue;
-      final key = _placeIdentity(place);
+      final key = name;
       final current = unique[key];
       if (current == null || _rank(place) > _rank(current)) {
         unique[key] = place;
@@ -3615,10 +3621,10 @@ class GeoapifyPlanner {
     );
     final imageUrl = exactImageUrl.isNotEmpty
         ? exactImageUrl
-        : _firstText([original['imageUrl'], original['mapPreviewUrl']]);
+        : _firstText([original['imageUrl']]);
     final imageType = exactImageUrl.isNotEmpty
         ? 'place_photo'
-        : '${original['imageType'] ?? 'map_preview'}';
+        : '${original['imageType'] ?? 'pending_resolution'}';
     final brand = _firstText([properties['brand'], original['brand']]);
     final operatorName = _firstText([
       properties['operator'],
