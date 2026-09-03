@@ -2427,6 +2427,7 @@ class _CompanionPageState extends State<CompanionPage> {
 
                   const SizedBox(height: 24),
 
+
                   ExplorerSectionTitle(
                     'My Travel Groups',
                     subtitle: groups.isEmpty

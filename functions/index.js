@@ -812,3 +812,28 @@ const companionMembership = require('./companion_membership');
 exports.addTravelGroupMemberByEmail =
   companionMembership.addTravelGroupMemberByEmail;
 exports.joinTravelGroup = companionMembership.joinTravelGroup;
+
+
+// ------------------------------------------------------------
+// Companion chat notifications
+// ------------------------------------------------------------
+
+const chatNotifications =
+  require('./chat_notifications');
+
+exports.onGroupMessageCreated =
+  chatNotifications.onGroupMessageCreated;
+
+exports.onPrivateMessageCreated =
+  chatNotifications.onPrivateMessageCreated;
+
+
+// ------------------------------------------------------------
+// Database-grounded AI travel assistant
+// ------------------------------------------------------------
+
+const chatAssistantModule =
+  require('./chat_assistant');
+
+exports.chatAssistant =
+  chatAssistantModule.chatAssistant;
