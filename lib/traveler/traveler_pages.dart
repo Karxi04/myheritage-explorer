@@ -29,6 +29,7 @@ part 'home/traveler_home_page.dart';
 part 'daily_planner/malaysian_planner_data.dart';
 part 'daily_planner/daily_planner_page.dart';
 part 'daily_planner/review_ml_model.dart';
+part 'daily_planner/review_flag_model.dart';
 part 'daily_planner/place_detail_page.dart';
 part 'daily_planner/my_itineraries_page.dart';
 part 'daily_planner/itinerary_detail_page.dart';

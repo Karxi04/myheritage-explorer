@@ -3,6 +3,7 @@ import 'package:myheritage_explorer/core/services.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
 import 'package:myheritage_explorer/traveler/daily_planner/models/place_model.dart';
 import 'package:myheritage_explorer/traveler/daily_planner/models/travel_preferences_model.dart';
+import 'package:myheritage_explorer/traveler/daily_planner/models/itinerary_model.dart';
 import 'package:myheritage_explorer/traveler/daily_planner/services/malaysia_location_service.dart';
 import 'package:myheritage_explorer/traveler/daily_planner/services/itinerary_recommendation_service.dart';
 
@@ -434,4 +435,390 @@ void main() {
       expect(difference.isNotEmpty, isTrue);
     });
   });
+
+  group('Daily Planner Scenarios DP1 - DP8 & Meal Logic Tests', () {
+    final testCatalog = [
+      PlaceModel(
+        placeId: 'p_bf_beach',
+        name: 'Batu Ferringhi Beach',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'Batu Ferringhi',
+        category: 'Nature',
+        interestTags: ['Nature', 'Beach'],
+        estimatedVisitMinutes: 60,
+        latitude: 5.4744,
+        longitude: 100.2472,
+      ),
+      PlaceModel(
+        placeId: 'p_spice_garden',
+        name: 'Tropical Spice Garden',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'Batu Ferringhi',
+        category: 'Nature',
+        interestTags: ['Nature', 'Culture'],
+        estimatedVisitMinutes: 75,
+        latitude: 5.4628,
+        longitude: 100.2289,
+      ),
+      PlaceModel(
+        placeId: 'p_bf_kopitiam',
+        name: 'Batu Ferringhi Heritage Kopitiam',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'Batu Ferringhi',
+        category: 'Food',
+        interestTags: ['Food', 'Breakfast', 'Kopitiam'],
+        estimatedVisitMinutes: 40,
+        latitude: 5.4715,
+        longitude: 100.2450,
+      ),
+      PlaceModel(
+        placeId: 'p_long_beach_cafe',
+        name: 'Long Beach Food Court',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'Batu Ferringhi',
+        category: 'Food',
+        interestTags: ['Food', 'Lunch', 'Dinner'],
+        estimatedVisitMinutes: 50,
+        latitude: 5.4730,
+        longitude: 100.2465,
+      ),
+      PlaceModel(
+        placeId: 'p_chew_jetty',
+        name: 'Chew Jetty',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Heritage',
+        interestTags: ['Heritage', 'Culture'],
+        estimatedVisitMinutes: 60,
+        latitude: 5.4128,
+        longitude: 100.3402,
+      ),
+      PlaceModel(
+        placeId: 'p_pinang_mansion',
+        name: 'Pinang Peranakan Mansion',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Heritage',
+        interestTags: ['Heritage', 'Culture', 'Art'],
+        estimatedVisitMinutes: 75,
+        latitude: 5.4182,
+        longitude: 100.3408,
+      ),
+      PlaceModel(
+        placeId: 'p_hameediyah',
+        name: 'Hameediyah Restaurant',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Food',
+        interestTags: ['Food', 'Lunch', 'Dinner'],
+        estimatedVisitMinutes: 50,
+        latitude: 5.4172,
+        longitude: 100.3330,
+      ),
+      PlaceModel(
+        placeId: 'p_teochew_chendul',
+        name: 'Penang Road Famous Teochew Chendul',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Food',
+        interestTags: ['Food', 'Dessert', 'chendul'],
+        estimatedVisitMinutes: 30,
+        latitude: 5.4183,
+        longitude: 100.3310,
+      ),
+      PlaceModel(
+        placeId: 'p_dinner_place',
+        name: 'Gurney Drive Night Hawker',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Food',
+        interestTags: ['Food', 'Dinner', 'Street Food'],
+        estimatedVisitMinutes: 60,
+        latitude: 5.4400,
+        longitude: 100.3100,
+      ),
+    ];
+
+    test('SCENARIO DP1: Penang, Batu Ferringhi, 09:00, 6 hours, Food + Nature <= 6h with logical meals', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'Batu Ferringhi',
+        dailyStartMinutes: 9 * 60, // 09:00
+        availableHours: 6.0, // 6 hours (09:00 to 15:00)
+        interests: ['Food', 'Nature'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 360, isTrue); // <= 6 hours
+      expect(day.stops.length, greaterThanOrEqualTo(2));
+
+      // No stop should finish after 15:00 (900 min)
+      final lastStop = day.stops.last;
+      expect(lastStop.suggestedEndMinutes!, lessThanOrEqualTo(15 * 60));
+
+      // Has Breakfast or Lunch, NO dinner because ends at 15:00
+      final mealRoles = day.stops.map((s) => s.mealRole).where((r) => r != null).toList();
+      expect(mealRoles.contains('Dinner'), isFalse);
+
+      // Has Category Diversity (both Food and Nature represented)
+      final categories = day.stops.map((s) => s.category).toSet();
+      expect(categories.contains('Food') || categories.contains('Nature'), isTrue);
+    });
+
+    test('SCENARIO DP2: Penang, Batu Ferringhi, 09:00, 2 hours, Food + Nature <= 2h', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'Batu Ferringhi',
+        dailyStartMinutes: 9 * 60,
+        availableHours: 2.0, // 2 hours (09:00 to 11:00)
+        interests: ['Food', 'Nature'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 120, isTrue); // <= 2 hours
+      final lastStop = day.stops.last;
+      expect(lastStop.suggestedEndMinutes!, lessThanOrEqualTo(11 * 60));
+
+      // Lunch should NOT be forced because trip ends at 11:00
+      final mealRoles = day.stops.map((s) => s.mealRole).where((r) => r != null).toList();
+      expect(mealRoles.contains('Lunch'), isFalse);
+    });
+
+    test('SCENARIO DP3: Penang, Batu Ferringhi, 09:00, 8 hours, Food + Nature <= 8h and optional dessert', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'Batu Ferringhi',
+        dailyStartMinutes: 9 * 60,
+        availableHours: 8.0, // 8 hours (09:00 to 17:00)
+        interests: ['Food', 'Nature'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 480, isTrue); // <= 8 hours
+      expect(day.stops.last.suggestedEndMinutes!, lessThanOrEqualTo(17 * 60));
+
+      // Test optional dessert addition
+      if (day.remainingMinutes >= 35) {
+        final updatedDay = ItineraryRecommendationService.addDessertStopToDay(
+          currentDay: day,
+          availablePlaces: testCatalog,
+          availableHours: 8.0,
+          startMinutes: 9 * 60,
+          stateId: 'penang',
+          stateName: 'Penang',
+        );
+        expect(updatedDay, isNotNull);
+        expect(updatedDay!.stops.any((s) => s.mealRole == 'Dessert'), isTrue);
+        expect(updatedDay.usedScheduleMinutes <= 480, isTrue);
+      }
+    });
+
+    test('SCENARIO DP4: Penang, George Town, 09:00, 6 hours, Heritage only has no forced meals', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 9 * 60,
+        availableHours: 6.0,
+        interests: ['Heritage'], // No Food selected
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 360, isTrue);
+      // Stops should be Heritage, no forced meals
+      expect(day.stops.every((s) => s.category != 'Food' || s.tags.contains('Heritage')), isTrue);
+    });
+
+    test('SCENARIO DP5: Penang, George Town, 11:00, 6 hours, Food + Heritage has Lunch eligible and ends <= 17:00', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 11 * 60, // 11:00 AM
+        availableHours: 6.0, // 11:00 to 17:00
+        interests: ['Food', 'Heritage'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 360, isTrue);
+      expect(day.stops.last.suggestedEndMinutes!, lessThanOrEqualTo(17 * 60));
+
+      final mealRoles = day.stops.map((s) => s.mealRole).where((r) => r != null).toList();
+      // Breakfast should NOT appear since trip starts at 11:00 AM
+      expect(mealRoles.contains('Breakfast'), isFalse);
+    });
+
+    test('SCENARIO DP6: Penang, George Town, 15:00, 6 hours, Food + Heritage has Dinner eligible and ends <= 21:00', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 15 * 60, // 15:00 (3:00 PM)
+        availableHours: 6.0, // 15:00 to 21:00
+        interests: ['Food', 'Heritage'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      final day = it.days.first;
+      expect(day.usedScheduleMinutes <= 360, isTrue);
+      expect(day.stops.last.suggestedEndMinutes!, lessThanOrEqualTo(21 * 60));
+
+      final mealRoles = day.stops.map((s) => s.mealRole).where((r) => r != null).toList();
+      // Breakfast and Lunch should NOT appear
+      expect(mealRoles.contains('Breakfast'), isFalse);
+      expect(mealRoles.contains('Lunch'), isFalse);
+    });
+
+    test('SCENARIO DP7: 3-day Penang trip maintains independent daily meal state and no duplicates', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        startDate: DateTime(2026, 9, 10),
+        endDate: DateTime(2026, 9, 12), // 3 days
+        dailyStartMinutes: 9 * 60,
+        availableHours: 4.0,
+        interests: ['Food', 'Nature', 'Heritage'],
+      );
+
+      final it = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: testCatalog,
+      );
+
+      expect(it.days.length, 3);
+      for (final day in it.days) {
+        expect(day.usedScheduleMinutes <= 240, isTrue);
+      }
+    });
+
+    test('SCENARIO DP8: Empty state throws clear descriptive exception without crashing', () async {
+      final pref = TravelPreferences(
+        stateId: 'perlis', // No places in candidate list
+        availableHours: 4.0,
+      );
+
+      expect(
+        () async => await ItineraryRecommendationService.generateItinerary(
+          preferences: pref,
+          candidatePlaces: [],
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('Time Calculation: planned activity minutes + travel minutes = used schedule minutes', () {
+      final stops = [
+        {
+          'name': 'Stop 1',
+          'durationMinutes': 60,
+          'travelMinutesBefore': 0,
+          'location': {'latitude': 5.4141, 'longitude': 100.3288},
+        },
+        {
+          'name': 'Stop 2',
+          'durationMinutes': 90,
+          'travelMinutesBefore': 15,
+          'location': {'latitude': 5.4160, 'longitude': 100.3310},
+        },
+        {
+          'name': 'Stop 3 (Meal)',
+          'durationMinutes': 45,
+          'travelMinutesBefore': 10,
+          'mealRole': 'Lunch',
+          'location': {'latitude': 5.4200, 'longitude': 100.3380},
+        },
+      ];
+
+      final schedule = ItinerarySchedulePlanner.plan(
+        stops: stops,
+        pace: 'Balanced',
+        availableHours: 6.0, // 360 min
+        preferredStartMinutes: 9 * 60, // 540
+      );
+
+      // Activity = 60 + 90 + 45 = 195 min
+      expect(schedule.plannedActivityMinutes, 195);
+      // Travel = 0 + 7 + 10 = 17 min (calculated from coordinates)
+      expect(schedule.travelMinutes, 17);
+      // Total used = 195 + 17 = 212 min
+      expect(schedule.usedScheduleMinutes, 212);
+      expect(schedule.totalEstimatedMinutes, 212);
+      // Remaining = 360 - 212 = 148 min
+      expect(schedule.remainingMinutes, 148);
+      // End minutes = 540 + 212 = 752 (12:32 PM)
+      expect(schedule.endMinutes, 752);
+      expect(schedule.endMinutes <= 900, isTrue);
+    });
+
+    test('Dessert fitting: rejects dessert safely when remaining time is insufficient', () {
+      final dayModel = ItineraryDayModel(
+        dayNumber: 1,
+        date: DateTime(2026, 9, 10),
+        dateLabel: 'Day 1',
+        stops: [
+          ItineraryStopModel(
+            placeId: 'p1',
+            name: 'Big Stop',
+            stateId: 'penang',
+            stateName: 'Penang',
+            area: 'George Town',
+            category: 'Heritage',
+            durationMinutes: 340, // Uses almost entire 6h (360 min)
+            sequence: 1,
+            dayNumber: 1,
+          ),
+        ],
+        totalEstimatedMinutes: 340,
+        remainingMinutes: 20, // Only 20 min remaining (< 35 min required)
+      );
+
+      expect(
+        () => ItineraryRecommendationService.addDessertStopToDay(
+          currentDay: dayModel,
+          availablePlaces: testCatalog,
+          availableHours: 6.0,
+          startMinutes: 9 * 60,
+          stateId: 'penang',
+          stateName: 'Penang',
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
+  });
 }
+

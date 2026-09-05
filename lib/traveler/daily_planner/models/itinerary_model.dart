@@ -249,6 +249,11 @@ class ItineraryDayModel {
     );
   }
 
+  int get plannedActivityMinutes => stops.fold<int>(0, (sum, s) => sum + s.durationMinutes);
+  int get travelMinutes => stops.fold<int>(0, (sum, s) => sum + s.travelMinutesBefore);
+  int get usedScheduleMinutes => plannedActivityMinutes + travelMinutes;
+  int get mealMinutes => stops.where((s) => s.mealRole != null || s.category == 'Food').fold<int>(0, (sum, s) => sum + s.durationMinutes);
+
   Map<String, dynamic> toMap() => {
     'dayNumber': dayNumber,
     'date': date.toIso8601String(),
@@ -389,9 +394,54 @@ class ItineraryModel {
       pace: '${data['travelPace'] ?? data['pace'] ?? 'Balanced'}',
       days: parsedDays,
       stops: parsedStops,
-      status: '${data['status'] ?? 'saved'}',
       createdAt: created,
       updatedAt: updated,
+    );
+  }
+
+  ItineraryModel copyWith({
+    String? id,
+    String? userId,
+    String? title,
+    String? stateId,
+    String? stateName,
+    String? selectedArea,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? numberOfDays,
+    String? dailyStartTime,
+    String? dailyEndTime,
+    double? availableHours,
+    List<String>? interests,
+    String? budget,
+    String? pace,
+    List<ItineraryDayModel>? days,
+    List<ItineraryStopModel>? stops,
+    String? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return ItineraryModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      title: title ?? this.title,
+      stateId: stateId ?? this.stateId,
+      stateName: stateName ?? this.stateName,
+      selectedArea: selectedArea ?? this.selectedArea,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      numberOfDays: numberOfDays ?? this.numberOfDays,
+      dailyStartTime: dailyStartTime ?? this.dailyStartTime,
+      dailyEndTime: dailyEndTime ?? this.dailyEndTime,
+      availableHours: availableHours ?? this.availableHours,
+      interests: interests ?? this.interests,
+      budget: budget ?? this.budget,
+      pace: pace ?? this.pace,
+      days: days ?? this.days,
+      stops: stops ?? this.stops,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 

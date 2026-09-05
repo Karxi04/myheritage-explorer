@@ -4092,10 +4092,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         selectedDayIndex = 0;
         if (plannedDays.isNotEmpty) {
           results = plannedDays.first.places;
-          totalEstimatedMinutes = plannedDays.fold<int>(
-            0,
-            (sum, d) => sum + d.totalEstimatedMinutes,
-          );
+          totalEstimatedMinutes = plannedDays.first.totalEstimatedMinutes;
           remainingMinutes = plannedDays.first.remainingMinutes;
         } else {
           results = [];
@@ -4141,6 +4138,53 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
       }
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _addDessertStop() async {
+    if (latestGeneratedItinerary == null || generatedDays.isEmpty) return;
+    try {
+      final currentDayModel = latestGeneratedItinerary!.days[selectedDayIndex];
+      final allPlaces = await PlaceRepository.getPlacesForState(selectedStateId);
+      final updatedDay = ItineraryRecommendationService.addDessertStopToDay(
+        currentDay: currentDayModel,
+        availablePlaces: allPlaces,
+        availableHours: availableHours,
+        startMinutes: preferredStartMinutes,
+        stateId: selectedStateId,
+        stateName: selectedStateName,
+      );
+      if (updatedDay == null) {
+        showMessage(context, 'Not enough remaining time to add a dessert stop.', error: true);
+        return;
+      }
+      setState(() {
+        final newDays = List<ItineraryDayModel>.from(latestGeneratedItinerary!.days);
+        newDays[selectedDayIndex] = updatedDay;
+        latestGeneratedItinerary = latestGeneratedItinerary!.copyWith(days: newDays);
+
+        final newPlannedDays = List<PlannerDaySchedule>.from(generatedDays);
+        newPlannedDays[selectedDayIndex] = PlannerDaySchedule(
+          dayNumber: updatedDay.dayNumber,
+          date: updatedDay.date,
+          dateLabel: updatedDay.dateLabel,
+          weather: updatedDay.weather,
+          places: updatedDay.stops.map((s) => s.toMap()).toList(),
+          totalEstimatedMinutes: updatedDay.totalEstimatedMinutes,
+          remainingMinutes: updatedDay.remainingMinutes,
+        );
+        generatedDays = newPlannedDays;
+        results = newPlannedDays[selectedDayIndex].places;
+        totalEstimatedMinutes = updatedDay.totalEstimatedMinutes;
+        remainingMinutes = updatedDay.remainingMinutes;
+      });
+      if (mounted) {
+        showMessage(context, 'Added authentic dessert stop to ${currentDayModel.dateLabel}!');
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      }
     }
   }
 
@@ -5067,6 +5111,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                       onSelected: (_) => setState(() {
                         selectedDayIndex = idx;
                         results = d.places;
+                        totalEstimatedMinutes = d.totalEstimatedMinutes;
+                        remainingMinutes = d.remainingMinutes;
                       }),
                     ),
                   );
@@ -5078,6 +5124,27 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           if (scheduledResults.isNotEmpty) ...[
             ItineraryTimelineSummary(schedule: schedule),
             const SizedBox(height: 10),
+            if (selectedInterests.contains('Food')) ...[
+              Wrap(
+                spacing: 8,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.icecream_outlined, size: 16, color: ExplorerColors.navy),
+                    label: const Text(
+                      '+ Add Dessert Stop',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        color: ExplorerColors.navy,
+                      ),
+                    ),
+                    backgroundColor: ExplorerColors.goldSoft,
+                    onPressed: _addDessertStop,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
           ],
           if (loading)
             const ExplorerCard(

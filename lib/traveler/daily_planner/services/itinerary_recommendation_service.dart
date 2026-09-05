@@ -4,6 +4,7 @@ import '../models/itinerary_model.dart';
 import '../models/place_model.dart';
 import '../models/travel_preferences_model.dart';
 import 'cultural_task_service.dart';
+import 'meal_planning_service.dart';
 import 'place_repository.dart';
 
 class ItineraryRecommendationService {
@@ -32,7 +33,6 @@ class ItineraryRecommendationService {
     if (allStatePlaces.isEmpty) {
       allStatePlaces = await PlaceRepository.getPlacesForState(preferences.stateId);
       if (allStatePlaces.isEmpty) {
-        // If Firestore is empty, attempt initial seed
         await PlaceRepository.seedInitialPlacesIfEmpty();
         allStatePlaces = await PlaceRepository.getPlacesForState(preferences.stateId);
         if (allStatePlaces.isEmpty) {
@@ -126,7 +126,7 @@ class ItineraryRecommendationService {
     );
   }
 
-  /// Generate stops for a single day fitting the available hours
+  /// Generate stops for a single day fitting the available hours and meal rules
   static List<ItineraryStopModel> _generateSingleDay({
     required int dayNumber,
     required TravelPreferences preferences,
@@ -138,48 +138,328 @@ class ItineraryRecommendationService {
     int? randomSeed,
   }) {
     // 1. Filter places strictly belonging to state & active
-    final candidates = availablePlaces.where((p) {
-      if (!p.isActive) return false;
-      return true;
-    }).toList();
-
+    final candidates = availablePlaces.where((p) => p.isActive).toList();
     if (candidates.isEmpty) return [];
 
-    // 2. Score candidate places with weighted factors & diversity
-    final scored = <_ScoredPlace>[];
+    final hasFoodInterest = preferences.interests.contains('Food');
+    final dailyAvailableMinutes = (preferences.availableHours * 60).round();
+    final startMinutes = preferences.dailyStartMinutes;
+
+    // Check eligible meal types for this specific day window
+    final eligibleMeals = MealPlanningService.getEligibleMealTypes(
+      startMinutes: startMinutes,
+      availableMinutes: dailyAvailableMinutes,
+      foodInterestSelected: hasFoodInterest,
+    );
+
+    final mealTracker = DayMealTracker();
+    final daySelectedPlaces = <PlaceModel>[];
+    final dayPlaceMealRoles = <String, String>{};
+    final dayUsedPlaceIds = <String>{};
+
+    int currentMinute = startMinutes;
+    int remainingMinutes = dailyAvailableMinutes;
+    PlaceModel? lastSelectedPlace;
+
+    // Seeded Random for controlled variety
+    final rand = randomSeed != null
+        ? Random(randomSeed + dayIndex * 31)
+        : Random(DateTime.now().minute + dayIndex * 31);
+
+    // Score all candidates
+    final scoredAll = <_ScoredPlace>[];
     for (final place in candidates) {
       final task = CulturalTaskService.matchTaskForPlace(place.toMap(), activeTasks);
-      final score = _calculateSuitabilityScore(
+      final baseScore = _calculateSuitabilityScore(
         place: place,
         preferences: preferences,
         dayInterests: dayInterests,
         hasCulturalTask: task != null,
         isUsedGlobally: globallyUsedIds.contains(place.placeId),
       );
-      scored.add(_ScoredPlace(place: place, score: score, task: task));
+      final score = baseScore + (rand.nextDouble() * 0.05);
+      scoredAll.add(_ScoredPlace(place: place, score: score, task: task));
+    }
+    scoredAll.sort((a, b) => b.score.compareTo(a.score));
+
+    // A. Check if Breakfast should be scheduled first
+    if (eligibleMeals.contains('Breakfast') &&
+        mealTracker.canServe('Breakfast') &&
+        currentMinute <= MealPlanningService.breakfastEnd - 20) {
+      final breakfastCandidates = scoredAll.where((sp) {
+        if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 5) return false;
+        return MealPlanningService.isFoodPlace(sp.place);
+      }).toList();
+
+      if (breakfastCandidates.isNotEmpty) {
+        final bPlace = breakfastCandidates.first.place;
+        final visitMin = min(bPlace.estimatedVisitMinutes, MealPlanningService.breakfastDefaultDuration);
+        if (visitMin <= remainingMinutes) {
+          daySelectedPlaces.add(bPlace.copyWith(estimatedVisitMinutes: visitMin));
+          dayPlaceMealRoles[bPlace.placeId] = 'Breakfast';
+          dayUsedPlaceIds.add(bPlace.placeId);
+          mealTracker.markServed('Breakfast');
+          lastSelectedPlace = bPlace;
+          currentMinute += visitMin;
+          remainingMinutes -= visitMin;
+          _recordHistory(bPlace.placeId);
+        }
+      }
     }
 
-    // Sort descending by score
-    scored.sort((a, b) => b.score.compareTo(a.score));
+    // B. Main scheduling loop for attractions and meals
+    final seenCategories = <String>{};
+    for (final p in daySelectedPlaces) {
+      seenCategories.add(p.category);
+    }
 
-    // 3. Controlled diversity pool selection
-    // Rather than taking strictly [0, 1, 2], create a top-quality candidate pool and pick
-    final selectedPlaces = _selectDiverseStops(
-      scoredPlaces: scored,
-      availableHours: preferences.availableHours,
-      pace: preferences.pace,
-      globallyUsedIds: globallyUsedIds,
-      dayIndex: dayIndex,
-      randomSeed: randomSeed,
-    );
+    while (remainingMinutes >= 30) {
+      // 1. Check if we reached Lunch window
+      if (eligibleMeals.contains('Lunch') &&
+          mealTracker.canServe('Lunch') &&
+          currentMinute >= MealPlanningService.lunchStart - 15 &&
+          currentMinute <= MealPlanningService.lunchEnd) {
+        final lunchCandidates = scoredAll.where((sp) {
+          if (dayUsedPlaceIds.contains(sp.place.placeId)) return false;
+          if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 6) return false;
+          return MealPlanningService.isFoodPlace(sp.place);
+        }).toList();
+
+        if (lunchCandidates.isNotEmpty) {
+          final lPlace = lunchCandidates.first.place;
+          final travel = lastSelectedPlace != null
+              ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, lPlace)
+              : 0;
+          final visitMin = min(lPlace.estimatedVisitMinutes, MealPlanningService.lunchDefaultDuration);
+          final totalCost = visitMin + travel;
+
+          if (totalCost <= remainingMinutes) {
+            daySelectedPlaces.add(lPlace.copyWith(estimatedVisitMinutes: visitMin));
+            dayPlaceMealRoles[lPlace.placeId] = 'Lunch';
+            dayUsedPlaceIds.add(lPlace.placeId);
+            mealTracker.markServed('Lunch');
+            lastSelectedPlace = lPlace;
+            currentMinute += totalCost;
+            remainingMinutes -= totalCost;
+            _recordHistory(lPlace.placeId);
+            continue;
+          }
+        }
+      }
+
+      // 2. Check if we reached Dinner window
+      if (eligibleMeals.contains('Dinner') &&
+          mealTracker.canServe('Dinner') &&
+          currentMinute >= MealPlanningService.dinnerStart - 15 &&
+          currentMinute <= MealPlanningService.dinnerEnd) {
+        final dinnerCandidates = scoredAll.where((sp) {
+          if (dayUsedPlaceIds.contains(sp.place.placeId)) return false;
+          if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 6) return false;
+          return MealPlanningService.isFoodPlace(sp.place);
+        }).toList();
+
+        if (dinnerCandidates.isNotEmpty) {
+          final dPlace = dinnerCandidates.first.place;
+          final travel = lastSelectedPlace != null
+              ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, dPlace)
+              : 0;
+          final visitMin = min(dPlace.estimatedVisitMinutes, MealPlanningService.dinnerDefaultDuration);
+          final totalCost = visitMin + travel;
+
+          if (totalCost <= remainingMinutes) {
+            daySelectedPlaces.add(dPlace.copyWith(estimatedVisitMinutes: visitMin));
+            dayPlaceMealRoles[dPlace.placeId] = 'Dinner';
+            dayUsedPlaceIds.add(dPlace.placeId);
+            mealTracker.markServed('Dinner');
+            lastSelectedPlace = dPlace;
+            currentMinute += totalCost;
+            remainingMinutes -= totalCost;
+            _recordHistory(dPlace.placeId);
+            continue;
+          }
+        }
+      }
+
+      // 3. Find top attraction (non-food or general interest)
+      final availableAttractions = scoredAll.where((sp) {
+        if (dayUsedPlaceIds.contains(sp.place.placeId)) return false;
+        if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > daySelectedPlaces.length + 3) {
+          return false;
+        }
+        // If food interest is not selected, skip food places
+        if (!hasFoodInterest && MealPlanningService.isFoodPlace(sp.place)) return false;
+        return true;
+      }).toList();
+
+      if (availableAttractions.isEmpty) break;
+
+      // Select diverse attraction
+      PlaceModel? bestFitPlace;
+      int bestFitTravel = 0;
+      int bestFitDuration = 0;
+
+      for (final sp in availableAttractions) {
+        final cand = sp.place;
+        final travel = lastSelectedPlace != null
+            ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, cand)
+            : 0;
+        final visitMin = cand.estimatedVisitMinutes;
+        final totalCost = visitMin + travel;
+
+        // Strict duration fitting check
+        if (totalCost <= remainingMinutes) {
+          // Diversity preference
+          if (seenCategories.contains(cand.category) && availableAttractions.length > 2) {
+            final unrepresented = availableAttractions.firstWhere(
+              (alt) => !seenCategories.contains(alt.place.category) &&
+                  (alt.place.estimatedVisitMinutes +
+                          (lastSelectedPlace != null
+                              ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, alt.place)
+                              : 0)) <=
+                      remainingMinutes,
+              orElse: () => sp,
+            );
+            bestFitPlace = unrepresented.place;
+            bestFitTravel = lastSelectedPlace != null
+                ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, bestFitPlace)
+                : 0;
+            bestFitDuration = bestFitPlace.estimatedVisitMinutes;
+            break;
+          }
+
+          bestFitPlace = cand;
+          bestFitTravel = travel;
+          bestFitDuration = visitMin;
+          break;
+        }
+      }
+
+      if (bestFitPlace == null) {
+        // No more candidates fit within the remaining minutes
+        break;
+      }
+
+      daySelectedPlaces.add(bestFitPlace);
+      dayUsedPlaceIds.add(bestFitPlace.placeId);
+      seenCategories.add(bestFitPlace.category);
+      lastSelectedPlace = bestFitPlace;
+      currentMinute += bestFitDuration + bestFitTravel;
+      remainingMinutes -= (bestFitDuration + bestFitTravel);
+      _recordHistory(bestFitPlace.placeId);
+    }
 
     // 4. Arrange visiting sequence and schedule timeline
     return _buildScheduledStops(
-      places: selectedPlaces,
+      places: daySelectedPlaces,
       startMinutes: preferences.dailyStartMinutes,
       dayNumber: dayNumber,
       stateId: preferences.stateId,
       stateName: preferences.stateName,
+      mealRoles: dayPlaceMealRoles,
+      activeTasks: activeTasks,
+    );
+  }
+
+  /// Add optional dessert stop to a generated day if remaining time permits
+  static ItineraryDayModel? addDessertStopToDay({
+    required ItineraryDayModel currentDay,
+    required List<PlaceModel> availablePlaces,
+    required double availableHours,
+    required int startMinutes,
+    required String stateId,
+    required String stateName,
+  }) {
+    final dailyAvailableMin = (availableHours * 60).round();
+    final usedMinutes = currentDay.usedScheduleMinutes;
+    final remainingMin = dailyAvailableMin - usedMinutes;
+
+    if (remainingMin < 35) {
+      throw Exception('Not enough remaining time to add a dessert stop (requires at least 35 min).');
+    }
+
+    final alreadyUsedIds = currentDay.stops.map((s) => s.placeId).toSet();
+    PlaceModel? lastStopPlace;
+    if (currentDay.stops.isNotEmpty) {
+      final lastStop = currentDay.stops.last;
+      lastStopPlace = availablePlaces.firstWhere(
+        (p) => p.placeId == lastStop.placeId,
+        orElse: () => PlaceModel(
+          placeId: lastStop.placeId,
+          name: lastStop.name,
+          stateId: stateId,
+          stateName: stateName,
+          area: lastStop.area,
+          category: lastStop.category,
+          latitude: lastStop.latitude,
+          longitude: lastStop.longitude,
+        ),
+      );
+    }
+
+    final dessertCandidate = MealPlanningService.selectDessertCandidate(
+      availablePlaces: availablePlaces,
+      alreadyUsedIds: alreadyUsedIds,
+      remainingMinutes: remainingMin,
+      referenceLocation: lastStopPlace,
+    );
+
+    if (dessertCandidate == null) {
+      throw Exception('Not enough remaining time to add a dessert stop.');
+    }
+
+    final updatedPlaces = currentDay.stops.map((s) {
+      return availablePlaces.firstWhere(
+        (p) => p.placeId == s.placeId,
+        orElse: () => PlaceModel(
+          placeId: s.placeId,
+          name: s.name,
+          stateId: stateId,
+          stateName: stateName,
+          area: s.area,
+          category: s.category,
+          estimatedVisitMinutes: s.durationMinutes,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          primaryImageUrl: s.imageUrl,
+          publicRating: s.publicRating,
+          trustLabel: s.trustLabel,
+        ),
+      );
+    }).toList();
+
+    updatedPlaces.add(dessertCandidate);
+
+    final mealRoles = <String, String>{};
+    for (final s in currentDay.stops) {
+      if (s.mealRole != null) mealRoles[s.placeId] = s.mealRole!;
+    }
+    mealRoles[dessertCandidate.placeId] = 'Dessert';
+
+    final updatedStops = _buildScheduledStops(
+      places: updatedPlaces,
+      startMinutes: startMinutes,
+      dayNumber: currentDay.dayNumber,
+      stateId: stateId,
+      stateName: stateName,
+      mealRoles: mealRoles,
+      activeTasks: const [],
+    );
+
+    int totalMinutes = 0;
+    for (final s in updatedStops) {
+      totalMinutes += s.durationMinutes + s.travelMinutesBefore;
+    }
+
+    return ItineraryDayModel(
+      dayNumber: currentDay.dayNumber,
+      date: currentDay.date,
+      dateLabel: currentDay.dateLabel,
+      stops: updatedStops,
+      weather: currentDay.weather,
+      totalEstimatedMinutes: totalMinutes,
+      remainingMinutes: max(0, dailyAvailableMin - totalMinutes),
+      budget: _calculateDayBudget(updatedStops, currentDay.budgetLevel),
+      budgetLevel: currentDay.budgetLevel,
     );
   }
 
@@ -239,116 +519,34 @@ class ItineraryRecommendationService {
     return score;
   }
 
-  /// Select a diverse subset of stops fitting the daily time budget
-  static List<_ScoredPlace> _selectDiverseStops({
-    required List<_ScoredPlace> scoredPlaces,
-    required double availableHours,
-    required String pace,
-    required Set<String> globallyUsedIds,
-    required int dayIndex,
-    int? randomSeed,
-  }) {
-    // Determine target stop count based on duration and pace
-    final int targetStopCount = switch (availableHours) {
-      <= 2.5 => 2,
-      <= 4.5 => pace == 'Relaxed' ? 2 : (pace == 'Fast' ? 4 : 3),
-      <= 6.5 => pace == 'Relaxed' ? 3 : (pace == 'Fast' ? 5 : 4),
-      _ => pace == 'Relaxed' ? 4 : (pace == 'Fast' ? 6 : 5),
-    };
-
-    final maxMinutes = (availableHours * 60).round();
-    final chosen = <_ScoredPlace>[];
-    int accumulatedMinutes = 0;
-
-    // Filter available pool (prefer unused globally)
-    var candidatePool = scoredPlaces.where((sp) => !globallyUsedIds.contains(sp.place.placeId)).toList();
-    if (candidatePool.length < targetStopCount) {
-      candidatePool = List.from(scoredPlaces);
-    }
-
-    // Controlled stochastic rotation: take top candidates and pick diverse subset
-    final poolSize = min(candidatePool.length, targetStopCount * 2 + 2);
-    final topPool = candidatePool.take(poolSize).toList();
-
-    // Deterministic yet diverse seed based on dayIndex and current timestamp minute or explicit seed
-    final rand = randomSeed != null ? Random(randomSeed + dayIndex * 17) : Random(DateTime.now().minute + dayIndex * 17);
-
-    // Shuffle top pool slightly to guarantee variety for identical inputs
-    final shuffledPool = List<_ScoredPlace>.from(topPool);
-    if (shuffledPool.length > 2) {
-      shuffledPool.shuffle(rand);
-      // Re-sort with small jitter to maintain quality
-      shuffledPool.sort((a, b) {
-        final jitterA = a.score + (rand.nextDouble() * 4.0 - 2.0);
-        final jitterB = b.score + (rand.nextDouble() * 4.0 - 2.0);
-        return jitterB.compareTo(jitterA);
-      });
-    }
-
-    final seenCategories = <String>{};
-
-    for (final candidate in shuffledPool) {
-      if (chosen.length >= targetStopCount) break;
-
-      final estTravel = chosen.isEmpty ? 0 : 15;
-      final stopDuration = candidate.place.estimatedVisitMinutes;
-      final projectedTotal = accumulatedMinutes + stopDuration + estTravel;
-
-      // Allow slight flexibility (up to 10% over) if need at least 2 stops
-      if (projectedTotal <= maxMinutes || chosen.length < 2) {
-        // Encourage category variety
-        if (chosen.length > 1 && seenCategories.contains(candidate.place.category) && candidatePool.length > targetStopCount) {
-          // Check if there is another unrepresented category
-          final alternate = shuffledPool.firstWhere(
-            (alt) => !chosen.contains(alt) && !seenCategories.contains(alt.place.category),
-            orElse: () => candidate,
-          );
-          if (alternate != candidate) {
-            chosen.add(alternate);
-            seenCategories.add(alternate.place.category);
-            accumulatedMinutes += alternate.place.estimatedVisitMinutes + estTravel;
-            _recordHistory(alternate.place.placeId);
-            continue;
-          }
-        }
-
-        chosen.add(candidate);
-        seenCategories.add(candidate.place.category);
-        accumulatedMinutes = projectedTotal;
-        _recordHistory(candidate.place.placeId);
-      }
-    }
-
-    return chosen;
-  }
-
-  /// Construct scheduled stop models with sequential times and travel buffers
+  /// Construct scheduled stop models with sequential times and exact travel legs
   static List<ItineraryStopModel> _buildScheduledStops({
-    required List<_ScoredPlace> places,
+    required List<PlaceModel> places,
     required int startMinutes,
     required int dayNumber,
     required String stateId,
     required String stateName,
+    Map<String, String> mealRoles = const {},
+    List<Map<String, dynamic>> activeTasks = const [],
   }) {
     final result = <ItineraryStopModel>[];
     int currentMinutes = startMinutes;
 
     for (var i = 0; i < places.length; i++) {
-      final sp = places[i];
-      final place = sp.place;
-      final task = sp.task;
+      final place = places[i];
+      final task = CulturalTaskService.matchTaskForPlace(place.toMap(), activeTasks);
 
-      // Calculate travel time from previous stop
+      // Travel time from previous stop
       int travelTime = 0;
       if (i > 0) {
-        final prevPlace = places[i - 1].place;
-        travelTime = _estimateTravelMinutes(prevPlace, place);
+        final prevPlace = places[i - 1];
+        travelTime = MealPlanningService.estimateTravelMinutes(prevPlace, place);
       }
       currentMinutes += travelTime;
 
       final stopStart = currentMinutes;
       final stopEnd = stopStart + place.estimatedVisitMinutes;
-      currentMinutes = stopEnd + 10; // 10 min rest/buffer
+      currentMinutes = stopEnd; // Sequential exact scheduling (no phantom gap jumps)
 
       final timeLabel = '${_formatMinutes(stopStart)} - ${_formatMinutes(stopEnd)}';
 
@@ -356,6 +554,9 @@ class ItineraryRecommendationService {
       if (task != null) {
         notes.add('Cultural task available: ${task['title']} (+${task['rewardPoints']} pts)');
       }
+
+      final mealRole = mealRoles[place.placeId] ??
+          (place.category == 'Food' ? MealPlanningService.getMealRoleForMinute(stopStart) : null);
 
       result.add(ItineraryStopModel(
         placeId: place.placeId,
@@ -388,26 +589,13 @@ class ItineraryRecommendationService {
         suggestedEndMinutes: stopEnd,
         travelMinutesBefore: travelTime,
         scheduleNotes: notes,
-        mealRole: place.category == 'Food' ? (stopStart >= 720 ? 'Lunch / Dinner' : 'Breakfast / Tea') : null,
+        mealRole: mealRole,
         phone: place.phone,
         website: place.website,
       ));
     }
 
     return result;
-  }
-
-  static int _estimateTravelMinutes(PlaceModel from, PlaceModel to) {
-    if (from.latitude == 0 || to.latitude == 0) return 15;
-    // Haversine approximate distance
-    final dLat = (to.latitude - from.latitude) * 111.0;
-    final dLng = (to.longitude - from.longitude) * 111.0 * cos(from.latitude * pi / 180);
-    final distanceKm = sqrt(dLat * dLat + dLng * dLng);
-
-    if (distanceKm <= 1.5) return 8;
-    if (distanceKm <= 5.0) return 15;
-    if (distanceKm <= 15.0) return 25;
-    return 35;
   }
 
   static String _formatMinutes(int minutes) {
@@ -424,7 +612,6 @@ class ItineraryRecommendationService {
     required int dayIndex,
   }) {
     if (allInterests.length <= 1) return allInterests;
-    // Rotate primary interest for variety across multi-day tours
     final rotated = <String>[];
     for (var i = 0; i < allInterests.length; i++) {
       rotated.add(allInterests[(i + dayIndex) % allInterests.length]);
