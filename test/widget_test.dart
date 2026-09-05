@@ -773,15 +773,15 @@ void main() {
 
       // Activity = 60 + 90 + 45 = 195 min
       expect(schedule.plannedActivityMinutes, 195);
-      // Travel = 0 + 7 + 10 = 17 min (calculated from coordinates)
-      expect(schedule.travelMinutes, 17);
-      // Total used = 195 + 17 = 212 min
-      expect(schedule.usedScheduleMinutes, 212);
-      expect(schedule.totalEstimatedMinutes, 212);
-      // Remaining = 360 - 212 = 148 min
-      expect(schedule.remainingMinutes, 148);
-      // End minutes = 540 + 212 = 752 (12:32 PM)
-      expect(schedule.endMinutes, 752);
+      // Travel = 0 + 6 + 10 = 16 min (calculated from coordinates)
+      expect(schedule.travelMinutes, 16);
+      // Total used = 195 + 16 = 211 min
+      expect(schedule.usedScheduleMinutes, 211);
+      expect(schedule.totalEstimatedMinutes, 211);
+      // Remaining = 360 - 211 = 149 min
+      expect(schedule.remainingMinutes, 149);
+      // End minutes = 540 + 211 = 751 (12:31 PM)
+      expect(schedule.endMinutes, 751);
       expect(schedule.endMinutes <= 900, isTrue);
     });
 

@@ -2768,12 +2768,21 @@ class GeoapifyPlanner {
       toPoint['latitude']!,
       toPoint['longitude']!,
     );
-    final walkingSpeed = switch (pace) {
-      'Relaxed' => 3.5,
-      'Fast' || 'Packed' => 5.5,
-      _ => 4.5,
-    };
-    return max(5, min(180, ((distanceKm / walkingSpeed) * 60).round()));
+
+    // Realistic Malaysian travel estimation:
+    // <= 1.0 km: walkable (5-8 min)
+    // 1.0 - 4.0 km: short drive/e-hailing (8-14 min)
+    // 4.0 - 10.0 km: city transit/drive (14-22 min)
+    // > 10.0 km: cross-district drive (22-35 min)
+    if (distanceKm <= 1.0) {
+      return (distanceKm * 7 + 4).round().clamp(5, 10);
+    } else if (distanceKm <= 4.0) {
+      return (distanceKm * 2.0 + 5).round().clamp(8, 15);
+    } else if (distanceKm <= 10.0) {
+      return (distanceKm * 1.5 + 6).round().clamp(12, 22);
+    } else {
+      return (distanceKm * 0.8 + 12).round().clamp(20, 35);
+    }
   }
 
   static Map<String, double>? _coordinateMap(Object? raw) {

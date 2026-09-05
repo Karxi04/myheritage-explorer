@@ -199,67 +199,78 @@ class ItinerarySchedulePlanner {
 
     var cursor = start;
 
-    for (var index = 0; index < planned.length; index++) {
-      final stop = planned[index];
-      final travel = index == 0
-          ? 0
-          : _travelMinutes(planned[index - 1], stop, pace);
-      final distance = index == 0
-          ? null
-          : _distanceMeters(planned[index - 1], stop);
-      final arrival = cursor + travel;
-      final duration = max(
-        20,
-        (stop['durationMinutes'] as num?)?.round() ??
-            (stop['estimatedVisitMinutes'] as num?)?.round() ??
-            45,
-      );
+    void computeSchedule() {
+      cursor = start;
+      for (var index = 0; index < planned.length; index++) {
+        final stop = planned[index];
+        final travel = index == 0
+            ? 0
+            : _travelMinutes(planned[index - 1], stop, pace);
+        final distance = index == 0
+            ? null
+            : _distanceMeters(planned[index - 1], stop);
+        final arrival = cursor + travel;
+        final duration = max(
+          20,
+          (stop['durationMinutes'] as num?)?.round() ??
+              (stop['estimatedVisitMinutes'] as num?)?.round() ??
+              45,
+        );
 
-      final departure = arrival + duration;
-      final notes = <String>[];
+        final departure = arrival + duration;
+        final notes = <String>[];
 
-      final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
-      final openingNote = _openingNote(
-        window: openingWindow,
-        arrival: arrival,
-        departure: departure,
-      );
-      if (openingNote != null) notes.add(openingNote);
+        final openingWindow = _openingWindow('${stop['openingHours'] ?? ''}');
+        final openingNote = _openingNote(
+          window: openingWindow,
+          arrival: arrival,
+          departure: departure,
+        );
+        if (openingNote != null) notes.add(openingNote);
 
-      if (openingWindow == null &&
-          '${stop['openingHours'] ?? ''}'.trim().isNotEmpty) {
-        notes.add('Check opening hours.');
+        if (openingWindow == null &&
+            '${stop['openingHours'] ?? ''}'.trim().isNotEmpty) {
+          notes.add('Check opening hours.');
+        }
+
+        if (travel >= 35 || (distance != null && distance >= 15000)) {
+          final distanceText = distance == null
+              ? 'distance not available'
+              : _formatDistance(distance.toDouble());
+          notes.add('Far stop: $distanceText, $travel min travel.');
+        } else if (travel >= 22) {
+          notes.add('Travel: $travel min from previous stop.');
+        }
+
+        final mealSuggestion = stop['optionalFoodExperience'] == true
+            ? 'Optional food exploration stop'
+            : GeoapifyPlanner._mealSuggestionText(stop, arrival);
+        if (mealSuggestion != null) {
+          stop['mealSuggestionLabel'] = mealSuggestion;
+        }
+
+        stop
+          ..['sequence'] = index + 1
+          ..['travelMinutesBefore'] = travel
+          ..['routeDistanceMetersBefore'] = distance
+          ..['bufferMinutesAfter'] = 0
+          ..['suggestedStartMinutes'] = arrival
+          ..['suggestedEndMinutes'] = departure
+          ..['suggestedTimeLabel'] =
+              '${formatTime(arrival)} - ${formatTime(departure)}'
+          ..['scheduleNotes'] = notes
+          ..['scheduleStatus'] = notes.isEmpty ? 'ok' : 'caution';
+
+        cursor = departure;
       }
+    }
 
-      if (travel >= 35 || (distance != null && distance >= 15000)) {
-        final distanceText = distance == null
-            ? 'distance not available'
-            : _formatDistance(distance.toDouble());
-        notes.add('Far stop: $distanceText, $travel min travel.');
-      } else if (travel >= 22) {
-        notes.add('Travel: $travel min from previous stop.');
-      }
+    computeSchedule();
 
-      final mealSuggestion = stop['optionalFoodExperience'] == true
-          ? 'Optional food exploration stop'
-          : GeoapifyPlanner._mealSuggestionText(stop, arrival);
-      if (mealSuggestion != null) {
-        stop['mealSuggestionLabel'] = mealSuggestion;
-      }
-
-      stop
-        ..['sequence'] = index + 1
-        ..['travelMinutesBefore'] = travel
-        ..['routeDistanceMetersBefore'] = distance
-        ..['bufferMinutesAfter'] = 0
-        ..['suggestedStartMinutes'] = arrival
-        ..['suggestedEndMinutes'] = departure
-        ..['suggestedTimeLabel'] =
-            '${formatTime(arrival)} - ${formatTime(departure)}'
-        ..['scheduleNotes'] = notes
-        ..['scheduleStatus'] = notes.isEmpty ? 'ok' : 'caution';
-
-      cursor = departure;
+    // Strict safety clamp: ensure used schedule minutes NEVER exceeds dailyAvailableMinutes
+    while (planned.length > 1 && (cursor - start) > dailyAvailableMinutes) {
+      planned.removeLast();
+      computeSchedule();
     }
 
     _addOrderSuggestions(planned, pace);
