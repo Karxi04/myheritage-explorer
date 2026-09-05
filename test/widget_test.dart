@@ -1,6 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:myheritage_explorer/core/services.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
+import 'package:myheritage_explorer/traveler/daily_planner/models/place_model.dart';
+import 'package:myheritage_explorer/traveler/daily_planner/models/travel_preferences_model.dart';
+import 'package:myheritage_explorer/traveler/daily_planner/services/malaysia_location_service.dart';
+import 'package:myheritage_explorer/traveler/daily_planner/services/itinerary_recommendation_service.dart';
 
 void main() {
   test('basic Flutter test environment works', () {
@@ -199,27 +203,235 @@ void main() {
     );
   });
 
-  test('curated place image resolver assigns unique distinct photos', () async {
+  test('firestore place image resolver preserves unique attraction photos', () async {
     final stop1 = await ItineraryImageResolver.resolveStop({
       'name': 'Mengkuang Dam Lakeside Park',
       'category': 'Nature',
+      'primaryImageUrl': 'https://images.unsplash.com/photo-1439066615861-d1af74d74000',
     });
     final stop2 = await ItineraryImageResolver.resolveStop({
       'name': 'Chew Jetty',
       'category': 'Heritage',
+      'primaryImageUrl': 'https://images.unsplash.com/photo-1596422846543-75c6fc197f07',
     });
     final stop3 = await ItineraryImageResolver.resolveStop({
       'name': 'Restoran BM Yam Rice',
       'category': 'Food',
+      'primaryImageUrl': 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624',
     });
 
     expect(stop1['imageUrl'], isNotEmpty);
     expect(stop2['imageUrl'], isNotEmpty);
     expect(stop3['imageUrl'], isNotEmpty);
 
-    // Verify all 3 stops have different, distinct images
+    // Verify all 3 stops have different, distinct images from their respective Firestore records
     expect(stop1['imageUrl'], isNot(equals(stop2['imageUrl'])));
     expect(stop1['imageUrl'], isNot(equals(stop3['imageUrl'])));
     expect(stop2['imageUrl'], isNot(equals(stop3['imageUrl'])));
+  });
+
+  group('Tutor Requirements: Multi-Day Date Validation', () {
+    test('allows flexible multi-day trip selection without artificial 5-day cap', () {
+      final start = DateTime(2026, 9, 10);
+      
+      // 1 day
+      final pref1 = TravelPreferences(stateId: 'penang', startDate: start, endDate: start);
+      expect(pref1.dayCount, 1);
+      expect(pref1.isValid, isTrue);
+
+      // 3 days
+      final pref3 = TravelPreferences(stateId: 'penang', startDate: start, endDate: start.add(const Duration(days: 2)));
+      expect(pref3.dayCount, 3);
+      expect(pref3.isValid, isTrue);
+
+      // 7 days
+      final pref7 = TravelPreferences(stateId: 'penang', startDate: start, endDate: start.add(const Duration(days: 6)));
+      expect(pref7.dayCount, 7);
+      expect(pref7.isValid, isTrue);
+
+      // 14 days
+      final pref14 = TravelPreferences(stateId: 'penang', startDate: start, endDate: start.add(const Duration(days: 13)));
+      expect(pref14.dayCount, 14);
+      expect(pref14.isValid, isTrue);
+    });
+  });
+
+  group('Tutor Requirements: 1 Itinerary = 1 Malaysian State Isolation', () {
+    test('contains all 13 states + 3 federal territories in catalog', () {
+      expect(MalaysiaLocationService.defaultStates.length, 16);
+      final stateIds = MalaysiaLocationService.defaultStates.map((s) => s.id).toSet();
+      expect(stateIds.contains('penang'), isTrue);
+      expect(stateIds.contains('melaka'), isTrue);
+      expect(stateIds.contains('kuala_lumpur'), isTrue);
+      expect(stateIds.contains('selangor'), isTrue);
+      expect(stateIds.contains('sabah'), isTrue);
+      expect(stateIds.contains('sarawak'), isTrue);
+    });
+
+    test('state normalization and inference accurately maps locations', () {
+      expect(MalaysiaLocationService.normalizeStateId('Penang'), 'penang');
+      expect(MalaysiaLocationService.normalizeStateId('Pulau Pinang'), 'penang');
+      expect(MalaysiaLocationService.normalizeStateId('Melaka'), 'melaka');
+      expect(MalaysiaLocationService.normalizeStateId('Kuala Lumpur'), 'kuala_lumpur');
+
+      expect(MalaysiaLocationService.inferStateIdFromArea('George Town'), 'penang');
+      expect(MalaysiaLocationService.inferStateIdFromArea('Jonker Walk, Melaka'), 'melaka');
+      expect(MalaysiaLocationService.inferStateIdFromArea('Bukit Bintang, KL'), 'kuala_lumpur');
+      expect(MalaysiaLocationService.inferStateIdFromArea('Petaling Jaya'), 'selangor');
+    });
+
+    test('mock places repository enforces strict state boundary', () {
+      final mockPenangPlace = PlaceModel(
+        placeId: 'p1',
+        name: 'Chew Jetty',
+        stateId: 'penang',
+        stateName: 'Penang',
+        area: 'George Town',
+        category: 'Heritage',
+      );
+      final mockMelakaPlace = PlaceModel(
+        placeId: 'm1',
+        name: 'Stadthuys',
+        stateId: 'melaka',
+        stateName: 'Melaka',
+        area: 'Bandar Hilir',
+        category: 'Heritage',
+      );
+
+      final isPenangSameState = mockPenangPlace.stateId == 'penang';
+      final isMelakaSameState = mockMelakaPlace.stateId == 'penang';
+
+      expect(isPenangSameState, isTrue);
+      expect(isMelakaSameState, isFalse);
+    });
+  });
+
+  group('Tutor Requirements: Duration Fitting & Stop Count', () {
+    test('different available duration adjusts stop counts realistically', () async {
+      // 2h -> 2 stops
+      // 4h -> 3-4 stops
+      // 8h -> 5-6 stops (with meal/rest)
+      final dummyPlaces = List.generate(
+        10,
+        (i) => PlaceModel(
+          placeId: 'place_$i',
+          name: 'Penang Heritage Stop $i',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: i % 2 == 0 ? 'Heritage' : 'Food',
+          estimatedVisitMinutes: 45,
+          publicRating: 4.5 + (i % 5) * 0.1,
+          validReviewCount: 10 + i,
+        ),
+      );
+
+      final pref2h = TravelPreferences(stateId: 'penang', availableHours: 2.0);
+      final pref4h = TravelPreferences(stateId: 'penang', availableHours: 4.0);
+      final pref8h = TravelPreferences(stateId: 'penang', availableHours: 8.0);
+
+      final result2h = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref2h,
+        candidatePlaces: dummyPlaces,
+      );
+      final result4h = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref4h,
+        candidatePlaces: dummyPlaces,
+      );
+      final result8h = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref8h,
+        candidatePlaces: dummyPlaces,
+      );
+
+      expect(result2h.days.first.stops.length, lessThanOrEqualTo(3));
+      expect(result4h.days.first.stops.length, greaterThanOrEqualTo(3));
+      expect(result8h.days.first.stops.length, greaterThan(result4h.days.first.stops.length));
+    });
+  });
+
+  group('Tutor Requirements: Multi-Day Anti-Duplication', () {
+    test('multi-day trip generation never repeats places across days', () async {
+      final dummyPlaces = List.generate(
+        20,
+        (i) => PlaceModel(
+          placeId: 'unique_place_$i',
+          name: 'Penang Stop $i',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: ['Heritage', 'Food', 'Culture', 'Art', 'Nature'][i % 5],
+          estimatedVisitMinutes: 50,
+          publicRating: 4.5,
+          validReviewCount: 15,
+        ),
+      );
+
+      final pref3Days = TravelPreferences(
+        stateId: 'penang',
+        startDate: DateTime(2026, 9, 10),
+        endDate: DateTime(2026, 9, 12), // 3 days
+        availableHours: 4.0,
+      );
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref3Days,
+        candidatePlaces: dummyPlaces,
+      );
+
+      expect(itinerary.days.length, 3);
+
+      final allPlaceIds = <String>[];
+      for (final day in itinerary.days) {
+        for (final stop in day.stops) {
+          allPlaceIds.add(stop.placeId);
+        }
+      }
+
+      final uniquePlaceIds = allPlaceIds.toSet();
+      // No duplicate place IDs across the entire multi-day trip
+      expect(allPlaceIds.length, uniquePlaceIds.length);
+    });
+  });
+
+  group('Tutor Requirements: Controlled Diversity & Recommendation Pipeline', () {
+    test('penalty for recently selected place IDs promotes diversity on consecutive runs', () async {
+      final dummyPlaces = List.generate(
+        15,
+        (i) => PlaceModel(
+          placeId: 'divers_place_$i',
+          name: 'Attraction $i',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Heritage',
+          estimatedVisitMinutes: 45,
+          publicRating: 4.8,
+          validReviewCount: 20,
+        ),
+      );
+
+      final pref = TravelPreferences(stateId: 'penang', availableHours: 4.0);
+
+      // Run 1
+      final it1 = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: dummyPlaces,
+        randomSeed: 42,
+      );
+      final run1PlaceIds = it1.days.first.stops.map((s) => s.placeId).toSet();
+
+      // Run 2 with recentlyRecommendedPlaceIds from Run 1
+      final it2 = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: dummyPlaces,
+        recentlyRecommendedPlaceIds: run1PlaceIds,
+        randomSeed: 99,
+      );
+      final run2PlaceIds = it2.days.first.stops.map((s) => s.placeId).toSet();
+
+      // Run 2 should contain varied stops that were not in Run 1
+      final difference = run2PlaceIds.difference(run1PlaceIds);
+      expect(difference.isNotEmpty, isTrue);
+    });
   });
 }

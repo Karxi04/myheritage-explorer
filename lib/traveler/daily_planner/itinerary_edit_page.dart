@@ -25,6 +25,14 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
     return value.isEmpty ? 'George Town, Penang' : value;
   }
 
+  String get _itineraryStateId {
+    final raw = '${widget.itinerary['stateId'] ?? widget.itinerary['state'] ?? widget.itinerary['stateName'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return MalaysiaLocationService.normalizeStateId(raw);
+    return MalaysiaLocationService.inferStateIdFromArea(_destinationLabel);
+  }
+
+  String get _itineraryStateName => MalaysiaLocationService.getStateName(_itineraryStateId);
+
   String _stopIdentity(Map<String, dynamic> stop) {
     final vendorId = '${stop['vendorId'] ?? ''}'.trim();
     if (vendorId.isNotEmpty) return 'vendor:$vendorId';
@@ -189,6 +197,21 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         ),
       );
       if (selected == null || !mounted) return;
+
+      final stopState = MalaysiaLocationService.normalizeStateId(
+        '${selected['stateId'] ?? selected['state'] ?? selected['stateName'] ?? ''}'.trim().isNotEmpty
+            ? '${selected['stateId'] ?? selected['state'] ?? selected['stateName'] ?? ''}'
+            : MalaysiaLocationService.inferStateIdFromArea('${selected['area'] ?? selected['formattedAddress'] ?? ''}'),
+      );
+      if (stopState.isNotEmpty && stopState != _itineraryStateId) {
+        showMessage(
+          context,
+          'This itinerary is for $_itineraryStateName only. Please create a new itinerary to plan locations in another state.',
+          error: true,
+        );
+        return;
+      }
+
       final selectedKey = _stopIdentity(selected);
       if (curStops.any((stop) => _stopIdentity(stop) == selectedKey)) {
         showMessage(
@@ -801,6 +824,14 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
     return value.isEmpty ? 'George Town, Penang' : value;
   }
 
+  String get _stateId {
+    final raw = '${widget.itinerary['stateId'] ?? widget.itinerary['state'] ?? widget.itinerary['stateName'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return MalaysiaLocationService.normalizeStateId(raw);
+    return MalaysiaLocationService.inferStateIdFromArea(_destinationLabel);
+  }
+
+  String get _stateName => MalaysiaLocationService.getStateName(_stateId);
+
   static const categories = <String>[
     'All',
     'Heritage',
@@ -888,15 +919,48 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
       lastQuery = typedQuery;
     });
     try {
-      final places = await GeoapifyPlanner.searchPlacesForAdding(
+      final statePlaces = await PlaceRepository.searchPlacesForAdding(
+        stateId: _stateId,
         area: _destinationLabel,
         interests: _selectedInterests,
-        budgetLevel: '${widget.itinerary['budgetLevel'] ?? 'Medium'}',
         query: typedQuery,
         excludedPlaceIds: widget.existingPlaceIds,
       );
+
+      var placesList = statePlaces.map((p) => p.toItineraryStopMap()).toList();
+
+      if (category != 'All') {
+        placesList = placesList.where((p) {
+          final cat = '${p['category'] ?? ''}'.toLowerCase();
+          final rawTags = p['tags'] ?? p['interestTags'];
+          final tags = rawTags is List ? rawTags.map((e) => '$e'.toLowerCase()).toList() : <String>[];
+          return cat == category.toLowerCase() || tags.contains(category.toLowerCase());
+        }).toList();
+      }
+
+      if (placesList.isEmpty && typedQuery.isNotEmpty) {
+        try {
+          final geoPlaces = await GeoapifyPlanner.searchPlacesForAdding(
+            area: _destinationLabel,
+            interests: _selectedInterests,
+            budgetLevel: '${widget.itinerary['budgetLevel'] ?? 'Medium'}',
+            query: typedQuery,
+            excludedPlaceIds: widget.existingPlaceIds,
+          );
+          final filteredGeo = geoPlaces.where((p) {
+            final pState = MalaysiaLocationService.normalizeStateId(
+              '${p['stateId'] ?? p['state'] ?? p['stateName'] ?? ''}'.trim().isNotEmpty
+                  ? '${p['stateId'] ?? p['state'] ?? p['stateName'] ?? ''}'
+                  : MalaysiaLocationService.inferStateIdFromArea('${p['area'] ?? p['formattedAddress'] ?? ''}'),
+            );
+            return pState.isEmpty || pState == _stateId;
+          }).toList();
+          placesList.addAll(filteredGeo);
+        } catch (_) {}
+      }
+
       if (!mounted) return;
-      setState(() => results = places);
+      setState(() => results = placesList);
     } catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -938,7 +1002,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          'Showing places related to $_destinationLabel only.',
+                          'Showing places in $_stateName ($_destinationLabel) only.',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

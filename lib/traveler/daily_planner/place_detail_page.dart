@@ -63,6 +63,14 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       // The visual widget still has its own category fallback.
     }
 
+    try {
+      final activeTasks = await CulturalTaskService.loadActiveTasks();
+      final matchedTask = CulturalTaskService.matchTaskForPlace(enriched, activeTasks);
+      if (matchedTask != null) {
+        enriched['culturalTask'] = matchedTask;
+      }
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       place = enriched;
@@ -107,7 +115,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
 
   bool _isDisplayableReview(Map<String, dynamic> review) {
     final status = '${review['status'] ?? 'valid'}'.trim().toLowerCase();
-    return !{'flagged', 'hidden', 'removed', 'rejected'}.contains(status);
+    return !{'flagged', 'hidden', 'removed', 'rejected', 'filtered', 'deleted'}.contains(status);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _placeReviewsStream() {

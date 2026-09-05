@@ -932,7 +932,9 @@ class ItineraryImageResolver {
 
       final originalImageType = '${stop['imageType'] ?? ''}'.toLowerCase();
       final existingCandidates = _uniqueUrls([
+        stop['primaryImageUrl'],
         stop['imageUrl'],
+        if (stop['imageUrls'] is List) ...(stop['imageUrls'] as List),
         stop['photoUrl'],
         stop['thumbnailUrl'],
         stop['wikiImageUrl'],
@@ -1162,11 +1164,15 @@ class ItineraryPlaceImage extends StatelessWidget {
 
   static List<String> _uniqueCandidateList(Map<String, dynamic> stop) {
     final imageCand = stop['imageCandidates'];
+    final rawImgs = stop['imageUrls'];
     final raw = <Object?>[
+      stop['primaryImageUrl'],
       if (imageCand is List)
         ...imageCand
       else if (imageCand != null)
         imageCand,
+      if (rawImgs is List)
+        ...rawImgs,
       stop['imageUrl'],
       stop['photoUrl'],
       stop['thumbnailUrl'],
