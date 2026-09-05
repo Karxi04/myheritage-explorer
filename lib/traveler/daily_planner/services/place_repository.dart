@@ -103,19 +103,35 @@ class PlaceRepository {
     final allPlaces = await getPlacesForState(stateId);
     final excludedSet = excludedPlaceIds.toSet();
     final qLower = query.toLowerCase().trim();
-    final areaLower = area.toLowerCase().trim();
+    final cleanArea = area.split(',').first.toLowerCase().trim();
 
-    return allPlaces.where((place) {
+    bool isMatchingArea(PlaceModel place) {
+      if (cleanArea.isEmpty) return true;
+      final pArea = place.area.toLowerCase();
+      final pAddr = place.formattedAddress.toLowerCase();
+      final pName = place.name.toLowerCase();
+
+      final normTarget = cleanArea.replaceAll(' ', '').replaceAll('-', '');
+      final normArea = pArea.replaceAll(' ', '').replaceAll('-', '');
+      final normAddr = pAddr.replaceAll(' ', '').replaceAll('-', '');
+
+      if (normArea.contains(normTarget) || normTarget.contains(normArea)) return true;
+      if (normAddr.contains(normTarget) || pAddr.contains(cleanArea)) return true;
+      if (pName.contains(cleanArea)) return true;
+      return false;
+    }
+
+    final filtered = allPlaces.where((place) {
       if (excludedSet.contains(place.placeId)) return false;
 
       // Filter by search query if provided
       if (qLower.isNotEmpty) {
-        final searchable = '${place.name} ${place.category} ${place.area} ${place.description} ${place.interestTags.join(" ")}'.toLowerCase();
+        final searchable = '${place.name} ${place.category} ${place.area} ${place.formattedAddress} ${place.description} ${place.interestTags.join(" ")}'.toLowerCase();
         if (!searchable.contains(qLower)) return false;
       }
 
-      // If area is specified and no text query, prioritize same area / state
-      if (areaLower.isNotEmpty && qLower.isEmpty && interests.isNotEmpty) {
+      // If no text query and interests are specified, filter by interest
+      if (qLower.isEmpty && interests.isNotEmpty) {
         final matchesInterest = place.interestTags.any((t) => interests.any((i) => i.toLowerCase() == t.toLowerCase())) ||
             interests.any((i) => i.toLowerCase() == place.category.toLowerCase());
         if (!matchesInterest) return false;
@@ -123,6 +139,30 @@ class PlaceRepository {
 
       return true;
     }).toList();
+
+    // Sort: Matching area first, then verified and highest public rating
+    filtered.sort((a, b) {
+      final aArea = isMatchingArea(a);
+      final bArea = isMatchingArea(b);
+
+      if (aArea && !bArea) return -1;
+      if (!aArea && bArea) return 1;
+
+      final scoreA = a.publicRating + (a.isVerified ? 0.5 : 0.0);
+      final scoreB = b.publicRating + (b.isVerified ? 0.5 : 0.0);
+      return scoreB.compareTo(scoreA);
+    });
+
+    // When showing default suggestions (empty text query) for a specific area,
+    // isolate results to that area so places from other cities do not leak in!
+    if (qLower.isEmpty && cleanArea.isNotEmpty) {
+      final areaMatches = filtered.where(isMatchingArea).toList();
+      if (areaMatches.isNotEmpty) {
+        return areaMatches;
+      }
+    }
+
+    return filtered;
   }
 
   /// Seed initial heritage places into Firestore if the places collection is empty

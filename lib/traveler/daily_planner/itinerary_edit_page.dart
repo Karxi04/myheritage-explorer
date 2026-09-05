@@ -819,18 +819,30 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
   String category = 'All';
   String lastQuery = '';
 
-  String get _destinationLabel {
-    final value = '${widget.itinerary['area'] ?? ''}'.trim();
-    return value.isEmpty ? 'George Town, Penang' : value;
-  }
-
   String get _stateId {
     final raw = '${widget.itinerary['stateId'] ?? widget.itinerary['state'] ?? widget.itinerary['stateName'] ?? ''}'.trim();
     if (raw.isNotEmpty) return MalaysiaLocationService.normalizeStateId(raw);
-    return MalaysiaLocationService.inferStateIdFromArea(_destinationLabel);
+    final area = '${widget.itinerary['area'] ?? widget.itinerary['selectedArea'] ?? ''}'.trim();
+    return MalaysiaLocationService.inferStateIdFromArea(area);
   }
 
   String get _stateName => MalaysiaLocationService.getStateName(_stateId);
+
+  String get _destinationLabel {
+    final area = '${widget.itinerary['area'] ?? widget.itinerary['selectedArea'] ?? ''}'.trim();
+    if (area.isNotEmpty) return area;
+    final title = '${widget.itinerary['title'] ?? ''}'.trim();
+    if (title.isNotEmpty && title.contains('(')) {
+      final insideParen = title.split('(').last.replaceAll(')', '').trim();
+      if (insideParen.isNotEmpty) return insideParen;
+    }
+    final match = MalaysiaLocationService.defaultStates.firstWhere(
+      (s) => s.id == _stateId,
+      orElse: () => const MalaysianStateItem(id: '', name: '', areas: []),
+    );
+    if (match.areas.isNotEmpty) return match.areas.first;
+    return _stateName;
+  }
 
   static const categories = <String>[
     'All',
