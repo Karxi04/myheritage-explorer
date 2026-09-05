@@ -408,7 +408,7 @@ class ItineraryRecommendationService {
     }
 
     final updatedPlaces = currentDay.stops.map((s) {
-      return availablePlaces.firstWhere(
+      final base = availablePlaces.firstWhere(
         (p) => p.placeId == s.placeId,
         orElse: () => PlaceModel(
           placeId: s.placeId,
@@ -425,6 +425,7 @@ class ItineraryRecommendationService {
           trustLabel: s.trustLabel,
         ),
       );
+      return base.copyWith(estimatedVisitMinutes: s.durationMinutes);
     }).toList();
 
     updatedPlaces.add(dessertCandidate);

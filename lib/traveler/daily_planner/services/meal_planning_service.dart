@@ -197,8 +197,11 @@ class MealPlanningService {
     for (final candidate in candidates) {
       final travel = referenceLocation != null
           ? estimateTravelMinutes(referenceLocation, candidate)
-          : 10;
-      final requiredTime = candidate.estimatedVisitMinutes + travel;
+          : 8;
+      final maxAvailableVisit = remainingMinutes - travel;
+      if (maxAvailableVisit < 20) continue; // Requires at least 20 min visit
+      final visitMin = min(candidate.estimatedVisitMinutes, maxAvailableVisit.clamp(20, 35));
+      final requiredTime = visitMin + travel;
 
       if (requiredTime > remainingMinutes) continue;
 
@@ -208,7 +211,7 @@ class MealPlanningService {
 
       if (score > bestScore) {
         bestScore = score;
-        bestCandidate = candidate;
+        bestCandidate = candidate.copyWith(estimatedVisitMinutes: visitMin);
       }
     }
 

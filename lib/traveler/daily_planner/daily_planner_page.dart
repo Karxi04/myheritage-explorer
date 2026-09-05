@@ -4847,44 +4847,73 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             isExpanded: true,
                             isDense: true,
                             value: availableHours,
+                            selectedItemBuilder: (BuildContext context) {
+                              return const [2.0, 4.0, 6.0, 8.0].map<Widget>((double val) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    '${val.toInt()} hrs / day',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                );
+                              }).toList();
+                            },
                             items: const [
                               DropdownMenuItem(
                                 value: 2,
                                 child: Text(
-                                  '2 hours / day (Short)',
+                                  '2 Hours / day (Short)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
                                   ),
                                 ),
                               ),
                               DropdownMenuItem(
                                 value: 4,
                                 child: Text(
-                                  '4 hrs / day (Half Day)',
+                                  '4 Hours / day (Half Day)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
                                   ),
                                 ),
                               ),
                               DropdownMenuItem(
                                 value: 6,
                                 child: Text(
-                                  '6 hours / day (Standard)',
+                                  '6 Hours / day (Standard)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
                                   ),
                                 ),
                               ),
                               DropdownMenuItem(
                                 value: 8,
                                 child: Text(
-                                  '8 hrs / day (Full Day)',
+                                  '8 Hours / day (Full Day)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
                                   ),
                                 ),
                               ),
@@ -4894,12 +4923,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             decoration: const InputDecoration(
                               isDense: true,
                               contentPadding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 8,
+                                horizontal: 6,
+                                vertical: 6,
                               ),
                               prefixIconConstraints: BoxConstraints(
-                                minWidth: 26,
-                                minHeight: 26,
+                                minWidth: 24,
+                                minHeight: 24,
                               ),
                               prefixIcon: Padding(
                                 padding: EdgeInsets.only(left: 6, right: 4),
