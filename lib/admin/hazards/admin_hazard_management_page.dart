@@ -187,7 +187,12 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                 );
               }
               final votes = voteSnapshot.data ?? const <HazardVote>[];
-              final analysis = _confidenceService.analyze(votes);
+              final clientAnalysis = _confidenceService.analyze(votes);
+              final serverSummary = report.serverConfidence;
+              final useServerConfidence = serverSummary?.isFresh() == true;
+              final analysis = useServerConfidence
+                  ? ConfidenceAnalysisResult.fromServerSummary(serverSummary!)
+                  : clientAnalysis;
 
               return Column(
                 children: [
@@ -236,7 +241,10 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                                   _AggregatedAiEvidenceCard(votes: votes),
                                   const SizedBox(height: 16),
                                   // 6. Resolution Confidence Panel
-                                  _ConfidenceAnalysisCard(analysis: analysis),
+                                  _ConfidenceAnalysisCard(
+                                    analysis: analysis,
+                                    serverCalculated: useServerConfidence,
+                                  ),
                                 ],
 
                                 // Bottom padding to clear sticky bar

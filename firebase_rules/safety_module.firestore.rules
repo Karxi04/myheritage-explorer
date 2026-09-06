@@ -49,6 +49,27 @@ service cloud.firestore {
         && !('aiAnalysisFailureReason' in data);
     }
 
+    function hasNoServerVoteValidationFields(data) {
+      return !('serverValidationStatus' in data)
+        && !('serverValidatedAt' in data)
+        && !('serverValidationReasons' in data);
+    }
+
+    function hasNoServerConfidence(data) {
+      return !('serverConfidence' in data);
+    }
+
+    function serverConfidenceUnchanged() {
+      return (
+          !('serverConfidence' in resource.data)
+          && !('serverConfidence' in request.resource.data)
+        ) || (
+          'serverConfidence' in resource.data
+          && 'serverConfidence' in request.resource.data
+          && request.resource.data.serverConfidence == resource.data.serverConfidence
+        );
+    }
+
     function validEvidenceValidation(value) {
       return value is map
         && validOptionalSceneMatch(value)
@@ -93,6 +114,7 @@ service cloud.firestore {
         || (signedIn() && resource.data.status == 'Verified');
 
       allow create: if isActiveTraveler()
+        && hasNoServerConfidence(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'hazardId', 'userId', 'category', 'severity', 'description', 'imageUrl',
           'hasPhotoEvidence', 'evidenceStorage', 'evidenceValidationResult',
@@ -128,6 +150,7 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256;
 
       allow update: if isAdmin()
+        && serverConfidenceUnchanged()
         && validStatus(request.resource.data.status)
         && request.resource.data.reviewedBy == request.auth.uid
         && request.resource.data.reviewedAt == request.time
@@ -224,10 +247,11 @@ service cloud.firestore {
             )
           )
           && hasNoAiFields(request.resource.data)
+          && hasNoServerVoteValidationFields(request.resource.data)
           && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified';
         // Votes are immutable from client SDKs. Neither tourists nor administrator
-        // clients can update or delete vote documents or modify server-owned AI fields.
-        // Server-owned AI fields are written exclusively by Cloud Functions via the
+        // clients can update or delete vote documents or modify server-owned AI or
+        // validation fields. Server-owned fields are written exclusively by Cloud Functions via the
         // Firebase Admin SDK (which bypasses security rules).
         allow update, delete: if false;
 

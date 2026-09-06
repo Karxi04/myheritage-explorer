@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/helpers.dart';
 import '../core/safety_config.dart';
 import 'evidence_validation_result.dart';
+import 'server_confidence_summary.dart';
 
 /// Firestore status values — must match use-case specification exactly.
 abstract final class HazardReportStatus {
@@ -62,6 +63,7 @@ class HazardReport {
     this.reviewedBy,
     this.reviewedAt,
     this.statusHistory = const [],
+    this.serverConfidence,
   });
 
   final String id;
@@ -80,6 +82,7 @@ class HazardReport {
   final String? reviewedBy;
   final DateTime? reviewedAt;
   final List<HazardStatusHistoryEntry> statusHistory;
+  final ServerConfidenceSummary? serverConfidence;
 
   bool get hasValidLocation =>
       SafetyConfig.validCoordinates(latitude, longitude);
@@ -153,6 +156,11 @@ class HazardReport {
           : null,
       reviewedAt: asDate(data['reviewedAt']),
       statusHistory: history,
+      serverConfidence: data['serverConfidence'] is Map
+          ? ServerConfidenceSummary.fromMap(
+              Map<String, dynamic>.from(data['serverConfidence'] as Map),
+            )
+          : null,
     );
   }
 

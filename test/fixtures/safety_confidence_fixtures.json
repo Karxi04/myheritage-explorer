@@ -1,0 +1,80 @@
+{
+  "evaluatedAt": "2026-09-06T12:00:00.000Z",
+  "fixtures": [
+    {
+      "name": "no votes",
+      "votes": [],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 0, "confidencePercent": 0, "confidenceLevel": "INSUFFICIENT EVIDENCE", "totalVotes": 0, "validVoteCount": 0, "recentValidVoteCount": 0, "evidenceStrength": "Insufficient"}
+    },
+    {
+      "name": "fewer than five recent votes",
+      "votes": [{"count": 3, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 3, "confidencePercent": 100, "confidenceLevel": "INSUFFICIENT EVIDENCE", "totalVotes": 3, "validVoteCount": 3, "recentValidVoteCount": 3, "evidenceStrength": "Insufficient"}
+    },
+    {
+      "name": "five to nine recent votes",
+      "votes": [{"count": 6, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 6, "confidencePercent": 100, "confidenceLevel": "LIMITED EVIDENCE", "totalVotes": 6, "validVoteCount": 6, "recentValidVoteCount": 6, "evidenceStrength": "Limited"}
+    },
+    {
+      "name": "ten mostly still exists",
+      "votes": [{"count": 9, "voteType": "HAZARD_EXISTS", "minutesAgo": 2, "distance": 70}, {"count": 1, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70}],
+      "expected": {"weightedStillExists": 9, "weightedResolved": 1, "confidencePercent": 10, "confidenceLevel": "LOW", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "ten mostly appears resolved",
+      "votes": [{"count": 1, "voteType": "HAZARD_EXISTS", "minutesAgo": 2, "distance": 70}, {"count": 9, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70}],
+      "expected": {"weightedStillExists": 1, "weightedResolved": 9, "confidencePercent": 90, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "strong zero metre proximity",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 0}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 10, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "weak maximum proximity",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 500}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 5, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "votes older than confidence window",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 61, "distance": 70}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 0, "confidencePercent": 0, "confidenceLevel": "INSUFFICIENT EVIDENCE", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 0, "evidenceStrength": "Insufficient"}
+    },
+    {
+      "name": "good photo evidence",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 11.5, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "perceptual similarity boost",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85, "sceneMatchScore": 0.7}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 13.225, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "AI strong support",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85, "aiStatus": "COMPLETE", "aiMultiplier": 1.1}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 12.65, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "AI conflict",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85, "aiStatus": "COMPLETE", "aiMultiplier": 0.9}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 10.35, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "AI absent is neutral",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 11.5, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "AI pending is neutral",
+      "votes": [{"count": 10, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70, "photoQuality": 0.85, "aiStatus": "PENDING", "aiMultiplier": 1.1}],
+      "expected": {"weightedStillExists": 0, "weightedResolved": 11.5, "confidencePercent": 100, "confidenceLevel": "VERY HIGH", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    },
+    {
+      "name": "mixed vote direction",
+      "votes": [{"count": 4, "voteType": "HAZARD_EXISTS", "minutesAgo": 2, "distance": 70}, {"count": 6, "voteType": "HAZARD_RESOLVED", "minutesAgo": 2, "distance": 70}],
+      "expected": {"weightedStillExists": 4, "weightedResolved": 6, "confidencePercent": 60, "confidenceLevel": "MEDIUM", "totalVotes": 10, "validVoteCount": 10, "recentValidVoteCount": 10, "evidenceStrength": "Sufficient"}
+    }
+  ]
+}

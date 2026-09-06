@@ -100,6 +100,11 @@ abstract final class SafetyConfig {
   /// High-confidence labels require a meaningful recent sample.
   static const int minimumReliableRecentVotes = 10;
 
+  /// A server summary older than this uses the live Dart fallback. The
+  /// confidence formula has time-based 15/30/60-minute boundaries.
+  static const Duration serverConfidenceFreshness = Duration(minutes: 15);
+  static const Duration serverConfidenceFutureTolerance = Duration(minutes: 1);
+
   // ── Step 6: AI evidence weight multiplier bounds ──────────────────────────
 
   /// Lower bound of the AI evidence weight multiplier applied to a vote.

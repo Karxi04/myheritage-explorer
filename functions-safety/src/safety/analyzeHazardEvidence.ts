@@ -17,7 +17,7 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI } from '@google/genai';
 
 import {
@@ -32,6 +32,7 @@ import {
   skippedResult,
   failedResult,
 } from './aiEvidenceMultiplier';
+import { validateVote } from './voteValidation';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Secret — never hardcoded; set via Firebase secret management
@@ -82,21 +83,70 @@ export const analyzeHazardEvidence = onDocumentCreated(
       .collection('votes')
       .doc(voteId);
 
-    // ── Cost guard: skip if already analysed ──────────────────────────────
+    // Read the committed vote so server timestamps and any server-owned fields
+    // are observed rather than trusting only the trigger payload.
     const currentSnap = await voteRef.get();
-    const currentStatus = currentSnap.data()?.['aiAnalysisStatus'];
+    const currentData = currentSnap.data() ?? voteData;
+
+    // ── Basic server validation before any paid AI work ───────────────────
+    // This establishes structural consistency only. It cannot prove that the
+    // client-reported physical GPS position was truthful.
+    let hazardSnap: FirebaseFirestore.DocumentSnapshot;
+    try {
+      hazardSnap = await db.collection(HAZARD_COLLECTION).doc(hazardId).get();
+    } catch (error) {
+      logger.error('analyzeHazardEvidence: validation dependency unavailable', {
+        hazardId,
+        voteId,
+        error: String(error).slice(0, 300),
+      });
+      await voteRef.update({
+        serverValidationStatus: 'NOT_VALIDATED',
+        serverValidatedAt: FieldValue.serverTimestamp(),
+        serverValidationReasons: ['VALIDATION_DEPENDENCY_UNAVAILABLE'],
+      });
+      return;
+    }
+    const hazardData = hazardSnap.data() ?? {};
+    const validation = validateVote(currentData, {
+      voteId,
+      hazardExists: hazardSnap.exists,
+      hazardStatus: hazardData['status'],
+      now: event.time ? new Date(event.time) : new Date(),
+    });
+    const validationFields = {
+      serverValidationStatus: validation.status,
+      serverValidatedAt: FieldValue.serverTimestamp(),
+      serverValidationReasons: validation.reasons,
+    };
+    if (validation.status === 'INVALID') {
+      await voteRef.update({
+        ...validationFields,
+        ...skippedResult('INVALID_VOTE'),
+      });
+      logger.warn('analyzeHazardEvidence: invalid vote — AI skipped', {
+        hazardId,
+        voteId,
+        reasons: validation.reasons,
+      });
+      return;
+    }
+    await voteRef.update(validationFields);
+
+    // ── Cost guard: skip if already analysed ──────────────────────────────
+    const currentStatus = currentData['aiAnalysisStatus'];
     if (currentStatus === 'COMPLETE') {
       logger.info('analyzeHazardEvidence: already COMPLETE — skipping', { hazardId, voteId });
       return;
     }
 
     // ── Skip votes with no photo evidence ─────────────────────────────────
-    if (voteData['hasPhotoEvidence'] !== true) {
+    if (currentData['hasPhotoEvidence'] !== true) {
       await writeResult(voteRef, skippedResult('NO_PHOTO'));
       return;
     }
 
-    const voteType: string = voteData['voteType'] ?? '';
+    const voteType: string = currentData['voteType'] ?? '';
 
     // ── Load vote evidence bytes ───────────────────────────────────────────
     const voteEvidenceBytes = await loadEvidenceBlob(
@@ -122,8 +172,6 @@ export const analyzeHazardEvidence = onDocumentCreated(
     }
 
     // ── Load hazard metadata ──────────────────────────────────────────────
-    const hazardSnap = await db.collection(HAZARD_COLLECTION).doc(hazardId).get();
-    const hazardData = hazardSnap.data() ?? {};
     const hazardCategory: string = hazardData['category'] ?? 'Hazard';
     const hazardDescription: string = hazardData['description'] ?? '';
 

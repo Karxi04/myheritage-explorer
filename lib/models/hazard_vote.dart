@@ -8,6 +8,12 @@ abstract final class HazardVoteType {
   static const hazardResolved = 'HAZARD_RESOLVED';
 }
 
+abstract final class ServerVoteValidationStatus {
+  static const valid = 'VALID';
+  static const invalid = 'INVALID';
+  static const notValidated = 'NOT_VALIDATED';
+}
+
 class HazardVote {
   const HazardVote({
     required this.id,
@@ -22,6 +28,9 @@ class HazardVote {
     this.evidenceStorage = 'none',
     this.evidenceValidation,
     this.sceneMatchScore,
+    this.serverValidationStatus,
+    this.serverValidatedAt,
+    this.serverValidationReasons = const [],
   });
 
   final String id;
@@ -39,6 +48,9 @@ class HazardVote {
   /// Perceptual-hash similarity score [0,1] comparing this vote's evidence
   /// photo against the original hazard creation photo.
   final double? sceneMatchScore;
+  final String? serverValidationStatus;
+  final DateTime? serverValidatedAt;
+  final List<String> serverValidationReasons;
 
   bool get hasReliablePhotoEvidence =>
       hasPhotoEvidence && evidenceValidation?.earnsEvidenceBonus == true;
@@ -75,6 +87,14 @@ class HazardVote {
             )
           : null,
       sceneMatchScore: (data['sceneMatchScore'] as num?)?.toDouble(),
+      serverValidationStatus: data['serverValidationStatus'] is String
+          ? data['serverValidationStatus'] as String
+          : null,
+      serverValidatedAt: asDate(data['serverValidatedAt']),
+      serverValidationReasons:
+          (data['serverValidationReasons'] as List? ?? const [])
+              .whereType<String>()
+              .toList(),
     );
     return _attachAiFields(base, data);
   }
@@ -109,6 +129,7 @@ class HazardVote {
       'sceneMatchScore': ?sceneMatchScore,
       // AI analysis fields are intentionally NOT written by the client.
       // They are set exclusively by the Cloud Function via Admin SDK.
+      // Server validation fields are also intentionally omitted.
     };
   }
 
@@ -221,6 +242,9 @@ final class _HazardVoteWithAi extends HazardVote {
         evidenceStorage: base.evidenceStorage,
         evidenceValidation: base.evidenceValidation,
         sceneMatchScore: base.sceneMatchScore,
+        serverValidationStatus: base.serverValidationStatus,
+        serverValidatedAt: base.serverValidatedAt,
+        serverValidationReasons: base.serverValidationReasons,
       );
 
   final HazardVoteAi _ai;

@@ -47,6 +47,32 @@ Rules check declared metadata, not real-world position, decoded image content,
 or semantic scene identity. A tamper-resistant system needs trusted server-side
 validation. Never describe these client heuristics as AI scene verification.
 
+## Server vote and confidence validation
+
+The `functions-safety` codebase validates each newly created community vote
+before any Gemini request. It writes the Admin-SDK-owned
+`serverValidationStatus`, `serverValidatedAt`, and `serverValidationReasons`
+fields. Clearly invalid votes are retained for auditability, excluded from the
+official confidence calculation, and do not incur AI analysis. A lightweight
+vote-write trigger recalculates `hazard_reports/{hazardId}.serverConfidence`
+from the current vote documents after creation, validation, or AI completion.
+The formula is versioned as `safety-confidence-v1` and has shared TypeScript and
+Dart golden fixtures under `test/fixtures`.
+
+`VALID` means structurally valid and consistent with the current Safety rules.
+It does **not** prove the Tourist's physical location: the backend receives the
+client-derived distance, proximity band, and GPS-validation flag without an
+independent trusted device-location signal. Step 8 intentionally adds no device
+attestation. Likewise, the existing photo checks and AI comparison provide
+decision support rather than proof of real-world scene identity.
+
+Both Tourist and Administrator client writes to the validation fields and
+`serverConfidence` are denied. The Administrator UI reads a structurally valid,
+fresh server summary when available and otherwise falls back to the existing
+client calculation, so legacy hazard documents require no migration. These
+functions and the scoped rules must still be deployed or merged manually; local
+tests do not change the live Firebase project.
+
 Existing legacy records can still display, but new writes must satisfy the stricter
 schema. Only the exact `Verified` status is active; review/migrate inconsistent
 legacy statuses deliberately before deploying merged rules. Existing broader

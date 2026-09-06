@@ -1170,8 +1170,12 @@ class _AiSummaryBox extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ConfidenceAnalysisCard extends StatelessWidget {
-  const _ConfidenceAnalysisCard({required this.analysis});
+  const _ConfidenceAnalysisCard({
+    required this.analysis,
+    required this.serverCalculated,
+  });
   final ConfidenceAnalysisResult analysis;
+  final bool serverCalculated;
 
   @override
   Widget build(BuildContext context) {
@@ -1189,6 +1193,31 @@ class _ConfidenceAnalysisCard extends StatelessWidget {
             'Community Resolution Analysis',
             subtitle:
                 'Community resolution decision support computed from recent crowdsourced evidence.',
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 5,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(
+                serverCalculated
+                    ? Icons.verified_user_outlined
+                    : Icons.sync_outlined,
+                size: 13,
+                color: ExplorerColors.muted,
+              ),
+              Text(
+                serverCalculated
+                    ? 'Server-calculated confidence'
+                    : 'Latest server validation is pending',
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
 

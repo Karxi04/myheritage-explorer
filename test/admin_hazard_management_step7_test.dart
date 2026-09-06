@@ -10,6 +10,7 @@ import 'package:myheritage_explorer/core/app_theme.dart';
 import 'package:myheritage_explorer/models/evidence_validation_result.dart';
 import 'package:myheritage_explorer/models/hazard_report.dart';
 import 'package:myheritage_explorer/models/hazard_vote.dart';
+import 'package:myheritage_explorer/models/server_confidence_summary.dart';
 import 'package:myheritage_explorer/services/hazard_report_service.dart';
 import 'package:myheritage_explorer/services/hazard_vote_service.dart';
 
@@ -57,6 +58,7 @@ HazardReport _createReport({
   String severity = 'High',
   String description = 'A large fallen branch is blocking the tourist walkway.',
   String status = HazardReportStatus.verified,
+  ServerConfidenceSummary? serverConfidence,
 }) {
   return HazardReport(
     id: id,
@@ -87,7 +89,38 @@ HazardReport _createReport({
       height: 1080,
       fileFormat: 'JPEG',
     ),
+    serverConfidence: serverConfidence,
   );
+}
+
+ServerConfidenceSummary _serverSummary({
+  double percent = 73.4,
+  DateTime? calculatedAt,
+}) {
+  return ServerConfidenceSummary.fromMap({
+    'formulaVersion': ServerConfidenceFormula.current,
+    'calculatedAt': (calculatedAt ?? DateTime.now()).toIso8601String(),
+    'confidencePercent': percent,
+    'confidenceLevel': 'HIGH',
+    'weightedStillExists': 2,
+    'weightedResolved': 8,
+    'stillExistsVotes': 2,
+    'resolvedVotes': 8,
+    'totalVotes': 10,
+    'validVoteCount': 10,
+    'recentValidVoteCount': 10,
+    'recentStillExistsVotes': 2,
+    'recentResolvedVotes': 8,
+    'gpsValidatedCount': 10,
+    'photoEvidenceCount': 0,
+    'strongOrGoodEvidenceCount': 0,
+    'lowQualityEvidenceCount': 0,
+    'possibleDuplicateEvidenceCount': 0,
+    'averageEvidenceScore': 0,
+    'sceneMatchedCount': 0,
+    'evidenceStrength': 'Sufficient',
+    'recommendation': 'Administrator review is recommended.',
+  });
 }
 
 HazardVote _createVote({
@@ -138,16 +171,15 @@ HazardVote _createVote({
         'fileFormat': 'JPEG',
         'sceneMatchScore': 0.82,
       },
-      if (aiStatus != null) 'aiAnalysisStatus': aiStatus,
-      if (sceneScore != null) 'aiSceneMatchScore': sceneScore,
-      if (relevanceScore != null) 'aiHazardRelevanceScore': relevanceScore,
-      if (condition != null) 'aiConditionAssessment': condition,
-      if (conditionConfidence != null)
-        'aiConditionConfidence': conditionConfidence,
-      if (agreement != null) 'aiAgreement': agreement,
+      'aiAnalysisStatus': ?aiStatus,
+      'aiSceneMatchScore': ?sceneScore,
+      'aiHazardRelevanceScore': ?relevanceScore,
+      'aiConditionAssessment': ?condition,
+      'aiConditionConfidence': ?conditionConfidence,
+      'aiAgreement': ?agreement,
       'aiEvidenceWeightMultiplier': multiplier,
-      if (summary != null) 'aiAnalysisSummary': summary,
-      if (failureReason != null) 'aiAnalysisFailureReason': failureReason,
+      'aiAnalysisSummary': ?summary,
+      'aiAnalysisFailureReason': ?failureReason,
     },
   };
 
@@ -759,5 +791,66 @@ void main() {
         expect(find.textContaining('AI Recommendation'), findsNothing);
       },
     );
+  });
+
+  group('Step 8 server confidence preference and fallback', () {
+    testWidgets('prefers a valid fresh server-calculated summary', (
+      tester,
+    ) async {
+      addTearDown(() => tester.view.resetPhysicalSize());
+      final report = _createReport(serverConfidence: _serverSummary());
+      final votes = [
+        _createVote(
+          id: 'client-only',
+          userId: 'client-only',
+          hasPhoto: false,
+          aiStatus: null,
+        ),
+      ];
+      await _pumpAdminPage(tester, report: report, votes: votes);
+      expect(find.text('73.4%'), findsOneWidget);
+      expect(find.text('Server-calculated confidence'), findsOneWidget);
+      expect(find.text('Latest server validation is pending'), findsNothing);
+    });
+
+    testWidgets('legacy report falls back to client confidence', (
+      tester,
+    ) async {
+      addTearDown(() => tester.view.resetPhysicalSize());
+      final report = _createReport();
+      final vote = _createVote(
+        id: 'resolved',
+        userId: 'resolved',
+        voteType: HazardVoteType.hazardResolved,
+        hasPhoto: false,
+        aiStatus: null,
+      );
+      await _pumpAdminPage(tester, report: report, votes: [vote]);
+      expect(find.text('100.0%'), findsOneWidget);
+      expect(find.text('Latest server validation is pending'), findsOneWidget);
+    });
+
+    testWidgets('stale summary falls back without breaking Step 7 UI', (
+      tester,
+    ) async {
+      addTearDown(() => tester.view.resetPhysicalSize());
+      final report = _createReport(
+        serverConfidence: _serverSummary(
+          calculatedAt: DateTime.now().subtract(const Duration(minutes: 16)),
+        ),
+      );
+      final vote = _createVote(
+        id: 'resolved',
+        userId: 'resolved',
+        voteType: HazardVoteType.hazardResolved,
+        hasPhoto: false,
+        aiStatus: null,
+      );
+      await _pumpAdminPage(tester, report: report, votes: [vote]);
+      expect(find.text('100.0%'), findsOneWidget);
+      expect(find.text('Latest server validation is pending'), findsOneWidget);
+      expect(find.text('Keep Verified'), findsOneWidget);
+      expect(find.text('Mark Resolved'), findsOneWidget);
+    });
   });
 }

@@ -10,3 +10,4 @@ import { initializeApp } from 'firebase-admin/app';
 initializeApp();
 
 export { analyzeHazardEvidence } from './safety/analyzeHazardEvidence';
+export { recomputeSafetyConfidence } from './safety/recomputeHazardConfidence';

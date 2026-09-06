@@ -320,3 +320,62 @@ test('administrator client can read AI results but CANNOT modify server-owned AI
   // H: Legitimate Admin hazard management actions (Verify, Resolve, notifications) still succeed
   await assertSucceeds(decide(admin, 'Resolved', 'ai_admin_report'));
 });
+
+test('tourist and administrator clients cannot forge Step 8 server fields', async () => {
+  await seedVerified('server_fields');
+  const tourist = dbFor('other'), admin = dbFor('admin');
+  const forbiddenVoteFields = [
+    {serverValidationStatus: 'VALID'},
+    {serverValidatedAt: Timestamp.now()},
+    {serverValidationReasons: []},
+  ];
+  for (const fields of forbiddenVoteFields) {
+    await assertFails(setDoc(voteRef(tourist, 'other', 'server_fields'), {
+      ...vote('other'), ...fields,
+    }));
+  }
+
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(voteRef(db, 'other', 'server_fields'), {
+      ...vote('other'), serverValidationStatus: 'VALID',
+      serverValidatedAt: Timestamp.now(), serverValidationReasons: [],
+    });
+    await updateDoc(reportRef(db, 'server_fields'), {
+      serverConfidence: {
+        formulaVersion: 'safety-confidence-v1', calculatedAt: Timestamp.now(),
+        confidencePercent: 75, confidenceLevel: 'HIGH',
+      },
+    });
+  });
+
+  await assertFails(updateDoc(voteRef(admin, 'other', 'server_fields'), {
+    serverValidationStatus: 'INVALID',
+  }));
+  await assertFails(updateDoc(reportRef(admin, 'server_fields'), {
+    serverConfidence: {formulaVersion: 'forged', confidencePercent: 100},
+  }));
+  await assertFails(updateDoc(reportRef(tourist, 'server_fields'), {
+    serverConfidence: {formulaVersion: 'forged', confidencePercent: 100},
+  }));
+
+  const reportSnap = await assertSucceeds(getDoc(reportRef(admin, 'server_fields')));
+  assert.equal(reportSnap.data().serverConfidence.formulaVersion, 'safety-confidence-v1');
+  const voteSnap = await assertSucceeds(getDoc(voteRef(admin, 'other', 'server_fields')));
+  assert.equal(voteSnap.data().serverValidationStatus, 'VALID');
+});
+
+test('existing AI protections and Admin lifecycle updates preserve serverConfidence', async () => {
+  await seedVerified('preserve_server_summary');
+  await env.withSecurityRulesDisabled(async context => {
+    await updateDoc(reportRef(context.firestore(), 'preserve_server_summary'), {
+      serverConfidence: {
+        formulaVersion: 'safety-confidence-v1', calculatedAt: Timestamp.now(),
+        confidencePercent: 60, confidenceLevel: 'MEDIUM',
+      },
+    });
+  });
+  await assertSucceeds(decide(dbFor('admin'), 'Resolved', 'preserve_server_summary'));
+  const result = await getDoc(reportRef(dbFor('admin'), 'preserve_server_summary'));
+  assert.equal(result.data().serverConfidence.confidencePercent, 60);
+});

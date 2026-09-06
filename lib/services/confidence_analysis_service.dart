@@ -1,6 +1,7 @@
 import '../core/safety_config.dart';
 import '../models/evidence_validation_result.dart';
 import '../models/hazard_vote.dart';
+import '../models/server_confidence_summary.dart';
 
 abstract final class ConfidenceLevel {
   static const insufficient = 'INSUFFICIENT EVIDENCE';
@@ -51,6 +52,37 @@ class ConfidenceAnalysisResult {
       weightedResolved,
       weightedExists;
   final String level, evidenceStrength, recommendation;
+
+  factory ConfidenceAnalysisResult.fromServerSummary(
+    ServerConfidenceSummary summary,
+  ) {
+    final totalWeight = summary.weightedResolved + summary.weightedStillExists;
+    return ConfidenceAnalysisResult(
+      existsVotes: summary.stillExistsVotes,
+      resolvedVotes: summary.resolvedVotes,
+      totalVotes: summary.totalVotes,
+      validVoteCount: summary.validVoteCount,
+      confidencePercent: summary.confidencePercent,
+      existsSupportPercent: totalWeight == 0
+          ? 0
+          : summary.weightedStillExists / totalWeight * 100,
+      weightedResolved: summary.weightedResolved,
+      weightedExists: summary.weightedStillExists,
+      level: summary.confidenceLevel,
+      evidenceStrength: summary.evidenceStrength,
+      recommendation: summary.recommendation,
+      recentExistsVotes: summary.recentStillExistsVotes,
+      recentResolvedVotes: summary.recentResolvedVotes,
+      totalRecentVotes: summary.recentValidVoteCount,
+      gpsValidatedCount: summary.gpsValidatedCount,
+      photoEvidenceCount: summary.photoEvidenceCount,
+      strongOrGoodEvidenceCount: summary.strongOrGoodEvidenceCount,
+      lowQualityEvidenceCount: summary.lowQualityEvidenceCount,
+      possibleDuplicateEvidenceCount: summary.possibleDuplicateEvidenceCount,
+      averageEvidenceScore: summary.averageEvidenceScore,
+      sceneMatchedCount: summary.sceneMatchedCount,
+    );
+  }
   bool get hasSufficientRecentEvidence =>
       totalRecentVotes >= SafetyConfig.sufficientValidVotes;
   String get displayLevel => level;
@@ -121,7 +153,8 @@ class ConfidenceAnalysisService {
     // The multiplier is stored on the vote document by the Cloud Function.
     // It defaults to 1.0 (neutral) for legacy votes or while AI is pending.
     // The multiplier is clamped to [0.90–1.10] to bound its influence.
-    final rawAiMultiplier = vote.aiAnalysis.evidenceWeightMultiplier;
+    final ai = vote.aiAnalysis;
+    final rawAiMultiplier = ai.isComplete ? ai.evidenceWeightMultiplier : 1.0;
     final aiMultiplier = rawAiMultiplier.clamp(
       SafetyConfig.aiMultiplierMin,
       SafetyConfig.aiMultiplierMax,
