@@ -24,6 +24,7 @@ import 'daily_planner/services/malaysia_location_service.dart';
 import 'daily_planner/services/place_repository.dart';
 import 'daily_planner/services/cultural_task_service.dart';
 import 'daily_planner/services/itinerary_recommendation_service.dart';
+import '../shared/shared_itinerary_page.dart';
 
 part 'home/traveler_home_page.dart';
 part 'daily_planner/malaysian_planner_data.dart';

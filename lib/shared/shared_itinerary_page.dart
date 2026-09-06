@@ -236,7 +236,28 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
       host: 'shared-itinerary',
       queryParameters: {'share': shareId},
     );
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (launched) return;
+    } catch (_) {}
+
+    try {
+      final intentUri = Uri.parse(
+        'intent://shared-itinerary?share=$shareId#Intent;scheme=myheritage;package=com.example.myheritage_explorer;end',
+      );
+      await launchUrl(intentUri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Open MyHeritage Explorer app > My Itineraries > 🔗 icon and enter code: $shareId',
+            ),
+            backgroundColor: ExplorerColors.navy,
+          ),
+        );
+      }
+    }
   }
 
   Widget _previewStop(
@@ -346,6 +367,9 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
             'title':
                 '${widget.itinerary['title'] ?? 'Shared Itinerary'} (Saved Copy)',
             'area': widget.itinerary['area'] ?? 'Penang',
+            'selectedArea': widget.itinerary['selectedArea'] ?? widget.itinerary['area'] ?? '',
+            'stateId': widget.itinerary['stateId'] ?? '',
+            'stateName': widget.itinerary['stateName'] ?? '',
             'availableHours':
                 (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
             'dailyHours':
@@ -547,6 +571,32 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 80),
             children: [
+              if (kIsWeb)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.goldSoft,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: ExplorerColors.gold.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, color: ExplorerColors.goldDark, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Viewing shared itinerary. Tap "Save to My Itineraries" below, or enter code "${widget.itinerary['shareId'] ?? ''}" in the MyHeritage Explorer app (My Itineraries > 🔗) to clone it directly into your account.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: ExplorerColors.navy,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ExplorerCard(
                 padding: EdgeInsets.zero,
                 child: Column(
