@@ -78,9 +78,9 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
                     controller: _tabController,
                     labelColor: ExplorerColors.navy,
                     indicatorColor: ExplorerColors.gold,
-                    tabs: const [
-                      Tab(text: 'Pending Reports'),
-                      Tab(text: 'Verified Hazards'),
+                    tabs: [
+                      Tab(text: 'Pending Reports ($pending)'),
+                      Tab(text: 'Verified Hazards ($verified)'),
                     ],
                   ),
                 ],

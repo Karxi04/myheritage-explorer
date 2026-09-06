@@ -65,6 +65,190 @@ class _HazardInfo extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Shared Admin Hazard List Card & Formatting Helpers
+// ---------------------------------------------------------------------------
+
+ExplorerStatusTone _adminSeverityTone(String severity) =>
+    switch (severity.toLowerCase()) {
+      'high' => ExplorerStatusTone.danger,
+      'medium' => ExplorerStatusTone.warning,
+      _ => ExplorerStatusTone.navy,
+    };
+
+String _formatHazardDate(DateTime? date, {bool isVerified = false}) {
+  if (date == null) {
+    return isVerified ? 'Recently verified' : 'Recently submitted';
+  }
+  final prefix = isVerified ? 'Verified' : 'Submitted';
+  final formatted =
+      '${DateFormat.yMMMd().format(date)} · ${DateFormat.jm().format(date).replaceAll('\u202f', ' ')}';
+  return '$prefix $formatted';
+}
+
+class _AdminHazardListCard extends StatelessWidget {
+  const _AdminHazardListCard({
+    required this.report,
+    required this.statusLabel,
+    required this.statusTone,
+    required this.actionLabel,
+    required this.actionIcon,
+    required this.onAction,
+    this.formattedDate,
+    this.communityVoteCount,
+  });
+
+  final HazardReport report;
+  final String statusLabel;
+  final ExplorerStatusTone statusTone;
+  final String actionLabel;
+  final IconData actionIcon;
+  final VoidCallback onAction;
+  final String? formattedDate;
+  final String? communityVoteCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final isHighTextScale = textScale > 1.25;
+
+    return ExplorerCard(
+      onTap: onAction,
+      padding: const EdgeInsets.all(16),
+      borderColor: ExplorerColors.border,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 650 || isHighTextScale;
+
+          final headerBadges = Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ExplorerStatusBadge(label: statusLabel, tone: statusTone),
+              ExplorerStatusBadge(
+                label: '${report.severity.toUpperCase()} SEVERITY',
+                tone: _adminSeverityTone(report.severity),
+              ),
+            ],
+          );
+
+          final metadataItems = Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              _HazardInfo(
+                icon: Icons.place_outlined,
+                text:
+                    'GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
+              ),
+              if (formattedDate != null && formattedDate!.isNotEmpty)
+                _HazardInfo(
+                  icon: Icons.schedule_outlined,
+                  text: formattedDate!,
+                ),
+              if (communityVoteCount != null && communityVoteCount!.isNotEmpty)
+                _HazardInfo(
+                  icon: Icons.how_to_vote_outlined,
+                  text: communityVoteCount!,
+                ),
+            ],
+          );
+
+          final actionBtn = FilledButton.icon(
+            onPressed: onAction,
+            icon: Icon(actionIcon, size: 17),
+            label: Text(actionLabel),
+          );
+
+          if (isNarrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        report.category,
+                        style: const TextStyle(
+                          color: ExplorerColors.navy,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                headerBadges,
+                const SizedBox(height: 12),
+                _AdminHazardImage(report: report),
+                const SizedBox(height: 12),
+                Text(
+                  report.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: ExplorerColors.text,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                metadataItems,
+                const SizedBox(height: 14),
+                SizedBox(width: double.infinity, child: actionBtn),
+              ],
+            );
+          }
+
+          // Wide desktop/tablet layout
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _AdminHazardImage(report: report),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      report.category,
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    headerBadges,
+                    const SizedBox(height: 8),
+                    Text(
+                      report.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    metadataItems,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              actionBtn,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shared detail row (two-column label-value pair with responsive stacking)
 // ---------------------------------------------------------------------------
 

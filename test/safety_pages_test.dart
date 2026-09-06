@@ -388,7 +388,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('VERIFIED'), findsOneWidget);
           expect(find.text('HIGH SEVERITY'), findsOneWidget);
-          expect(find.text('Manage'), findsOneWidget);
+          expect(find.text('Manage Hazard'), findsOneWidget);
           expect(find.text('Road obstruction'), findsOneWidget);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
