@@ -381,10 +381,228 @@ describe('Security — AI field ownership', () => {
     'aiAnalysisStatus', 'aiEvidenceWeightMultiplier', 'aiSceneMatchScore',
     'aiHazardRelevanceScore', 'aiConditionAssessment', 'aiConditionConfidence',
     'aiAgreement', 'aiAnalysisSummary', 'aiAnalysisCompletedAt', 'aiAnalysisFailureReason',
+    'aiSyntheticImageRisk', 'aiSyntheticImageConfidence', 'aiSyntheticImageSummary',
   ];
 
   test.each(aiResultFields)('%s is not in the Tourist-writable vote field set', (field) => {
     expect(touristAllowedVoteFields.has(field)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 11: Synthetic Image Risk Analysis
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Step 11 — Synthetic Image Risk Analysis', () => {
+  const baseStep6Payload = {
+    sceneMatchScore: 0.88,
+    hazardRelevanceScore: 0.92,
+    conditionAssessment: 'HAZARD_STILL_PRESENT',
+    conditionConfidence: 0.85,
+    summary: 'Scene matches and hazard is clearly visible.',
+  };
+
+  test('1. parses valid LOW synthetic risk response', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'LOW',
+      syntheticImageConfidence: 0.90,
+      syntheticImageSummary: 'No strong synthetic indicators identified.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.syntheticImageRisk).toBe('LOW');
+    expect(parsed?.syntheticImageConfidence).toBe(0.90);
+    expect(parsed?.syntheticImageSummary).toBe('No strong synthetic indicators identified.');
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageRisk).toBe('LOW');
+    expect(result.aiSyntheticImageConfidence).toBe(0.90);
+    expect(result.aiSyntheticImageSummary).toBe('No strong synthetic indicators identified.');
+  });
+
+  test('2. parses valid UNCERTAIN synthetic risk response', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'UNCERTAIN',
+      syntheticImageConfidence: 0.50,
+      syntheticImageSummary: 'Lighting is low and blur precludes reliable evaluation.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.syntheticImageRisk).toBe('UNCERTAIN');
+    expect(parsed?.syntheticImageConfidence).toBe(0.50);
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageRisk).toBe('UNCERTAIN');
+  });
+
+  test('3. parses valid ELEVATED synthetic risk response', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'ELEVATED',
+      syntheticImageConfidence: 0.85,
+      syntheticImageSummary: 'Inconsistent perspective lines and repetitive geometric patterns.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.syntheticImageRisk).toBe('ELEVATED');
+    expect(parsed?.syntheticImageConfidence).toBe(0.85);
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageRisk).toBe('ELEVATED');
+  });
+
+  test('4. clamps synthetic confidence to 0.0 when negative', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'LOW',
+      syntheticImageConfidence: -0.5,
+      syntheticImageSummary: 'Negative confidence clamped.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed?.syntheticImageConfidence).toBe(0.0);
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageConfidence).toBe(0.0);
+  });
+
+  test('5. clamps synthetic confidence to 1.0 when exceeding 1.0', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'ELEVATED',
+      syntheticImageConfidence: 1.75,
+      syntheticImageSummary: 'High confidence clamped.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed?.syntheticImageConfidence).toBe(1.0);
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageConfidence).toBe(1.0);
+  });
+
+  test('6. malformed risk enum safely handled without breaking Step 6 result', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'INVALID_ENUM_VALUE',
+      syntheticImageConfidence: 0.8,
+      syntheticImageSummary: 'Some summary',
+    });
+    const parsed = parseGeminiResponse(raw);
+    // Crucial: parseGeminiResponse must NOT return null!
+    expect(parsed).not.toBeNull();
+    expect(parsed?.sceneMatchScore).toBe(0.88);
+    expect(parsed?.conditionAssessment).toBe('HAZARD_STILL_PRESENT');
+    // Synthetic risk degrades to undefined (unavailable)
+    expect(parsed?.syntheticImageRisk).toBeUndefined();
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiAnalysisStatus).toBe('COMPLETE');
+    expect(result.aiAgreement).toBe('SUPPORTS_VOTE');
+    expect(result.aiEvidenceWeightMultiplier).toBe(AI_MULTIPLIERS.STRONG_SUPPORT);
+    expect(result.aiSyntheticImageRisk).toBeUndefined();
+  });
+
+  test('7. malformed confidence safely handled without breaking Step 6 result', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'LOW',
+      syntheticImageConfidence: 'not_a_number',
+      syntheticImageSummary: 'Summary text',
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.syntheticImageRisk).toBe('LOW');
+    expect(parsed?.syntheticImageConfidence).toBeUndefined();
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiAnalysisStatus).toBe('COMPLETE');
+    expect(result.aiSyntheticImageRisk).toBe('LOW');
+    expect(result.aiSyntheticImageConfidence).toBeUndefined();
+  });
+
+  test('8. missing synthetic summary handled gracefully', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'LOW',
+      syntheticImageConfidence: 0.8,
+    });
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.syntheticImageSummary).toBeUndefined();
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiSyntheticImageSummary).toBeUndefined();
+  });
+
+  test('9. no-photo vote does not attempt synthetic analysis (skippedResult)', () => {
+    const result = skippedResult('NO_PHOTO');
+    expect(result.aiAnalysisStatus).toBe('SKIPPED');
+    expect(result.aiSyntheticImageRisk).toBeUndefined();
+    expect(result.aiSyntheticImageConfidence).toBeUndefined();
+    expect(result.aiSyntheticImageSummary).toBeUndefined();
+  });
+
+  test('10. Gemini failure does not produce LOW automatically', () => {
+    const result = failedResult('GEMINI_CALL_FAILED');
+    expect(result.aiAnalysisStatus).toBe('FAILED');
+    expect(result.aiSyntheticImageRisk).toBeUndefined();
+    expect(result.aiSyntheticImageRisk).not.toBe('LOW');
+    expect(result.aiSyntheticImageConfidence).toBeUndefined();
+  });
+
+  test('11. Existing Step 6 semantic result remains valid when synthetic fields are completely omitted', () => {
+    const raw = JSON.stringify(baseStep6Payload);
+    const parsed = parseGeminiResponse(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.sceneMatchScore).toBe(0.88);
+    expect(parsed?.hazardRelevanceScore).toBe(0.92);
+    expect(parsed?.conditionAssessment).toBe('HAZARD_STILL_PRESENT');
+    expect(parsed?.conditionConfidence).toBe(0.85);
+
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+    expect(result.aiAnalysisStatus).toBe('COMPLETE');
+    expect(result.aiAgreement).toBe('SUPPORTS_VOTE');
+    expect(result.aiEvidenceWeightMultiplier).toBe(AI_MULTIPLIERS.STRONG_SUPPORT);
+  });
+
+  test('12. Existing AI multiplier remains completely unchanged across LOW, UNCERTAIN, ELEVATED', () => {
+    const makeWithRisk = (risk: 'LOW' | 'UNCERTAIN' | 'ELEVATED') =>
+      computeAiVoteResult(
+        makeOutput({
+          ...STRONG_SCORES,
+          conditionAssessment: 'HAZARD_STILL_PRESENT',
+          syntheticImageRisk: risk,
+          syntheticImageConfidence: 0.95,
+        }),
+        'HAZARD_EXISTS',
+      );
+
+    const lowResult = makeWithRisk('LOW');
+    const uncertainResult = makeWithRisk('UNCERTAIN');
+    const elevatedResult = makeWithRisk('ELEVATED');
+
+    // All must equal exactly STRONG_SUPPORT (1.10)
+    expect(lowResult.aiEvidenceWeightMultiplier).toBe(AI_MULTIPLIERS.STRONG_SUPPORT);
+    expect(uncertainResult.aiEvidenceWeightMultiplier).toBe(AI_MULTIPLIERS.STRONG_SUPPORT);
+    expect(elevatedResult.aiEvidenceWeightMultiplier).toBe(AI_MULTIPLIERS.STRONG_SUPPORT);
+  });
+
+  test('13. No second Gemini request is made — single parsed output yields complete result', () => {
+    const raw = JSON.stringify({
+      ...baseStep6Payload,
+      syntheticImageRisk: 'ELEVATED',
+      syntheticImageConfidence: 0.88,
+      syntheticImageSummary: 'Multiple geometric distortions detected.',
+    });
+    const parsed = parseGeminiResponse(raw);
+    const result = computeAiVoteResult(parsed!, 'HAZARD_EXISTS');
+
+    // Both Step 6 and Step 11 fields are populated in a single pass
+    expect(result.aiSceneMatchScore).toBe(0.88);
+    expect(result.aiHazardRelevanceScore).toBe(0.92);
+    expect(result.aiConditionAssessment).toBe('HAZARD_STILL_PRESENT');
+    expect(result.aiAgreement).toBe('SUPPORTS_VOTE');
+    expect(result.aiSyntheticImageRisk).toBe('ELEVATED');
+    expect(result.aiSyntheticImageConfidence).toBe(0.88);
   });
 });
 

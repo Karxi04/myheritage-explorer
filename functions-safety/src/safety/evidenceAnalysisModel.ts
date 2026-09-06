@@ -15,6 +15,9 @@ export type ConditionAssessment =
   | 'APPEARS_RESOLVED'
   | 'UNCERTAIN';
 
+/** Allowed values for AI synthetic image risk assessment. */
+export type SyntheticImageRisk = 'LOW' | 'UNCERTAIN' | 'ELEVATED';
+
 /** Raw structured output returned by Gemini (validated before use). */
 export interface GeminiEvidenceOutput {
   sceneMatchScore: number;
@@ -22,6 +25,9 @@ export interface GeminiEvidenceOutput {
   conditionAssessment: ConditionAssessment;
   conditionConfidence: number;
   summary: string;
+  syntheticImageRisk?: SyntheticImageRisk;
+  syntheticImageConfidence?: number;
+  syntheticImageSummary?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +53,9 @@ export interface AiVoteResult {
   aiConditionConfidence?: number;
   aiAgreement?: AiAgreement;
   aiAnalysisSummary?: string;
+  aiSyntheticImageRisk?: SyntheticImageRisk;
+  aiSyntheticImageConfidence?: number;
+  aiSyntheticImageSummary?: string;
   aiAnalysisCompletedAt?: FirebaseFirestore.FieldValue;
   aiAnalysisFailureReason?: string;
 }

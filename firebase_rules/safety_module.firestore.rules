@@ -34,7 +34,7 @@ service cloud.firestore {
           && data.sceneMatchScore <= 1);
     }
 
-    // Ensure tourists cannot inject AI analysis fields.
+    // Ensure clients cannot inject or tamper with server-owned AI analysis fields.
     // All ai* fields are written exclusively by the Cloud Function (Admin SDK).
     function hasNoAiFields(data) {
       return !('aiAnalysisStatus' in data)
@@ -46,7 +46,21 @@ service cloud.firestore {
         && !('aiAgreement' in data)
         && !('aiAnalysisSummary' in data)
         && !('aiAnalysisCompletedAt' in data)
-        && !('aiAnalysisFailureReason' in data);
+        && !('aiAnalysisFailureReason' in data)
+        && !('aiSyntheticImageRisk' in data)
+        && !('aiSyntheticImageConfidence' in data)
+        && !('aiSyntheticImageSummary' in data)
+        && !('aiStatus' in data)
+        && !('aiMultiplier' in data)
+        && !('aiConfidence' in data)
+        && !('aiReasoning' in data)
+        && !('aiSceneMatch' in data)
+        && !('aiHazardRelevance' in data)
+        && !('aiCondition' in data)
+        && !('aiAnalyzedAt' in data)
+        && !('aiModelVersion' in data)
+        && !('aiOriginalPhotoUrl' in data)
+        && !('aiCommunityPhotoUrl' in data);
     }
 
     function hasNoServerVoteValidationFields(data) {

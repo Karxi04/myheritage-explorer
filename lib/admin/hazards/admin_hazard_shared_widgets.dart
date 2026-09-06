@@ -785,6 +785,12 @@ class _CommunityEvidenceCard extends StatelessWidget {
                           value:
                               '${vote.aiAnalysis.evidenceWeightMultiplier.toStringAsFixed(2)}×',
                         ),
+                      if (vote.aiAnalysis.isComplete &&
+                          vote.aiAnalysis.hasSyntheticImageRisk)
+                        _AdminDetailRow(
+                          label: 'Synthetic Risk',
+                          value: vote.aiAnalysis.syntheticImageRisk!,
+                        ),
                       if (validation != null) ...[
                         _AdminDetailRow(
                           label: 'Resolution',
@@ -864,15 +870,25 @@ class _AiEvidenceSection extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: ExplorerColors.border),
         ),
-        child: const Row(
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.info_outline, size: 16, color: ExplorerColors.muted),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'AI analysis not available for this evidence',
-                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
-              ),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: ExplorerColors.muted),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'AI analysis not available for this evidence',
+                    style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Synthetic image analysis unavailable',
+              style: TextStyle(color: ExplorerColors.muted, fontSize: 11),
             ),
           ],
         ),
@@ -925,24 +941,34 @@ class _AiEvidenceSection extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: ExplorerColors.border),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              ai.isSkipped
-                  ? Icons.do_not_disturb_outlined
-                  : Icons.error_outline,
-              size: 16,
-              color: ExplorerColors.muted,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                skipMessage,
-                style: const TextStyle(
+            Row(
+              children: [
+                Icon(
+                  ai.isSkipped
+                      ? Icons.do_not_disturb_outlined
+                      : Icons.error_outline,
+                  size: 16,
                   color: ExplorerColors.muted,
-                  fontSize: 12,
                 ),
-              ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    skipMessage,
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Synthetic image analysis unavailable',
+              style: TextStyle(color: ExplorerColors.muted, fontSize: 11),
             ),
           ],
         ),
@@ -1051,6 +1077,12 @@ class _AiEvidenceSection extends StatelessWidget {
               ),
             ),
           ],
+
+          // Step 11: Synthetic Image Risk Analysis (Advisory Decision Support)
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: ExplorerColors.border),
+          const SizedBox(height: 10),
+          _SyntheticRiskSubSection(ai: ai),
         ],
       ),
     );
@@ -1170,6 +1202,148 @@ class _QualitativeScorePill extends StatelessWidget {
   }
 }
 
+class _SyntheticRiskSubSection extends StatelessWidget {
+  const _SyntheticRiskSubSection({required this.ai});
+  final HazardVoteAi ai;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!ai.hasSyntheticImageRisk) {
+      return const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(Icons.shield_outlined, size: 14, color: ExplorerColors.muted),
+              Text(
+                'Synthetic Image Risk',
+                style: TextStyle(
+                  color: ExplorerColors.navy,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Synthetic image analysis unavailable',
+            style: TextStyle(
+              color: ExplorerColors.muted,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final risk = ai.syntheticImageRisk!;
+    final (label, explanation, tone, icon) = switch (risk) {
+      SyntheticImageRisk.low => (
+        'LOW',
+        'No strong synthetic indicators were identified. This assessment is advisory only.',
+        ExplorerStatusTone.neutral,
+        Icons.verified_outlined,
+      ),
+      SyntheticImageRisk.uncertain => (
+        'UNCERTAIN',
+        'There is not enough visual evidence for a reliable assessment.',
+        ExplorerStatusTone.warning,
+        Icons.help_outline,
+      ),
+      SyntheticImageRisk.elevated => (
+        'ELEVATED',
+        'Several visual anomalies may be consistent with synthetic or heavily manipulated imagery.',
+        ExplorerStatusTone.warning,
+        Icons.warning_amber_rounded,
+      ),
+      _ => (
+        'UNCERTAIN',
+        'There is not enough visual evidence for a reliable assessment.',
+        ExplorerStatusTone.neutral,
+        Icons.help_outline,
+      ),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.spaceBetween,
+          children: [
+            Wrap(
+              spacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Icon(icon, size: 14, color: ExplorerColors.navy),
+                const Text(
+                  'Synthetic Image Risk',
+                  style: TextStyle(
+                    color: ExplorerColors.navy,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            ExplorerStatusBadge(label: label, tone: tone),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          explanation,
+          style: const TextStyle(
+            fontSize: 11,
+            height: 1.4,
+            color: ExplorerColors.text,
+          ),
+        ),
+        if (ai.syntheticImageConfidence != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            '${(ai.syntheticImageConfidence! * 100).round()}% assessment confidence',
+            style: const TextStyle(
+              fontSize: 10,
+              color: ExplorerColors.muted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        if (ai.syntheticImageSummary != null &&
+            ai.syntheticImageSummary!.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            ai.syntheticImageSummary!,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+              height: 1.3,
+              color: ExplorerColors.text,
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        const Text(
+          'Synthetic-image risk is an AI-assisted visual assessment and is not proof that an image is genuine or generated.',
+          style: TextStyle(
+            fontSize: 10,
+            color: ExplorerColors.muted,
+            height: 1.3,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SECTION 6: Aggregated AI Evidence Summary Card
 // ---------------------------------------------------------------------------
@@ -1186,11 +1360,15 @@ class _AggregatedAiEvidenceCard extends StatelessWidget {
     int inconclusive = 0;
     int pending = 0;
     int unavailable = 0;
+    int elevatedSyntheticRisk = 0;
 
     for (final vote in votes) {
       if (!vote.hasPhotoEvidence) continue;
       final ai = vote.aiAnalysis;
       if (ai.isComplete) {
+        if (ai.syntheticImageRisk == SyntheticImageRisk.elevated) {
+          elevatedSyntheticRisk++;
+        }
         if (ai.agreement == AiAgreement.supportsVote) {
           supports++;
         } else if (ai.agreement == AiAgreement.conflictsWithVote) {
@@ -1285,6 +1463,37 @@ class _AggregatedAiEvidenceCard extends StatelessWidget {
               );
             },
           ),
+          if (elevatedSyntheticRisk > 0) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: ExplorerColors.warningSoft,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: ExplorerColors.goldDark.withAlpha(80)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: ExplorerColors.goldDark,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Elevated Synthetic Risk: $elevatedSyntheticRisk photo${elevatedSyntheticRisk == 1 ? '' : 's'} (review recommended)',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: ExplorerColors.navy,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

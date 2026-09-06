@@ -254,6 +254,21 @@ test('tourist cannot inject AI analysis fields on vote creation or vote update',
     { aiAnalysisSummary: 'Injected summary' },
     { aiAnalysisCompletedAt: Timestamp.now() },
     { aiAnalysisFailureReason: 'NONE' },
+    { aiSyntheticImageRisk: 'LOW' },
+    { aiSyntheticImageConfidence: 0.95 },
+    { aiSyntheticImageSummary: 'Injected synthetic summary' },
+    // Legacy aliases
+    { aiStatus: 'COMPLETE' },
+    { aiMultiplier: 1.10 },
+    { aiConfidence: 0.90 },
+    { aiReasoning: 'Legacy reasoning' },
+    { aiSceneMatch: 'MATCH' },
+    { aiHazardRelevance: 'RELEVANT' },
+    { aiCondition: 'HAZARD_STILL_PRESENT' },
+    { aiAnalyzedAt: Timestamp.now() },
+    { aiModelVersion: 'gemini-1.5' },
+    { aiOriginalPhotoUrl: 'https://example.com/orig.jpg' },
+    { aiCommunityPhotoUrl: 'https://example.com/comm.jpg' },
   ];
 
   for (const aiField of aiFieldsToTest) {
@@ -283,6 +298,9 @@ test('administrator client can read AI results but CANNOT modify server-owned AI
       aiConditionAssessment: 'HAZARD_STILL_PRESENT',
       aiConditionConfidence: 0.85,
       aiAnalysisSummary: 'Scene matches and hazard is clearly visible.',
+      aiSyntheticImageRisk: 'LOW',
+      aiSyntheticImageConfidence: 0.90,
+      aiSyntheticImageSummary: 'No strong synthetic indicators were identified.',
       aiAnalysisCompletedAt: Timestamp.now(),
     });
   });
@@ -292,6 +310,9 @@ test('administrator client can read AI results but CANNOT modify server-owned AI
   assert.equal(snap.data().aiAgreement, 'SUPPORTS_VOTE');
   assert.equal(snap.data().aiEvidenceWeightMultiplier, 1.10);
   assert.equal(snap.data().aiAnalysisStatus, 'COMPLETE');
+  assert.equal(snap.data().aiSyntheticImageRisk, 'LOW');
+  assert.equal(snap.data().aiSyntheticImageConfidence, 0.90);
+  assert.equal(snap.data().aiSyntheticImageSummary, 'No strong synthetic indicators were identified.');
 
   // E: Administrator CLIENT attempts to manually modify aiAgreement → FAILS
   await assertFails(updateDoc(voteRef(admin, 'other', 'ai_admin_report'), {
@@ -311,7 +332,22 @@ test('administrator client can read AI results but CANNOT modify server-owned AI
     { aiConditionAssessment: 'APPEARS_RESOLVED' },
     { aiConditionConfidence: 0.50 },
     { aiAnalysisSummary: 'Manually tampered summary' },
+    { aiAnalysisCompletedAt: Timestamp.now() },
     { aiAnalysisFailureReason: 'TAMPERED' },
+    { aiSyntheticImageRisk: 'ELEVATED' },
+    { aiSyntheticImageConfidence: 0.10 },
+    { aiSyntheticImageSummary: 'Admin tampered synthetic summary' },
+    { aiStatus: 'COMPLETE' },
+    { aiMultiplier: 0.90 },
+    { aiConfidence: 0.50 },
+    { aiReasoning: 'Tampered reasoning' },
+    { aiSceneMatch: 'MATCH' },
+    { aiHazardRelevance: 'RELEVANT' },
+    { aiCondition: 'APPEARS_RESOLVED' },
+    { aiAnalyzedAt: Timestamp.now() },
+    { aiModelVersion: 'tampered' },
+    { aiOriginalPhotoUrl: 'https://example.com/tampered.jpg' },
+    { aiCommunityPhotoUrl: 'https://example.com/tampered.jpg' },
   ];
   for (const patch of forbiddenAdminPatches) {
     await assertFails(updateDoc(voteRef(admin, 'other', 'ai_admin_report'), patch));
@@ -319,6 +355,71 @@ test('administrator client can read AI results but CANNOT modify server-owned AI
 
   // H: Legitimate Admin hazard management actions (Verify, Resolve, notifications) still succeed
   await assertSucceeds(decide(admin, 'Resolved', 'ai_admin_report'));
+});
+
+test('Step 11: Tourist and Administrator clients cannot create or modify synthetic image risk fields', async () => {
+  await seedVerified('synthetic_security_hazard');
+  const tourist = dbFor('other');
+  const admin = dbFor('admin');
+
+  // 1. Tourist cannot create vote containing aiSyntheticImageRisk
+  await assertFails(setDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    ...vote('other'),
+    aiSyntheticImageRisk: 'LOW',
+  }));
+
+  // 2. Tourist cannot create vote containing aiSyntheticImageConfidence
+  await assertFails(setDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    ...vote('other'),
+    aiSyntheticImageConfidence: 0.90,
+  }));
+
+  // 3. Tourist cannot create vote containing aiSyntheticImageSummary
+  await assertFails(setDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    ...vote('other'),
+    aiSyntheticImageSummary: 'Tourist forged summary',
+  }));
+
+  // 4. Valid vote created by tourist succeeds
+  await assertSucceeds(setDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), vote('other')));
+
+  // 5. Tourist cannot update vote to inject synthetic fields
+  await assertFails(updateDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageRisk: 'LOW',
+  }));
+  await assertFails(updateDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageConfidence: 0.85,
+  }));
+  await assertFails(updateDoc(voteRef(tourist, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageSummary: 'Forged summary on update',
+  }));
+
+  // 6. Admin SDK simulates Cloud Function writing synthetic fields
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await updateDoc(voteRef(db, 'other', 'synthetic_security_hazard'), {
+      aiSyntheticImageRisk: 'ELEVATED',
+      aiSyntheticImageConfidence: 0.88,
+      aiSyntheticImageSummary: 'Multiple geometric distortions detected.',
+    });
+  });
+
+  // 7. Administrator can read the synthetic fields
+  const snap = await assertSucceeds(getDoc(voteRef(admin, 'other', 'synthetic_security_hazard')));
+  assert.equal(snap.data().aiSyntheticImageRisk, 'ELEVATED');
+  assert.equal(snap.data().aiSyntheticImageConfidence, 0.88);
+  assert.equal(snap.data().aiSyntheticImageSummary, 'Multiple geometric distortions detected.');
+
+  // 8. Administrator client cannot modify synthetic fields
+  await assertFails(updateDoc(voteRef(admin, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageRisk: 'LOW',
+  }));
+  await assertFails(updateDoc(voteRef(admin, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageConfidence: 0.10,
+  }));
+  await assertFails(updateDoc(voteRef(admin, 'other', 'synthetic_security_hazard'), {
+    aiSyntheticImageSummary: 'Admin modified summary',
+  }));
 });
 
 test('tourist and administrator clients cannot forge Step 8 server fields', async () => {

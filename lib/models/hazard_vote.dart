@@ -162,6 +162,13 @@ abstract final class AiAgreement {
   static const inconclusive = 'INCONCLUSIVE';
 }
 
+/// Allowed values for [HazardVoteAi.syntheticImageRisk].
+abstract final class SyntheticImageRisk {
+  static const low = 'LOW';
+  static const uncertain = 'UNCERTAIN';
+  static const elevated = 'ELEVATED';
+}
+
 /// AI evidence analysis result — attached to a [HazardVote] after the
 /// Cloud Function writes back the Gemini result.
 ///
@@ -179,6 +186,9 @@ class HazardVoteAi {
     this.analysisSummary,
     this.failureReason,
     this.completedAt,
+    this.syntheticImageRisk,
+    this.syntheticImageConfidence,
+    this.syntheticImageSummary,
   });
 
   /// e.g. PENDING / COMPLETE / FAILED / SKIPPED / NOT_AVAILABLE. Null on legacy votes.
@@ -212,6 +222,15 @@ class HazardVoteAi {
   /// Timestamp when server-side AI analysis finished.
   final DateTime? completedAt;
 
+  /// Advisory synthetic image risk: LOW / UNCERTAIN / ELEVATED. Null until COMPLETE or if unavailable.
+  final String? syntheticImageRisk;
+
+  /// Confidence in synthetic image risk assessment [0,1]. Null until COMPLETE or if unavailable.
+  final double? syntheticImageConfidence;
+
+  /// Concise administrator-facing explanation for synthetic image risk. Null until COMPLETE or if unavailable.
+  final String? syntheticImageSummary;
+
   bool get isComplete => analysisStatus == AiAnalysisStatus.complete;
 
   /// True ONLY when explicitly marked PENDING by server or client.
@@ -224,6 +243,9 @@ class HazardVoteAi {
   /// True when the vote was created before AI analysis or without AI tracking.
   bool get isNotAvailable =>
       analysisStatus == null || analysisStatus == AiAnalysisStatus.notAvailable;
+
+  /// True when synthetic image risk analysis is available for this evidence photo.
+  bool get hasSyntheticImageRisk => syntheticImageRisk != null;
 }
 
 /// Subclass that carries AI analysis data alongside the base vote.
@@ -258,6 +280,26 @@ HazardVote _attachAiFields(HazardVote base, Map<String, dynamic> data) {
   // Defensive clamp on the client — authoritative clamping is server-side.
   final multiplier = rawMultiplier.clamp(0.90, 1.10);
 
+  final rawSyntheticRisk = data['aiSyntheticImageRisk'] as String?;
+  final normalizedSyntheticRisk = switch (rawSyntheticRisk?.trim().toUpperCase()) {
+    'LOW' => SyntheticImageRisk.low,
+    'UNCERTAIN' => SyntheticImageRisk.uncertain,
+    'ELEVATED' => SyntheticImageRisk.elevated,
+    _ => null,
+  };
+
+  final rawSyntheticConf =
+      (data['aiSyntheticImageConfidence'] as num?)?.toDouble();
+  final syntheticConfidence = rawSyntheticConf?.clamp(0.0, 1.0);
+
+  final rawSyntheticSummary = data['aiSyntheticImageSummary'] as String?;
+  final trimmedSummary = rawSyntheticSummary?.trim();
+  final syntheticSummary = trimmedSummary != null
+      ? (trimmedSummary.length > 200
+          ? trimmedSummary.substring(0, 200)
+          : trimmedSummary)
+      : null;
+
   final ai = HazardVoteAi(
     analysisStatus: status,
     sceneMatchScore: (data['aiSceneMatchScore'] as num?)?.toDouble(),
@@ -269,6 +311,9 @@ HazardVote _attachAiFields(HazardVote base, Map<String, dynamic> data) {
     analysisSummary: data['aiAnalysisSummary'] as String?,
     failureReason: data['aiAnalysisFailureReason'] as String?,
     completedAt: asDate(data['aiAnalysisCompletedAt']),
+    syntheticImageRisk: normalizedSyntheticRisk,
+    syntheticImageConfidence: syntheticConfidence,
+    syntheticImageSummary: syntheticSummary,
   );
   return _HazardVoteWithAi(base, ai);
 }

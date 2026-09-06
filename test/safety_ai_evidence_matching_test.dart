@@ -103,6 +103,83 @@ void main() {
       expect(SafetyConfig.aiMultiplierMin, 0.90);
       expect(SafetyConfig.aiMultiplierMax, 1.10);
     });
+
+    test('Step 11: deserializes synthetic image risk fields (LOW, UNCERTAIN, ELEVATED)', () {
+      for (final risk in [
+        SyntheticImageRisk.low,
+        SyntheticImageRisk.uncertain,
+        SyntheticImageRisk.elevated,
+      ]) {
+        final vote = HazardVote.fromMap('v_risk', {
+          'userId': 'user_risk',
+          'voteType': 'HAZARD_EXISTS',
+          'hasPhotoEvidence': true,
+          'aiAnalysisStatus': AiAnalysisStatus.complete,
+          'aiSyntheticImageRisk': risk,
+          'aiSyntheticImageConfidence': 0.85,
+          'aiSyntheticImageSummary': 'Assessment summary for $risk',
+        });
+        expect(vote.aiAnalysis.syntheticImageRisk, risk);
+        expect(vote.aiAnalysis.hasSyntheticImageRisk, isTrue);
+        expect(vote.aiAnalysis.syntheticImageConfidence, 0.85);
+        expect(vote.aiAnalysis.syntheticImageSummary, 'Assessment summary for $risk');
+      }
+    });
+
+    test('Step 11: clamps synthetic confidence to [0.0, 1.0]', () {
+      final highVote = HazardVote.fromMap('vh', {
+        'userId': 'u',
+        'voteType': 'HAZARD_EXISTS',
+        'hasPhotoEvidence': true,
+        'aiSyntheticImageConfidence': 1.5,
+      });
+      final lowVote = HazardVote.fromMap('vl', {
+        'userId': 'u',
+        'voteType': 'HAZARD_EXISTS',
+        'hasPhotoEvidence': true,
+        'aiSyntheticImageConfidence': -0.5,
+      });
+      expect(highVote.aiAnalysis.syntheticImageConfidence, 1.0);
+      expect(lowVote.aiAnalysis.syntheticImageConfidence, 0.0);
+    });
+
+    test('Step 11: truncates synthetic summary to 200 chars and trims whitespace', () {
+      final longSummary = '   ${'a' * 250}   ';
+      final vote = HazardVote.fromMap('vt', {
+        'userId': 'u',
+        'voteType': 'HAZARD_EXISTS',
+        'hasPhotoEvidence': true,
+        'aiSyntheticImageSummary': longSummary,
+      });
+      expect(vote.aiAnalysis.syntheticImageSummary!.length, 200);
+      expect(vote.aiAnalysis.syntheticImageSummary, 'a' * 200);
+    });
+
+    test('Step 11: invalid synthetic risk enum degrades to null without crashing', () {
+      final vote = HazardVote.fromMap('vi', {
+        'userId': 'u',
+        'voteType': 'HAZARD_EXISTS',
+        'hasPhotoEvidence': true,
+        'aiAnalysisStatus': AiAnalysisStatus.complete,
+        'aiSyntheticImageRisk': 'FAKE_IMAGE_INVALID',
+      });
+      expect(vote.aiAnalysis.syntheticImageRisk, isNull);
+      expect(vote.aiAnalysis.hasSyntheticImageRisk, isFalse);
+      expect(vote.aiAnalysis.isComplete, isTrue);
+    });
+
+    test('Step 11: synthetic risk does not alter AI multiplier calculation', () {
+      final voteWithElevated = HazardVote.fromMap('ve', {
+        'userId': 'u',
+        'voteType': 'HAZARD_EXISTS',
+        'hasPhotoEvidence': true,
+        'aiAnalysisStatus': AiAnalysisStatus.complete,
+        'aiAgreement': AiAgreement.supportsVote,
+        'aiEvidenceWeightMultiplier': 1.10,
+        'aiSyntheticImageRisk': SyntheticImageRisk.elevated,
+      });
+      expect(voteWithElevated.aiAnalysis.evidenceWeightMultiplier, 1.10);
+    });
   });
 
   group('ConfidenceAnalysisService.evidenceWeight with AI multiplier', () {

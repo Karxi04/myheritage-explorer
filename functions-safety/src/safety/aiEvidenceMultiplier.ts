@@ -18,6 +18,7 @@ import {
   AI_MULTIPLIERS,
   DECISION_GATE,
   ConditionAssessment,
+  SyntheticImageRisk,
   GeminiEvidenceOutput,
 } from './evidenceAnalysisModel';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -163,12 +164,51 @@ export function parseGeminiResponse(raw: string): GeminiEvidenceOutput | null {
     ? obj['summary'].slice(0, 200).trim()
     : '';
 
+  // Parse Step 11 synthetic image risk fields defensively.
+  // Malformed synthetic fields must degrade to undefined (unavailable) without
+  // invalidating or breaking the valid Step 6 semantic result.
+  const VALID_SYNTHETIC_RISKS: SyntheticImageRisk[] = [
+    'LOW',
+    'UNCERTAIN',
+    'ELEVATED',
+  ];
+  let syntheticImageRisk: SyntheticImageRisk | undefined;
+  let syntheticImageConfidence: number | undefined;
+  let syntheticImageSummary: string | undefined;
+
+  const rawRisk = obj['syntheticImageRisk'];
+  if (typeof rawRisk === 'string') {
+    const trimmedRisk = rawRisk.trim().toUpperCase();
+    if (VALID_SYNTHETIC_RISKS.includes(trimmedRisk as SyntheticImageRisk)) {
+      syntheticImageRisk = trimmedRisk as SyntheticImageRisk;
+    }
+  }
+
+  const rawRiskConf = obj['syntheticImageConfidence'];
+  if (rawRiskConf !== undefined && rawRiskConf !== null) {
+    const conf = safeScore(rawRiskConf);
+    if (conf !== null) {
+      syntheticImageConfidence = conf;
+    }
+  }
+
+  const rawRiskSummary = obj['syntheticImageSummary'];
+  if (typeof rawRiskSummary === 'string') {
+    const clean = rawRiskSummary.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200).trim();
+    if (clean.length > 0) {
+      syntheticImageSummary = clean;
+    }
+  }
+
   return {
     sceneMatchScore,
     hazardRelevanceScore,
     conditionAssessment: rawCondition as ConditionAssessment,
     conditionConfidence,
     summary,
+    ...(syntheticImageRisk !== undefined ? { syntheticImageRisk } : {}),
+    ...(syntheticImageConfidence !== undefined ? { syntheticImageConfidence } : {}),
+    ...(syntheticImageSummary !== undefined ? { syntheticImageSummary } : {}),
   };
 }
 
@@ -180,7 +220,16 @@ export function computeAiVoteResult(
   gemini: GeminiEvidenceOutput,
   voteType: string,
 ): AiVoteResult {
-  const { sceneMatchScore, hazardRelevanceScore, conditionAssessment, conditionConfidence, summary } = gemini;
+  const {
+    sceneMatchScore,
+    hazardRelevanceScore,
+    conditionAssessment,
+    conditionConfidence,
+    summary,
+    syntheticImageRisk,
+    syntheticImageConfidence,
+    syntheticImageSummary,
+  } = gemini;
 
   const agreement = computeAgreement(
     voteType,
@@ -194,7 +243,7 @@ export function computeAiVoteResult(
   const rawMultiplier = multiplierForAgreement(agreement, strength);
   const multiplier = clampMultiplier(rawMultiplier);
 
-  return {
+  const result: AiVoteResult = {
     aiAnalysisStatus: 'COMPLETE',
     aiEvidenceWeightMultiplier: multiplier,
     aiSceneMatchScore: sceneMatchScore,
@@ -205,6 +254,18 @@ export function computeAiVoteResult(
     aiAnalysisSummary: summary,
     aiAnalysisCompletedAt: FieldValue.serverTimestamp(),
   };
+
+  if (syntheticImageRisk !== undefined) {
+    result.aiSyntheticImageRisk = syntheticImageRisk;
+  }
+  if (syntheticImageConfidence !== undefined) {
+    result.aiSyntheticImageConfidence = syntheticImageConfidence;
+  }
+  if (syntheticImageSummary !== undefined) {
+    result.aiSyntheticImageSummary = syntheticImageSummary;
+  }
+
+  return result;
 }
 
 /**
