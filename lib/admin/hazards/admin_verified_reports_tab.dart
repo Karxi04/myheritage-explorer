@@ -1,7 +1,14 @@
 part of '../admin_pages.dart';
 
 class AdminVerifiedReportsTab extends StatefulWidget {
-  const AdminVerifiedReportsTab({super.key});
+  const AdminVerifiedReportsTab({
+    super.key,
+    this.reportService,
+    this.voteService,
+  });
+
+  final HazardReportService? reportService;
+  final HazardVoteService? voteService;
 
   @override
   State<AdminVerifiedReportsTab> createState() =>
@@ -9,9 +16,9 @@ class AdminVerifiedReportsTab extends StatefulWidget {
 }
 
 class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
-  final _reportService = HazardReportService();
+  late final _reportService = widget.reportService ?? HazardReportService();
   late var _reportsStream = _reportService.watchVerifiedUnresolvedReports();
-  final _voteService = HazardVoteService();
+  late final _voteService = widget.voteService ?? HazardVoteService();
   final Map<String, Stream<List<HazardVote>>> _voteStreams = {};
   final _confidenceService = const ConfidenceAnalysisService();
 
@@ -23,6 +30,13 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
       ),
     );
   }
+
+  static ExplorerStatusTone _severityTone(String severity) =>
+      switch (severity) {
+        'High' => ExplorerStatusTone.danger,
+        'Medium' => ExplorerStatusTone.warning,
+        _ => ExplorerStatusTone.navy,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -89,87 +103,166 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
                   voteSnapshot.data ?? const [],
                 );
 
+                final isNarrow = MediaQuery.sizeOf(context).width < 700;
+
                 return ExplorerCard(
                   onTap: () => _openReport(report),
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flex(
-                        direction: MediaQuery.sizeOf(context).width < 700
-                            ? Axis.vertical
-                            : Axis.horizontal,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _AdminHazardImage(report: report),
-                          const SizedBox(width: 14),
-                          Flexible(
-                            fit: FlexFit.loose,
-                            flex: MediaQuery.sizeOf(context).width < 700
-                                ? 0
-                                : 1,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        report.category,
-                                        style: const TextStyle(
-                                          color: ExplorerColors.navy,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                    const ExplorerStatusBadge(
-                                      label: 'VERIFIED',
-                                      tone: ExplorerStatusTone.success,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  report.description,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: ExplorerColors.text,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 14,
-                                  runSpacing: 5,
-                                  children: [
-                                    _HazardInfo(
-                                      icon: Icons.speed_outlined,
-                                      text: 'Severity: ${report.severity}',
-                                    ),
-                                    _HazardInfo(
-                                      icon: Icons.place_outlined,
-                                      text: 'GPS location captured',
-                                    ),
-                                    _HazardInfo(
-                                      icon: Icons.how_to_vote_outlined,
-                                      text:
-                                          '${analysis.totalVotes} total votes',
-                                    ),
-                                  ],
-                                ),
-                              ],
+                      if (isNarrow) ...[
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              report.category,
+                              style: const TextStyle(
+                                color: ExplorerColors.navy,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
+                            const ExplorerStatusBadge(
+                              label: 'VERIFIED',
+                              tone: ExplorerStatusTone.success,
+                            ),
+                            ExplorerStatusBadge(
+                              label:
+                                  '${report.severity.toUpperCase()} SEVERITY',
+                              tone: _severityTone(report.severity),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        _AdminHazardImage(report: report),
+                        const SizedBox(height: 10),
+                        Text(
+                          report.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: ExplorerColors.text,
+                            fontSize: 12,
+                            height: 1.4,
                           ),
-                          const SizedBox(width: 12),
-                          FilledButton.icon(
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 14,
+                          runSpacing: 5,
+                          children: [
+                            const _HazardInfo(
+                              icon: Icons.place_outlined,
+                              text: 'GPS location captured',
+                            ),
+                            if (report.reviewedAt != null ||
+                                report.createdAt != null)
+                              _HazardInfo(
+                                icon: Icons.schedule_outlined,
+                                text: DateFormat.yMMMd().format(
+                                  report.reviewedAt ?? report.createdAt!,
+                                ),
+                              ),
+                            _HazardInfo(
+                              icon: Icons.how_to_vote_outlined,
+                              text: '${analysis.totalVotes} total votes',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
                             onPressed: () => _openReport(report),
                             icon: const Icon(Icons.manage_search, size: 17),
                             label: const Text('Manage'),
                           ),
-                        ],
-                      ),
+                        ),
+                      ] else ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _AdminHazardImage(report: report),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          report.category,
+                                          style: const TextStyle(
+                                            color: ExplorerColors.navy,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                      const ExplorerStatusBadge(
+                                        label: 'VERIFIED',
+                                        tone: ExplorerStatusTone.success,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ExplorerStatusBadge(
+                                        label:
+                                            '${report.severity.toUpperCase()} SEVERITY',
+                                        tone: _severityTone(report.severity),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    report.description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: ExplorerColors.text,
+                                      fontSize: 12,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 14,
+                                    runSpacing: 5,
+                                    children: [
+                                      const _HazardInfo(
+                                        icon: Icons.place_outlined,
+                                        text: 'GPS location captured',
+                                      ),
+                                      if (report.reviewedAt != null ||
+                                          report.createdAt != null)
+                                        _HazardInfo(
+                                          icon: Icons.schedule_outlined,
+                                          text: DateFormat.yMMMd().format(
+                                            report.reviewedAt ??
+                                                report.createdAt!,
+                                          ),
+                                        ),
+                                      _HazardInfo(
+                                        icon: Icons.how_to_vote_outlined,
+                                        text:
+                                            '${analysis.totalVotes} total votes',
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            FilledButton.icon(
+                              onPressed: () => _openReport(report),
+                              icon: const Icon(Icons.manage_search, size: 17),
+                              label: const Text('Manage'),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       Container(
                         width: double.infinity,

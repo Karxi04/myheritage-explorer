@@ -27,6 +27,12 @@ class Reports implements HazardReportService {
   @override
   Future<HazardReport?> getReport(String id) async => report;
   @override
+  Stream<List<HazardReport>> watchVerifiedReports() =>
+      Stream.value(report == null ? [] : [report!]);
+  @override
+  Stream<List<HazardReport>> watchVerifiedUnresolvedReports() =>
+      Stream.value(report == null ? [] : [report!]);
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -293,5 +299,97 @@ void main() {
       await capture(tester, 'admin-review-${width.toInt()}');
       await tester.pumpWidget(const SizedBox());
     });
+  }
+
+  for (final width in [320.0, 390.0, 1024.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('danger zone map layout fits $width with text scale $scale', (
+        tester,
+      ) async {
+        size(tester, width);
+        await tester.pumpWidget(
+          app(
+            DangerZoneMapPage(
+              reports: const [report],
+              height: 250,
+              locationService: const Location(),
+            ),
+            scale: scale,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(DangerZoneMapPage), findsOneWidget);
+        expect(find.text('Low'), findsOneWidget);
+        expect(find.text('Medium'), findsOneWidget);
+        expect(find.text('High'), findsOneWidget);
+        expect(find.textContaining('150 m'), findsNothing);
+        expect(find.textContaining('300 m'), findsNothing);
+        expect(find.textContaining('500 m'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
+
+  testWidgets('danger zone map empty state layout on narrow width 320', (
+    tester,
+  ) async {
+    size(tester, 320.0);
+    await tester.pumpWidget(
+      app(
+        const DangerZoneMapPage(
+          reports: [],
+          height: 250,
+          locationService: Location(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('No verified hazards are active right now.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final width in [320.0, 390.0, 1024.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets(
+        'verified hazard card layout fits $width with text scale $scale and long description',
+        (tester) async {
+          size(tester, width);
+          const longReport = HazardReport(
+            id: 'long_desc_report',
+            userId: 'user_123',
+            category: 'Road obstruction',
+            severity: 'High',
+            description:
+                'This is an exceptionally long hazard description designed to verify that '
+                'text overflowing is cleanly capped at two lines with ellipsis without causing '
+                'any RenderFlex overflow on narrow devices or high accessibility font scales.',
+            latitude: 5.4141,
+            longitude: 100.3288,
+            status: HazardReportStatus.verified,
+          );
+          await tester.pumpWidget(
+            app(
+              AdminVerifiedReportsTab(
+                reportService: Reports(longReport),
+                voteService: Votes(),
+              ),
+              scale: scale,
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('VERIFIED'), findsOneWidget);
+          expect(find.text('HIGH SEVERITY'), findsOneWidget);
+          expect(find.text('Manage'), findsOneWidget);
+          expect(find.text('Road obstruction'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
   }
 }

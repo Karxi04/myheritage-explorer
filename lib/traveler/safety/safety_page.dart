@@ -178,45 +178,89 @@ class _SafetyPageState extends State<SafetyPage> {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: ExplorerCard(
                           onTap: () => _preview(report),
-                          child: Column(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                report.category,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: ExplorerColors.navy,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
-                                children: [
-                                  ExplorerStatusBadge(
-                                    label: '${report.severity} severity',
-                                    tone: _tone(report),
-                                  ),
-                                  if (report.createdAt != null)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            report.category,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w800,
+                                              color: ExplorerColors.navy,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ExplorerStatusBadge(
+                                          label:
+                                              '${report.severity.toUpperCase()} SEVERITY',
+                                          tone: _tone(report),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
                                     Text(
-                                      DateFormat.yMMMd().format(
-                                        report.createdAt!,
-                                      ),
+                                      report.description,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                        color: ExplorerColors.muted,
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        color: ExplorerColors.text,
                                       ),
                                     ),
-                                ],
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 12,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        const ExplorerStatusBadge(
+                                          label: 'VERIFIED',
+                                          tone: ExplorerStatusTone.success,
+                                        ),
+                                        if (report.createdAt != null)
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.schedule_outlined,
+                                                size: 13,
+                                                color: ExplorerColors.muted,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                DateFormat.yMMMd().format(
+                                                  report.createdAt!,
+                                                ),
+                                                style: const TextStyle(
+                                                  color: ExplorerColors.muted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                report.description,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  height: 1.4,
+                              const SizedBox(width: 8),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: ExplorerColors.muted,
+                                  size: 20,
                                 ),
                               ),
                             ],

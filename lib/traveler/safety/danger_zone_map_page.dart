@@ -6,11 +6,13 @@ class DangerZoneMapPage extends StatefulWidget {
     required this.reports,
     this.onReportSelected,
     this.height = 225,
+    this.locationService,
   });
 
   final List<HazardReport> reports;
   final void Function(HazardReport report)? onReportSelected;
   final double height;
+  final LocationService? locationService;
 
   @override
   State<DangerZoneMapPage> createState() => _DangerZoneMapPageState();
@@ -19,7 +21,8 @@ class DangerZoneMapPage extends StatefulWidget {
 class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
   final _mapController = fm.MapController();
   final _mapService = const HazardMapService();
-  final _locationService = const LocationService();
+  late final _locationService =
+      widget.locationService ?? const LocationService();
   latlng.LatLng? _userPosition;
   bool _loadingLocation = true;
   String? _locationError;
@@ -118,28 +121,40 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
                   ),
                   fm.CircleLayer(circles: dangerZoneCircles),
                   fm.MarkerLayer(markers: markers),
-                  const fm.SimpleAttributionWidget(
-                    source: Text('© OpenStreetMap contributors'),
+                  const fm.RichAttributionWidget(
+                    alignment: fm.AttributionAlignment.bottomLeft,
+                    showFlutterMapAttribution: false,
+                    attributions: [
+                      fm.TextSourceAttribution('OpenStreetMap contributors'),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
           Positioned(
-            bottom: 54,
+            bottom: 12,
             right: 12,
             child: Material(
               color: Colors.white,
+              elevation: 2,
+              shadowColor: Colors.black26,
               borderRadius: BorderRadius.circular(12),
               child: IconButton(
                 tooltip: 'Recenter on my location',
+                constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+                padding: EdgeInsets.zero,
                 onPressed: _loadingLocation
                     ? null
                     : () {
                         setState(() => _loadingLocation = true);
                         _loadUserPosition();
                       },
-                icon: const Icon(Icons.my_location),
+                icon: const Icon(
+                  Icons.my_location,
+                  color: ExplorerColors.navy,
+                  size: 20,
+                ),
               ),
             ),
           ),
@@ -174,9 +189,14 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
             ),
           if (_tileLoadFailed)
             Positioned(
-              bottom: 26,
+              top: 10,
               left: 10,
-              right: 10,
+              right:
+                  active.isNotEmpty &&
+                      !_loadingLocation &&
+                      _locationError == null
+                  ? 76
+                  : 10,
               child: _MapMessage(
                 icon: Icons.cloud_off_outlined,
                 text: 'Map tiles could not load.',
@@ -187,11 +207,12 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
                 }),
               ),
             )
-          else if (active.isEmpty)
+          else if (active.isEmpty &&
+              !_loadingLocation &&
+              _locationError == null)
             const Positioned(
-              bottom: 26,
+              top: 10,
               left: 10,
-              right: 10,
               child: _MapMessage(
                 icon: Icons.health_and_safety_outlined,
                 text: 'No verified hazards are active right now.',
@@ -212,25 +233,21 @@ class _DangerZoneLegend extends StatelessWidget {
       color: Colors.white.withValues(alpha: .94),
       borderRadius: BorderRadius.circular(10),
       elevation: 2,
+      shadowColor: Colors.black12,
       child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _DangerZoneLegendItem(
-              color: ExplorerColors.success,
-              label: 'Low · 150 m',
-            ),
-            SizedBox(height: 4),
+            _DangerZoneLegendItem(color: ExplorerColors.success, label: 'Low'),
+            SizedBox(height: 3),
             _DangerZoneLegendItem(
               color: ExplorerColors.warning,
-              label: 'Medium · 300 m',
+              label: 'Medium',
             ),
-            SizedBox(height: 4),
-            _DangerZoneLegendItem(
-              color: ExplorerColors.danger,
-              label: 'High · 500 m',
-            ),
+            SizedBox(height: 3),
+            _DangerZoneLegendItem(color: ExplorerColors.danger, label: 'High'),
           ],
         ),
       ),
@@ -250,8 +267,8 @@ class _DangerZoneLegendItem extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 9,
-          height: 9,
+          width: 8,
+          height: 8,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 5),
@@ -287,24 +304,47 @@ class _MapMessage extends StatelessWidget {
       color: Colors.white.withValues(alpha: .94),
       borderRadius: BorderRadius.circular(10),
       elevation: 2,
+      shadowColor: Colors.black12,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 17, color: ExplorerColors.navy),
+            Icon(icon, size: 16, color: ExplorerColors.navy),
             const SizedBox(width: 7),
             Flexible(
               child: Text(
                 text,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: ExplorerColors.navy,
+                ),
               ),
             ),
             if (onAction != null) ...[
               const SizedBox(width: 6),
-              TextButton(onPressed: onAction, child: Text(actionLabel!)),
+              InkWell(
+                onTap: onAction,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  child: Text(
+                    actionLabel!,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: ExplorerColors.navy,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ],
         ),

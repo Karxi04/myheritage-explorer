@@ -40,18 +40,22 @@ class _HazardInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: ExplorerColors.muted),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            text,
+    return Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(icon, size: 14, color: ExplorerColors.muted),
+            ),
+          ),
+          TextSpan(
+            text: text,
             style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
