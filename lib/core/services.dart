@@ -524,35 +524,69 @@ class AppServices {
       referenceId: itineraryId,
     );
 
-    // Schedule 1 day before at 9:00 AM (or on start date at 8:00 AM if trip is tomorrow/today)
-    final now = DateTime.now();
-    DateTime reminderDate = DateTime(
+    final reminderDate = nextTripReminderTime(tripStartDate: tripStartDate);
+    if (reminderDate == null) return;
+
+    final leadDays = tripReminderLeadDays(
+      tripStartDate: tripStartDate,
+      reminderTime: reminderDate,
+    );
+    final leadLabel = leadDays == 0
+        ? 'today'
+        : leadDays == 1
+        ? 'tomorrow'
+        : 'in $leadDays days';
+
+    final notifId = itineraryId.hashCode.abs().remainder(100000);
+    await SystemNotificationService.instance.scheduleTripReminder(
+      id: notifId,
+      title: 'Upcoming Trip: $title',
+      body:
+          'Your trip to $area starts $leadLabel ($formattedDate). Open your itinerary to review the route, places, and weather.',
+      reminderTime: reminderDate,
+      payload: 'itinerary:$itineraryId',
+    );
+  }
+
+  static DateTime? nextTripReminderTime({
+    required DateTime tripStartDate,
+    DateTime? now,
+  }) {
+    final current = now ?? DateTime.now();
+    final tripDayAtReminderHour = DateTime(
       tripStartDate.year,
       tripStartDate.month,
       tripStartDate.day,
       8,
       0,
-    ).subtract(const Duration(days: 1));
+    );
 
-    if (reminderDate.isBefore(now)) {
-      reminderDate = DateTime(
-        tripStartDate.year,
-        tripStartDate.month,
-        tripStartDate.day,
-        8,
-        0,
+    for (final leadDays in const [3, 2, 1, 0]) {
+      final reminderTime = tripDayAtReminderHour.subtract(
+        Duration(days: leadDays),
       );
+      if (reminderTime.isAfter(current)) return reminderTime;
     }
 
-    final notifId = itineraryId.hashCode.abs().remainder(100000);
-    await SystemNotificationService.instance.scheduleTripReminder(
-      id: notifId,
-      title: '✈️ Upcoming Trip: $title ($area)',
-      body:
-          'Your trip to $area starts tomorrow ($formattedDate)! Check your itinerary & today\'s weather forecast.',
-      reminderTime: reminderDate,
-      payload: 'itinerary:$itineraryId',
+    return null;
+  }
+
+  static int tripReminderLeadDays({
+    required DateTime tripStartDate,
+    required DateTime reminderTime,
+  }) {
+    final tripDate = DateTime(
+      tripStartDate.year,
+      tripStartDate.month,
+      tripStartDate.day,
     );
+    final reminderDate = DateTime(
+      reminderTime.year,
+      reminderTime.month,
+      reminderTime.day,
+    );
+    final days = tripDate.difference(reminderDate).inDays;
+    return days.clamp(0, 3);
   }
 
   static String getItineraryStatus(Map<String, dynamic> itinerary) {

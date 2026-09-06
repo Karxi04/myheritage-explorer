@@ -5,9 +5,11 @@ import 'package:timezone/timezone.dart' as tz;
 
 class SystemNotificationService {
   SystemNotificationService._();
-  static final SystemNotificationService instance = SystemNotificationService._();
+  static final SystemNotificationService instance =
+      SystemNotificationService._();
 
-  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin =
+      FlutterLocalNotificationsPlugin();
   bool _isInitialized = false;
   ValueChanged<String?>? onNotificationPayload;
 
@@ -20,7 +22,9 @@ class SystemNotificationService {
       debugPrint('Timezone init exception: $e');
     }
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -42,8 +46,8 @@ class SystemNotificationService {
         },
       );
 
-      final launchDetails =
-          await _notificationsPlugin.getNotificationAppLaunchDetails();
+      final launchDetails = await _notificationsPlugin
+          .getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp == true) {
         onNotificationPayload?.call(
           launchDetails?.notificationResponse?.payload,
@@ -52,7 +56,9 @@ class SystemNotificationService {
 
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         final androidImplementation = _notificationsPlugin
-            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         await androidImplementation?.requestNotificationsPermission();
       }
 
@@ -73,7 +79,8 @@ class SystemNotificationService {
     const androidDetails = AndroidNotificationDetails(
       'myheritage_alerts',
       'Trip Alerts & Reminders',
-      channelDescription: 'Notifications for upcoming itineraries, weather reminders and cultural task rewards.',
+      channelDescription:
+          'Notifications for upcoming itineraries, weather reminders and cultural task rewards.',
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
@@ -127,7 +134,8 @@ class SystemNotificationService {
     const androidDetails = AndroidNotificationDetails(
       'myheritage_trip_reminders',
       'Trip Pre-Departure Reminders',
-      channelDescription: 'Reminders scheduled 1 day prior to your Malaysian heritage trips.',
+      channelDescription:
+          'Reminders scheduled before your Malaysian heritage trips.',
       importance: Importance.high,
       priority: Priority.high,
     );
