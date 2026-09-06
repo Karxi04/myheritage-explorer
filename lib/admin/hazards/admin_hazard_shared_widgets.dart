@@ -1,5 +1,9 @@
 part of '../admin_pages.dart';
 
+// ---------------------------------------------------------------------------
+// Existing helper widgets preserved for tab compatibility
+// ---------------------------------------------------------------------------
+
 class _AdminHazardImage extends StatelessWidget {
   const _AdminHazardImage({required this.report});
 
@@ -61,238 +65,320 @@ class _HazardInfo extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Intelligent Resolve Hazard Confidence System card
+// Shared detail row (two-column label-value pair with responsive stacking)
 // ---------------------------------------------------------------------------
 
-class _ConfidenceAnalysisCard extends StatelessWidget {
-  const _ConfidenceAnalysisCard({required this.analysis});
-  final ConfidenceAnalysisResult analysis;
-  @override
-  Widget build(BuildContext context) {
-    final color = analysis.hasSufficientRecentEvidence
-        ? ExplorerColors.navy
-        : ExplorerColors.muted;
-    return ExplorerCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const ExplorerSectionTitle(
-            'Community Resolution Analysis',
-            subtitle: 'Supporting evidence for the administrator’s decision.',
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              ExplorerStatusBadge(
-                label: analysis.displayLevel,
-                tone: analysis.hasSufficientRecentEvidence
-                    ? ExplorerStatusTone.navy
-                    : ExplorerStatusTone.neutral,
-              ),
-              Text(
-                '${analysis.totalRecentVotes} confirmations in the last 15 minutes',
-                style: const TextStyle(
-                  color: ExplorerColors.muted,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            '${analysis.confidencePercent.toStringAsFixed(1)}%',
-            style: TextStyle(
-              color: color,
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const Text(
-            'Weighted resolution support',
-            style: TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: (analysis.confidencePercent / 100).clamp(0, 1),
-            minHeight: 7,
-            borderRadius: BorderRadius.circular(8),
-            color: color,
-            backgroundColor: ExplorerColors.subtle,
-          ),
-          const SizedBox(height: 20),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _ConfidenceStat(
-                  label: 'Hazard Still Exists',
-                  value: '${analysis.existsVotes}',
-                  icon: Icons.warning_amber_rounded,
-                  iconColor: ExplorerColors.danger,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _ConfidenceStat(
-                  label: 'Hazard Appears Resolved',
-                  value: '${analysis.resolvedVotes}',
-                  icon: Icons.task_alt,
-                  iconColor: ExplorerColors.success,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _EvidenceMetric(
-                label: 'Location-verified',
-                value: analysis.gpsValidatedCount,
-                icon: Icons.my_location,
-              ),
-              _EvidenceMetric(
-                label: 'Photos',
-                value: analysis.photoEvidenceCount,
-                icon: Icons.photo_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            analysis.recommendation,
-            style: const TextStyle(fontSize: 13, height: 1.5),
-          ),
-          Material(
-            color: Colors.transparent,
-            child: ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text(
-                'View Analysis Details',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-              ),
-              children: [
-                _AdminDetailRow(
-                  label: 'Evidence',
-                  value: analysis.evidenceStrength,
-                ),
-                _AdminDetailRow(
-                  label: 'Good photos',
-                  value: '${analysis.strongOrGoodEvidenceCount}',
-                ),
-                _AdminDetailRow(
-                  label: 'Low quality',
-                  value: '${analysis.lowQualityEvidenceCount}',
-                ),
-                _AdminDetailRow(
-                  label: 'Duplicates',
-                  value: '${analysis.possibleDuplicateEvidenceCount}',
-                ),
-                _AdminDetailRow(
-                  label: 'Similar scenes',
-                  value: '${analysis.sceneMatchedCount}',
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    'Support weights consider proximity, photo quality and confirmations from the last hour. '
-                    'Confidence requires enough confirmations in the last 15 minutes. '
-                    'Scene comparison measures coarse visual patterns, not whether a hazard is present.',
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 12,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConfidenceStat extends StatelessWidget {
-  const _ConfidenceStat({
+class _AdminDetailRow extends StatelessWidget {
+  const _AdminDetailRow({
     required this.label,
     required this.value,
-    this.icon,
-    this.iconColor,
+    this.valueColor,
   });
 
   final String label;
   final String value;
-  final IconData? icon;
-  final Color? iconColor;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: ExplorerColors.subtle,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null)
-            Icon(icon, size: 18, color: iconColor ?? ExplorerColors.navy),
-          if (icon != null) const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              color: ExplorerColors.navy,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(color: ExplorerColors.muted, fontSize: 10),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isTight = constraints.maxWidth < 240;
+          if (isTight) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: valueColor ?? ExplorerColors.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 110,
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: valueColor ?? ExplorerColors.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _VotePhotoEvidenceCard extends StatelessWidget {
-  const _VotePhotoEvidenceCard({required this.hazardId, required this.votes});
-  final String hazardId;
-  final List<HazardVote> votes;
+// ---------------------------------------------------------------------------
+// SECTION 2: Original Hazard Evidence Card
+// ---------------------------------------------------------------------------
+
+class _OriginalHazardEvidenceCard extends StatelessWidget {
+  const _OriginalHazardEvidenceCard({required this.report});
+
+  final HazardReport report;
 
   @override
   Widget build(BuildContext context) {
-    final evidence = votes.where((vote) => vote.hasPhotoEvidence).toList()
-      ..sort(
-        (a, b) =>
-            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
-      );
+    final validation = report.evidenceValidation;
+    final dateStr = report.createdAt == null
+        ? 'Recently submitted'
+        : DateFormat.yMMMd().add_jm().format(report.createdAt!);
+
     return ExplorerCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const ExplorerSectionTitle(
-            'Recent Community Photo Evidence',
-            subtitle:
-                'Supporting evidence only; administrator review is still required.',
+            'Original Hazard Evidence',
+            subtitle: 'Evidence image submitted with the initial report.',
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: HazardEvidenceImage(
+              report: report,
+              width: double.infinity,
+              height: 260,
+              placeholderBuilder: (_) => _AdminHazardPlaceholder.image(),
+            ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 220,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: evidence.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (context, index) =>
-                  _VoteEvidenceTile(hazardId: hazardId, vote: evidence[index]),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ExplorerStatusBadge(
+                label: validation?.evidenceSource == 'CAMERA'
+                    ? 'Captured in App'
+                    : 'Selected from Gallery',
+                tone: ExplorerStatusTone.neutral,
+                icon: validation?.evidenceSource == 'CAMERA'
+                    ? Icons.camera_alt_outlined
+                    : Icons.photo_library_outlined,
+              ),
+              Text(
+                'Submitted with original report • $dateStr',
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          if (validation != null) ...[
+            const SizedBox(height: 8),
+            Material(
+              color: Colors.transparent,
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text(
+                  'Technical Details',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+                children: [
+                  _AdminDetailRow(
+                    label: 'Resolution',
+                    value: '${validation.width} × ${validation.height}',
+                  ),
+                  _AdminDetailRow(
+                    label: 'Visibility',
+                    value: validation.exposureStatus,
+                  ),
+                  if (validation.warnings.isNotEmpty)
+                    _AdminDetailRow(
+                      label: 'Validation Notes',
+                      value: validation.warnings.join(' '),
+                    ),
+                  if (validation.sha256Fingerprint.isNotEmpty)
+                    _AdminDetailRow(
+                      label: 'SHA-256',
+                      value: validation.sha256Fingerprint,
+                    ),
+                  if (validation.perceptualHash.isNotEmpty)
+                    _AdminDetailRow(
+                      label: 'Perceptual Hash',
+                      value: validation.perceptualHash,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 3: Community Confirmation Summary Card
+// ---------------------------------------------------------------------------
+
+class _CommunityConfirmationSummaryCard extends StatelessWidget {
+  const _CommunityConfirmationSummaryCard({required this.analysis});
+
+  final ConfidenceAnalysisResult analysis;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ExplorerSectionTitle(
+            'Community Confirmation Summary',
+            subtitle: 'Real-time crowdsourced verification activity.',
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = constraints.maxWidth < 600
+                  ? (constraints.maxWidth - 10) / 2
+                  : (constraints.maxWidth - 30) / 4;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: itemWidth,
+                    child: _ConfirmationMetricBox(
+                      label: 'Hazard Still Exists',
+                      value: '${analysis.existsVotes}',
+                      icon: Icons.warning_amber_rounded,
+                      color: ExplorerColors.danger,
+                      bgColor: ExplorerColors.dangerSoft,
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _ConfirmationMetricBox(
+                      label: 'Appears Resolved',
+                      value: '${analysis.resolvedVotes}',
+                      icon: Icons.task_alt,
+                      color: ExplorerColors.success,
+                      bgColor: ExplorerColors.successSoft,
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _ConfirmationMetricBox(
+                      label: 'Recent GPS-Verified',
+                      value: '${analysis.gpsValidatedCount}',
+                      icon: Icons.my_location,
+                      color: ExplorerColors.navy,
+                      bgColor: ExplorerColors.subtle,
+                    ),
+                  ),
+                  SizedBox(
+                    width: itemWidth,
+                    child: _ConfirmationMetricBox(
+                      label: 'Photo Evidence',
+                      value: '${analysis.photoEvidenceCount}',
+                      icon: Icons.photo_camera_outlined,
+                      color: ExplorerColors.navy,
+                      bgColor: ExplorerColors.subtle,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConfirmationMetricBox extends StatelessWidget {
+  const _ConfirmationMetricBox({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.bgColor,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final Color bgColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withAlpha(50)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const Spacer(),
+              Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: ExplorerColors.text,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -301,214 +387,282 @@ class _VotePhotoEvidenceCard extends StatelessWidget {
   }
 }
 
-class _VoteEvidenceTile extends StatelessWidget {
-  const _VoteEvidenceTile({required this.hazardId, required this.vote});
+// ---------------------------------------------------------------------------
+// SECTION 4: Community Evidence Section & Cards
+// ---------------------------------------------------------------------------
+
+class _CommunityEvidenceSection extends StatelessWidget {
+  const _CommunityEvidenceSection({
+    required this.hazardId,
+    required this.votes,
+    this.voteService,
+  });
+
+  final String hazardId;
+  final List<HazardVote> votes;
+  final HazardVoteService? voteService;
+
+  @override
+  Widget build(BuildContext context) {
+    final photoVotes = votes.where((v) => v.hasPhotoEvidence).toList()
+      ..sort(
+        (a, b) =>
+            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+      );
+
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: ExplorerSectionTitle(
+                  'Community Evidence Photos',
+                  subtitle:
+                      'Crowdsourced evidence photos with integrated AI semantic analysis.',
+                ),
+              ),
+              if (photoVotes.isNotEmpty)
+                ExplorerStatusBadge(
+                  label: '${photoVotes.length} Photos',
+                  tone: ExplorerStatusTone.neutral,
+                  icon: Icons.photo_library_outlined,
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (photoVotes.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
+              decoration: BoxDecoration(
+                color: ExplorerColors.subtle,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: ExplorerColors.border),
+              ),
+              child: const Column(
+                children: [
+                  Icon(
+                    Icons.photo_outlined,
+                    size: 40,
+                    color: ExplorerColors.muted,
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    'No community evidence has been submitted yet.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: photoVotes.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 16),
+              itemBuilder: (context, index) => _CommunityEvidenceCard(
+                hazardId: hazardId,
+                vote: photoVotes[index],
+                voteService: voteService,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommunityEvidenceCard extends StatelessWidget {
+  const _CommunityEvidenceCard({
+    required this.hazardId,
+    required this.vote,
+    this.voteService,
+  });
 
   final String hazardId;
   final HazardVote vote;
+  final HazardVoteService? voteService;
 
   @override
   Widget build(BuildContext context) {
     final validation = vote.evidenceValidation;
-    final hasSceneMatch = vote.hasSceneMatchedEvidence;
-    return SizedBox(
-      width: 190,
-      child: Material(
-        color: ExplorerColors.subtle,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => _showDetails(context),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
+    final isCamera = validation?.evidenceSource == 'CAMERA';
+    final isStillExists = vote.voteType == HazardVoteType.hazardExists;
+    final dateStr = vote.createdAt == null
+        ? 'Recently submitted'
+        : DateFormat.yMMMd().add_jm().format(vote.createdAt!);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ExplorerColors.border),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 680;
+          final imageWidget = ClipRRect(
+            borderRadius: isNarrow
+                ? const BorderRadius.vertical(top: Radius.circular(13))
+                : const BorderRadius.horizontal(left: Radius.circular(13)),
+            child: _VoteEvidenceImage(
+              hazardId: hazardId,
+              vote: vote,
+              voteService: voteService,
+              width: isNarrow ? double.infinity : 240,
+              height: isNarrow ? 200 : 260,
+            ),
+          );
+
+          final contentWidget = Padding(
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Stack(
+                // Vote Direction & Source Badges
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(9),
-                      child: _VoteEvidenceImage(
-                        hazardId: hazardId,
-                        vote: vote,
-                        width: 174,
-                        height: 112,
-                      ),
+                    ExplorerStatusBadge(
+                      label: isStillExists
+                          ? 'HAZARD STILL EXISTS'
+                          : 'HAZARD APPEARS RESOLVED',
+                      tone: isStillExists
+                          ? ExplorerStatusTone.danger
+                          : ExplorerStatusTone.success,
+                      icon: isStillExists
+                          ? Icons.warning_amber_rounded
+                          : Icons.task_alt,
                     ),
-                    // Scene-match badge
-                    if (hasSceneMatch)
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: ExplorerColors.goldDark,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.compare_rounded,
-                                size: 10,
-                                color: Colors.white,
-                              ),
-                              SizedBox(width: 3),
-                              Text(
-                                'Scene comparison',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    ExplorerStatusBadge(
+                      label: isCamera
+                          ? 'Captured in App'
+                          : 'Selected from Gallery',
+                      tone: ExplorerStatusTone.neutral,
+                      icon: isCamera
+                          ? Icons.camera_alt_outlined
+                          : Icons.photo_library_outlined,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  vote.voteType == HazardVoteType.hazardExists
-                      ? 'Hazard Still Exists'
-                      : 'Hazard Appears Resolved',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: ExplorerColors.navy,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '${vote.distanceFromHazardMeters.round()}m • ${vote.proximityBand} • ${validation?.validationLevel ?? 'Legacy'}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: ExplorerColors.muted,
-                    fontSize: 9,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+                const SizedBox(height: 10),
 
-  Future<void> _showDetails(BuildContext context) {
-    final validation = vote.evidenceValidation;
-    final sceneScore = vote.sceneMatchScore ?? validation?.sceneMatchScore;
-    final ai = vote.aiAnalysis;
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const ExplorerSectionTitle('Community Evidence'),
-              const SizedBox(height: 14),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: _VoteEvidenceImage(
-                  hazardId: hazardId,
-                  vote: vote,
-                  width: double.infinity,
-                  height: 280,
+                // Proximity & Submission details
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    _HazardInfo(
+                      icon: Icons.place_outlined,
+                      text:
+                          '${vote.distanceFromHazardMeters.round()} m from hazard • ${vote.proximityBand}',
+                    ),
+                    _HazardInfo(icon: Icons.schedule_outlined, text: dateStr),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 14),
-              _AdminDetailRow(
-                label: 'Update',
-                value: vote.voteType == HazardVoteType.hazardExists
-                    ? 'Hazard Still Exists'
-                    : 'Hazard Appears Resolved',
-              ),
-              _AdminDetailRow(
-                label: 'Proximity',
-                value:
-                    '${vote.distanceFromHazardMeters.round()} metres • ${vote.proximityBand}',
-              ),
-              _AdminDetailRow(
-                label: 'Submitted',
-                value: vote.createdAt == null
-                    ? 'Recently'
-                    : DateFormat.yMMMd().add_jm().format(vote.createdAt!),
-              ),
-              _AdminDetailRow(
-                label: 'Validation',
-                value: validation?.validationLevel ?? 'Legacy evidence',
-              ),
-              if (sceneScore != null)
-                _AdminDetailRow(
-                  label: 'Image Similarity',
-                  value: sceneScore >= 1
-                      ? 'Strong visual match'
-                      : sceneScore >= .7
-                      ? 'Partial visual match'
-                      : sceneScore >= .4
-                      ? 'Weak visual match'
-                      : 'No visual match',
-                ),
-              if (validation != null)
+                const SizedBox(height: 14),
+
+                // Integrated AI Evidence Decision Support
+                _AiEvidenceSection(ai: vote.aiAnalysis),
+
+                // Collapsible Technical Details
                 Material(
                   color: Colors.transparent,
                   child: ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     title: const Text(
-                      'Evidence Details',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      'Technical Details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: ExplorerColors.navy,
+                      ),
                     ),
                     children: [
-                      _AdminDetailRow(
-                        label: 'Capture',
-                        value: validation.evidenceSource == 'CAMERA'
-                            ? 'Captured in App'
-                            : 'From Gallery',
-                      ),
-                      _AdminDetailRow(
-                        label: 'Visibility',
-                        value: validation.exposureStatus,
-                      ),
-                      _AdminDetailRow(
-                        label: 'Resolution',
-                        value: '${validation.width} × ${validation.height}',
-                      ),
-                      if (validation.warnings.isNotEmpty)
+                      if (vote.sceneMatchScore != null ||
+                          validation?.sceneMatchScore != null)
                         _AdminDetailRow(
-                          label: 'Notes',
-                          value: validation.warnings.join(' '),
+                          label: 'Visual Similarity',
+                          value: _formatVisualSimilarity(
+                            vote.sceneMatchScore ?? validation?.sceneMatchScore,
+                          ),
                         ),
+                      if (vote.aiAnalysis.isComplete)
+                        _AdminDetailRow(
+                          label: 'AI Multiplier',
+                          value:
+                              '${vote.aiAnalysis.evidenceWeightMultiplier.toStringAsFixed(2)}×',
+                        ),
+                      if (validation != null) ...[
+                        _AdminDetailRow(
+                          label: 'Resolution',
+                          value: '${validation.width} × ${validation.height}',
+                        ),
+                        _AdminDetailRow(
+                          label: 'Visibility',
+                          value: validation.exposureStatus,
+                        ),
+                        if (validation.sha256Fingerprint.isNotEmpty)
+                          _AdminDetailRow(
+                            label: 'SHA-256',
+                            value: validation.sha256Fingerprint,
+                          ),
+                        if (validation.perceptualHash.isNotEmpty)
+                          _AdminDetailRow(
+                            label: 'Perceptual Hash',
+                            value: validation.perceptualHash,
+                          ),
+                        if (validation.warnings.isNotEmpty)
+                          _AdminDetailRow(
+                            label: 'Validation Notes',
+                            value: validation.warnings.join(' '),
+                          ),
+                      ],
                     ],
                   ),
                 ),
-              // ── AI Evidence Decision Support ──────────────────────────────
-              const SizedBox(height: 16),
-              _AiEvidenceSection(ai: ai),
+              ],
+            ),
+          );
+
+          if (isNarrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [imageWidget, contentWidget],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              imageWidget,
+              Expanded(child: contentWidget),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
+  }
+
+  String _formatVisualSimilarity(double? score) {
+    if (score == null) return 'Not Available';
+    if (score >= 1.0) return 'Strong visual match (${(score * 100).round()}%)';
+    if (score >= 0.7) return 'Partial visual match (${(score * 100).round()}%)';
+    if (score >= 0.4) return 'Weak visual match (${(score * 100).round()}%)';
+    return 'No visual match (${(score * 100).round()}%)';
   }
 }
 
 // ---------------------------------------------------------------------------
-// AI Evidence Decision Support section (Admin-only — displayed in vote sheet)
+// SECTION 5: Integrated AI Evidence Decision Support
 // ---------------------------------------------------------------------------
 
 class _AiEvidenceSection extends StatelessWidget {
@@ -572,9 +726,12 @@ class _AiEvidenceSection extends StatelessWidget {
     if (ai.isSkipped || ai.isFailed) {
       final skipMessage = switch (ai.failureReason) {
         'ORIGINAL_EVIDENCE_UNAVAILABLE' =>
-          'AI analysis skipped: Original hazard evidence photo is unavailable for comparison.',
-        'NO_PHOTO' => 'AI analysis not available (no photo evidence).',
-        _ => 'AI analysis not available for this evidence.',
+          'Original hazard image is unavailable for comparison.',
+        'NO_PHOTO' => 'No community evidence image was submitted.',
+        _ =>
+          ai.isSkipped
+              ? 'AI analysis skipped for this vote.'
+              : 'AI analysis is currently unavailable.',
       };
 
       return Container(
@@ -596,9 +753,7 @@ class _AiEvidenceSection extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                ai.isSkipped
-                    ? skipMessage
-                    : 'AI analysis could not be completed for this vote.',
+                skipMessage,
                 style: const TextStyle(
                   color: ExplorerColors.muted,
                   fontSize: 12,
@@ -612,8 +767,21 @@ class _AiEvidenceSection extends StatelessWidget {
 
     // COMPLETE: Render qualitative decision support
     final agreement = ai.agreement;
-    final (agreementColor, agreementBg, agreementIcon, agreementLabel) =
-        _agreementStyle(agreement);
+    final (
+      agreementColor,
+      agreementBg,
+      agreementIcon,
+      agreementLabel,
+      agreementBadge,
+      agreementTone,
+    ) = _agreementMeta(
+      agreement,
+    );
+
+    final sceneMatchLabel = _sceneQualitative(ai.sceneMatchScore);
+    final relevanceLabel = _relevanceQualitative(ai.hazardRelevanceScore);
+    final conditionText = _conditionLabel(ai.conditionAssessment);
+    final supportLevel = _qualitativeEvidenceSupport(ai);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -625,135 +793,133 @@ class _AiEvidenceSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
             children: [
-              Icon(agreementIcon, size: 16, color: agreementColor),
-              const SizedBox(width: 8),
-              Text(
-                'AI Decision Support',
-                style: TextStyle(
-                  color: agreementColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
+              Wrap(
+                spacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Icon(agreementIcon, size: 16, color: agreementColor),
+                  Text(
+                    'AI Decision Support',
+                    style: TextStyle(
+                      color: agreementColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              ExplorerStatusBadge(
-                label: agreementLabel,
-                tone: _agreementTone(agreement),
-              ),
+              ExplorerStatusBadge(label: agreementBadge, tone: agreementTone),
             ],
           ),
-          if (ai.conditionAssessment != null) ...[
-            const SizedBox(height: 10),
-            _AdminDetailRow(
-              label: 'Current Condition',
-              value: _conditionLabel(ai.conditionAssessment!),
-            ),
-          ],
-          if (ai.analysisSummary != null && ai.analysisSummary!.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              ai.analysisSummary!,
-              style: const TextStyle(fontSize: 12, height: 1.5),
-            ),
-          ],
           const SizedBox(height: 12),
+
+          // Qualitative Metrics
+          _AdminDetailRow(
+            label: 'Evidence Agreement',
+            value: agreementLabel,
+            valueColor: agreementColor,
+          ),
+          _AdminDetailRow(label: 'Current Condition', value: conditionText),
+          _AdminDetailRow(label: 'Evidence Assessment', value: supportLevel),
+
+          // Qualitative Pills for Scene Match & Relevance
+          const SizedBox(height: 6),
           Wrap(
-            spacing: 10,
+            spacing: 8,
             runSpacing: 8,
             children: [
-              if (ai.sceneMatchScore != null)
-                _AiScorePill(
-                  label: 'Scene Match',
-                  qualitativeText: _sceneQualitative(ai.sceneMatchScore!),
-                  value: ai.sceneMatchScore!,
-                  tooltip: 'AI semantic scene similarity with original hazard',
-                ),
-              if (ai.hazardRelevanceScore != null)
-                _AiScorePill(
-                  label: 'Relevance',
-                  qualitativeText: _relevanceQualitative(
-                    ai.hazardRelevanceScore!,
-                  ),
-                  value: ai.hazardRelevanceScore!,
-                  tooltip: 'Relevance to reported hazard category',
-                ),
+              _QualitativeScorePill(
+                label: 'Scene Match',
+                qualitative: sceneMatchLabel,
+                score: ai.sceneMatchScore,
+              ),
+              _QualitativeScorePill(
+                label: 'Relevance',
+                qualitative: relevanceLabel,
+                score: ai.hazardRelevanceScore,
+              ),
               if (ai.conditionConfidence != null)
-                _AiScorePill(
-                  label: 'Confidence',
-                  qualitativeText: _confidenceQualitative(
-                    ai.conditionConfidence!,
-                  ),
-                  value: ai.conditionConfidence!,
-                  tooltip: 'Model confidence in condition assessment',
+                _QualitativeScorePill(
+                  label: 'Condition Confidence',
+                  qualitative: _confidenceQualitative(ai.conditionConfidence!),
+                  score: ai.conditionConfidence,
                 ),
             ],
           ),
-          const SizedBox(height: 10),
-          _AdminDetailRow(
-            label: 'Evidence Support',
-            value: _supportDescription(ai.evidenceWeightMultiplier),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'AI is decision support only — it does not automatically change the hazard status.',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 10,
-              height: 1.4,
+
+          // AI Analysis Summary (defensive maxLines: 3)
+          if (ai.analysisSummary != null && ai.analysisSummary!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              ai.analysisSummary!,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: ExplorerColors.text,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  (Color, Color, IconData, String) _agreementStyle(String? agreement) =>
-      switch (agreement) {
-        AiAgreement.supportsVote => (
-          ExplorerColors.success,
-          ExplorerColors.successSoft,
-          Icons.thumb_up_alt_outlined,
-          'SUPPORTS VOTE',
-        ),
-        AiAgreement.conflictsWithVote => (
-          ExplorerColors.danger,
-          ExplorerColors.dangerSoft,
-          Icons.thumb_down_alt_outlined,
-          'CONFLICTS WITH VOTE',
-        ),
-        _ => (
-          ExplorerColors.muted,
-          ExplorerColors.subtle,
-          Icons.help_outline,
-          'INCONCLUSIVE',
-        ),
-      };
-
-  ExplorerStatusTone _agreementTone(String? agreement) => switch (agreement) {
-    AiAgreement.supportsVote => ExplorerStatusTone.success,
-    AiAgreement.conflictsWithVote => ExplorerStatusTone.danger,
-    _ => ExplorerStatusTone.neutral,
+  (Color, Color, IconData, String, String, ExplorerStatusTone) _agreementMeta(
+    String? agreement,
+  ) => switch (agreement) {
+    AiAgreement.supportsVote => (
+      ExplorerColors.success,
+      ExplorerColors.successSoft,
+      Icons.thumb_up_alt_outlined,
+      'Supports Tourist Confirmation',
+      'SUPPORTS',
+      ExplorerStatusTone.success,
+    ),
+    AiAgreement.conflictsWithVote => (
+      ExplorerColors.danger,
+      ExplorerColors.dangerSoft,
+      Icons.thumb_down_alt_outlined,
+      'Conflicts with Tourist Confirmation',
+      'CONFLICTS',
+      ExplorerStatusTone.danger,
+    ),
+    _ => (
+      ExplorerColors.muted,
+      ExplorerColors.subtle,
+      Icons.help_outline,
+      'Inconclusive',
+      'INCONCLUSIVE',
+      ExplorerStatusTone.neutral,
+    ),
   };
 
-  String _conditionLabel(String raw) => switch (raw) {
-    'HAZARD_STILL_PRESENT' => 'Hazard Still Present',
-    'APPEARS_RESOLVED' => 'Hazard Appears Resolved',
-    _ => 'Condition Uncertain',
+  String _conditionLabel(String? raw) => switch (raw) {
+    'HAZARD_STILL_PRESENT' => 'Hazard Still Appears Present',
+    'APPEARS_RESOLVED' => 'Appears Improved / Possibly Resolved',
+    _ => 'Current Condition Uncertain',
   };
 
-  String _sceneQualitative(double score) => score >= 0.80
-      ? 'High'
-      : score >= 0.55
-      ? 'Moderate'
-      : 'Low';
+  String _sceneQualitative(double? score) {
+    if (score == null) return 'Not Available';
+    if (score >= 0.80) return 'High';
+    if (score >= 0.60) return 'Moderate';
+    return 'Low';
+  }
 
-  String _relevanceQualitative(double score) => score >= 0.80
-      ? 'High'
-      : score >= 0.55
-      ? 'Relevant'
-      : 'Low';
+  String _relevanceQualitative(double? score) {
+    if (score == null) return 'Not Available';
+    if (score >= 0.80) return 'High';
+    if (score >= 0.60) return 'Moderate';
+    return 'Low';
+  }
 
   String _confidenceQualitative(double score) => score >= 0.80
       ? 'High'
@@ -761,67 +927,606 @@ class _AiEvidenceSection extends StatelessWidget {
       ? 'Moderate'
       : 'Low';
 
-  String _supportDescription(double multiplier) {
-    if (multiplier >= 1.08) {
-      return 'Strong support weight (+10%)';
-    } else if (multiplier >= 1.04) {
-      return 'Moderate support weight (+5%)';
-    } else if (multiplier > 1.00) {
-      return 'Mild support weight (+2%)';
-    } else if (multiplier <= 0.92) {
-      return 'Strong conflict weight (-10%)';
-    } else if (multiplier <= 0.96) {
-      return 'Moderate conflict weight (-5%)';
-    } else if (multiplier < 1.00) {
-      return 'Mild conflict weight (-2%)';
+  String _qualitativeEvidenceSupport(HazardVoteAi ai) {
+    if (!ai.isComplete || ai.agreement == AiAgreement.inconclusive) {
+      return 'Inconclusive';
     }
-    return 'Neutral weight (no adjustment)';
+    final multiplier = ai.evidenceWeightMultiplier;
+    if (ai.agreement == AiAgreement.supportsVote) {
+      if (multiplier >= 1.05) return 'Strong Support';
+      return 'Moderate Support';
+    }
+    if (ai.agreement == AiAgreement.conflictsWithVote) {
+      if (multiplier <= 0.95) return 'Strong Conflict';
+      return 'Moderate Conflict';
+    }
+    return 'Inconclusive';
   }
 }
 
-class _AiScorePill extends StatelessWidget {
-  const _AiScorePill({
+class _QualitativeScorePill extends StatelessWidget {
+  const _QualitativeScorePill({
     required this.label,
-    required this.qualitativeText,
-    required this.value,
-    this.tooltip,
+    required this.qualitative,
+    required this.score,
   });
 
   final String label;
-  final String qualitativeText;
-  final double value;
-  final String? tooltip;
+  final String qualitative;
+  final double? score;
 
   @override
   Widget build(BuildContext context) {
-    final percent = (value * 100).round();
-    final color = value >= 0.80
+    final color = score == null
+        ? ExplorerColors.muted
+        : score! >= 0.80
         ? ExplorerColors.success
-        : value >= 0.55
+        : score! >= 0.60
         ? ExplorerColors.goldDark
-        : ExplorerColors.muted;
+        : ExplorerColors.danger;
 
-    Widget pill = Container(
+    final percentText = score == null ? '' : ' · ${(score! * 100).round()}%';
+
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: ExplorerColors.subtle,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withAlpha(100)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withAlpha(120)),
       ),
       child: Text(
-        '$label: $qualitativeText ($percent%)',
+        '$label: $qualitative$percentText',
         style: TextStyle(
           color: color,
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
       ),
     );
+  }
+}
 
-    if (tooltip != null) {
-      pill = Tooltip(message: tooltip!, child: pill);
+// ---------------------------------------------------------------------------
+// SECTION 6: Aggregated AI Evidence Summary Card
+// ---------------------------------------------------------------------------
+
+class _AggregatedAiEvidenceCard extends StatelessWidget {
+  const _AggregatedAiEvidenceCard({required this.votes});
+
+  final List<HazardVote> votes;
+
+  @override
+  Widget build(BuildContext context) {
+    int supports = 0;
+    int conflicts = 0;
+    int inconclusive = 0;
+    int pending = 0;
+    int unavailable = 0;
+
+    for (final vote in votes) {
+      if (!vote.hasPhotoEvidence) continue;
+      final ai = vote.aiAnalysis;
+      if (ai.isComplete) {
+        if (ai.agreement == AiAgreement.supportsVote) {
+          supports++;
+        } else if (ai.agreement == AiAgreement.conflictsWithVote) {
+          conflicts++;
+        } else {
+          inconclusive++;
+        }
+      } else if (ai.isPending) {
+        pending++;
+      } else if (ai.isSkipped || ai.isFailed || ai.isNotAvailable) {
+        unavailable++;
+      }
     }
-    return pill;
+
+    final totalAi = supports + conflicts + inconclusive + pending + unavailable;
+    // If no AI analyses exist, do not display a useless all-zero panel
+    if (totalAi == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ExplorerSectionTitle(
+            'AI Evidence Summary',
+            subtitle:
+                'Locally aggregated findings across community photo evidence.',
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth < 600
+                  ? (constraints.maxWidth - 10) / 2
+                  : (constraints.maxWidth - 40) / 5;
+
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _AiSummaryBox(
+                      label: 'Supports Vote',
+                      count: supports,
+                      color: ExplorerColors.success,
+                      bgColor: ExplorerColors.successSoft,
+                      icon: Icons.thumb_up_alt_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _AiSummaryBox(
+                      label: 'Conflicts with Vote',
+                      count: conflicts,
+                      color: ExplorerColors.danger,
+                      bgColor: ExplorerColors.dangerSoft,
+                      icon: Icons.thumb_down_alt_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _AiSummaryBox(
+                      label: 'Inconclusive',
+                      count: inconclusive,
+                      color: ExplorerColors.muted,
+                      bgColor: ExplorerColors.subtle,
+                      icon: Icons.help_outline,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _AiSummaryBox(
+                      label: 'Analysis Pending',
+                      count: pending,
+                      color: ExplorerColors.navy,
+                      bgColor: ExplorerColors.subtle,
+                      icon: Icons.hourglass_top_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _AiSummaryBox(
+                      label: 'Unavailable',
+                      count: unavailable,
+                      color: ExplorerColors.muted,
+                      bgColor: ExplorerColors.subtle,
+                      icon: Icons.do_not_disturb_outlined,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiSummaryBox extends StatelessWidget {
+  const _AiSummaryBox({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.bgColor,
+    required this.icon,
+  });
+
+  final String label;
+  final int count;
+  final Color color;
+  final Color bgColor;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const Spacer(),
+              Text(
+                '$count',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: ExplorerColors.text,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 7: Resolution Confidence Panel
+// ---------------------------------------------------------------------------
+
+class _ConfidenceAnalysisCard extends StatelessWidget {
+  const _ConfidenceAnalysisCard({required this.analysis});
+  final ConfidenceAnalysisResult analysis;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasReliableSample =
+        analysis.totalRecentVotes >= SafetyConfig.minimumReliableRecentVotes;
+    final color = hasReliableSample
+        ? ExplorerColors.navy
+        : ExplorerColors.goldDark;
+
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ExplorerSectionTitle(
+            'Community Resolution Analysis',
+            subtitle:
+                'Community resolution decision support computed from recent crowdsourced evidence.',
+          ),
+          const SizedBox(height: 16),
+
+          // Explicit Sample-Size Communication
+          if (!hasReliableSample) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: ExplorerColors.warningSoft,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: ExplorerColors.warning.withAlpha(120),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: ExplorerColors.goldDark,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Limited community evidence',
+                          style: TextStyle(
+                            color: ExplorerColors.goldDark,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${SafetyConfig.minimumReliableRecentVotes - analysis.totalRecentVotes} more recent confirmations are needed before a reliable resolution confidence can be determined.',
+                          style: const TextStyle(
+                            color: ExplorerColors.text,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: ExplorerColors.successSoft,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: ExplorerColors.success.withAlpha(60)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_outline,
+                    color: ExplorerColors.success,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Sample size reliable: ${analysis.totalRecentVotes} confirmations in the rolling 15-minute window',
+                      style: const TextStyle(
+                        color: ExplorerColors.success,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Confidence Percentage and Level
+          const Text(
+            'Resolution Confidence',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: ExplorerColors.muted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                '${analysis.confidencePercent.toStringAsFixed(1)}%',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              ExplorerStatusBadge(
+                label: analysis.displayLevel,
+                tone: hasReliableSample
+                    ? ExplorerStatusTone.navy
+                    : ExplorerStatusTone.warning,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Weighted resolution support',
+            style: TextStyle(fontSize: 12, color: ExplorerColors.muted),
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: (analysis.confidencePercent / 100).clamp(0, 1),
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(8),
+            color: color,
+            backgroundColor: ExplorerColors.subtle,
+          ),
+          const SizedBox(height: 20),
+
+          // Vote Breakdown Stats
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _ConfidenceStat(
+                  label: 'Hazard Still Exists',
+                  value: '${analysis.existsVotes}',
+                  icon: Icons.warning_amber_rounded,
+                  iconColor: ExplorerColors.danger,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ConfidenceStat(
+                  label: 'Hazard Appears Resolved',
+                  value: '${analysis.resolvedVotes}',
+                  icon: Icons.task_alt,
+                  iconColor: ExplorerColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Secondary Metrics
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _EvidenceMetric(
+                label: 'Valid Confirmations',
+                value: analysis.validVoteCount,
+                icon: Icons.check_circle_outline,
+              ),
+              _EvidenceMetric(
+                label: 'Recent (15m)',
+                value: analysis.totalRecentVotes,
+                icon: Icons.history,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Recommendation
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ExplorerColors.subtle,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.recommend_outlined,
+                  size: 18,
+                  color: ExplorerColors.navy,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Resolution Recommendation',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: ExplorerColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        analysis.recommendation,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: ExplorerColors.text,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Collapsible Analysis Details
+          Material(
+            color: Colors.transparent,
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'View Confidence Details',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: ExplorerColors.navy,
+                ),
+              ),
+              children: [
+                _AdminDetailRow(
+                  label: 'Evidence Strength',
+                  value: analysis.evidenceStrength,
+                ),
+                _AdminDetailRow(
+                  label: 'High-Quality Photos',
+                  value: '${analysis.strongOrGoodEvidenceCount}',
+                ),
+                _AdminDetailRow(
+                  label: 'Low Quality Photos',
+                  value: '${analysis.lowQualityEvidenceCount}',
+                ),
+                _AdminDetailRow(
+                  label: 'Duplicates Flagged',
+                  value: '${analysis.possibleDuplicateEvidenceCount}',
+                ),
+                _AdminDetailRow(
+                  label: 'Visually Matched',
+                  value: '${analysis.sceneMatchedCount}',
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'Support weights factor in proximity, photo quality, recency, and AI evidence matching. '
+                    'Confidence requires a sufficient sample size of recent confirmations in the 15-minute window.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(height: 24),
+
+          // Subtle Decision-Support Disclaimer
+          const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.gavel_outlined, size: 14, color: ExplorerColors.muted),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'AI evidence analysis supports administrator review and does not automatically change hazard status.',
+                  style: TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConfidenceStat extends StatelessWidget {
+  const _ConfidenceStat({
+    required this.label,
+    required this.value,
+    this.icon,
+    this.iconColor,
+  });
+
+  final String label;
+  final String value;
+  final IconData? icon;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ExplorerColors.subtle,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null)
+            Icon(icon, size: 18, color: iconColor ?? ExplorerColors.navy),
+          if (icon != null) const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: ExplorerColors.navy,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(color: ExplorerColors.muted, fontSize: 10),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -849,12 +1554,14 @@ class _EvidenceMetric extends StatelessWidget {
             Icon(icon, size: 13, color: effectiveColor),
             const SizedBox(width: 5),
           ],
-          Text(
-            '$label  $value',
-            style: TextStyle(
-              color: effectiveColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              '$label  $value',
+              style: const TextStyle(
+                color: effectiveColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -863,15 +1570,21 @@ class _EvidenceMetric extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Image streaming widget for community vote evidence
+// ---------------------------------------------------------------------------
+
 class _VoteEvidenceImage extends StatelessWidget {
   const _VoteEvidenceImage({
     required this.hazardId,
     required this.vote,
+    this.voteService,
     this.width = 170,
     this.height = 130,
   });
   final String hazardId;
   final HazardVote vote;
+  final HazardVoteService? voteService;
   final double width;
   final double height;
 
@@ -884,7 +1597,12 @@ class _VoteEvidenceImage extends StatelessWidget {
         errorBuilder: (_, _, _) => SizedBox(
           width: width,
           height: height,
-          child: const Icon(Icons.broken_image_outlined),
+          child: const Center(
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: ExplorerColors.muted,
+            ),
+          ),
         ),
         width: width,
         height: height,
@@ -892,7 +1610,10 @@ class _VoteEvidenceImage extends StatelessWidget {
       );
     }
     return StreamBuilder<Uint8List?>(
-      stream: HazardVoteService().watchEvidenceBytes(hazardId, vote.userId),
+      stream: (voteService ?? HazardVoteService()).watchEvidenceBytes(
+        hazardId,
+        vote.userId,
+      ),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes != null && bytes.isNotEmpty) {
@@ -901,7 +1622,12 @@ class _VoteEvidenceImage extends StatelessWidget {
             errorBuilder: (_, _, _) => SizedBox(
               width: width,
               height: height,
-              child: const Icon(Icons.broken_image_outlined),
+              child: const Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  color: ExplorerColors.muted,
+                ),
+              ),
             ),
             width: width,
             height: height,
@@ -913,13 +1639,24 @@ class _VoteEvidenceImage extends StatelessWidget {
           return SizedBox(
             width: width,
             height: height,
-            child: const Center(child: CircularProgressIndicator()),
+            child: const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           );
         }
         return SizedBox(
           width: width,
           height: height,
-          child: const Icon(Icons.broken_image_outlined),
+          child: const Center(
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: ExplorerColors.muted,
+            ),
+          ),
         );
       },
     );

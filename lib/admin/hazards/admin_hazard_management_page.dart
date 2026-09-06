@@ -29,6 +29,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   late Stream<List<HazardVote>> _voteStream;
   final Map<String, Future<Map<String, dynamic>?>> _reporters = {};
   Timer? _clock;
+
   @override
   void initState() {
     super.initState();
@@ -185,20 +186,22 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                   ),
                 );
               }
-              final analysis = _confidenceService.analyze(
-                voteSnapshot.data ?? const [],
-              );
+              final votes = voteSnapshot.data ?? const <HazardVote>[];
+              final analysis = _confidenceService.analyze(votes);
 
               return Column(
                 children: [
-                  // Inline Community recommendation banner (verified hazards only)
+                  // Top quick recommendation banner (verified hazards with sufficient evidence)
                   if (report.status == HazardReportStatus.verified &&
                       analysis.hasSufficientRecentEvidence)
                     _RecommendationBanner(analysis: analysis),
 
                   Expanded(
                     child: ListView(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 20,
+                      ),
                       children: [
                         Center(
                           child: ConstrainedBox(
@@ -206,83 +209,38 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildHeading(report),
+                                // 1. Hazard Overview
+                                _buildHazardOverview(report),
                                 const SizedBox(height: 16),
-                                LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final narrow = constraints.maxWidth < 760;
-                                    final evidence = _buildEvidence(report);
-                                    final details = _buildDetails(report);
-                                    if (narrow) {
-                                      return Column(
-                                        children: [
-                                          evidence,
-                                          const SizedBox(height: 14),
-                                          details,
-                                        ],
-                                      );
-                                    }
-                                    return Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(child: evidence),
-                                        const SizedBox(width: 16),
-                                        Expanded(child: details),
-                                      ],
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                FutureBuilder<Map<String, dynamic>?>(
-                                  future: _reporter(report.userId),
-                                  builder: (context, snapshot) {
-                                    final reporter = snapshot.data;
-                                    return ExplorerCard(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const ExplorerSectionTitle(
-                                            'Reporter',
-                                          ),
-                                          const SizedBox(height: 10),
-                                          Text(
-                                            '${reporter?['displayName'] ?? 'Tourist'}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          Text(
-                                            '${reporter?['email'] ?? 'Contact unavailable'}',
-                                            style: const TextStyle(
-                                              color: ExplorerColors.muted,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
+
+                                // 2. Original Hazard Evidence
+                                _OriginalHazardEvidenceCard(report: report),
+
+                                // 3-6: Community Verification & Confidence sections (Verified Hazards)
                                 if (report.status ==
                                     HazardReportStatus.verified) ...[
                                   const SizedBox(height: 16),
+                                  // 3. Community Confirmation Summary
+                                  _CommunityConfirmationSummaryCard(
+                                    analysis: analysis,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // 4. Community Evidence Section (photos + AI analysis)
+                                  _CommunityEvidenceSection(
+                                    hazardId: report.id,
+                                    votes: votes,
+                                    voteService: _voteService,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // 5. Aggregated AI Evidence Summary (if AI votes exist)
+                                  _AggregatedAiEvidenceCard(votes: votes),
+                                  const SizedBox(height: 16),
+                                  // 6. Resolution Confidence Panel
                                   _ConfidenceAnalysisCard(analysis: analysis),
-                                  if ((voteSnapshot.data ??
-                                          const <HazardVote>[])
-                                      .any(
-                                        (vote) => vote.hasPhotoEvidence,
-                                      )) ...[
-                                    const SizedBox(height: 16),
-                                    _VotePhotoEvidenceCard(
-                                      hazardId: report.id,
-                                      votes: voteSnapshot.data ?? const [],
-                                    ),
-                                  ],
                                 ],
-                                // Spacer so content clears the sticky bar.
-                                const SizedBox(height: 20),
+
+                                // Bottom padding to clear sticky bar
+                                const SizedBox(height: 24),
                               ],
                             ),
                           ),
@@ -291,7 +249,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                     ),
                   ),
 
-                  // Sticky bottom action bar
+                  // 7. Administrator Decision Area (Sticky action bar)
                   _StickyActionBar(
                     report: report,
                     busy: _busy,
@@ -307,147 +265,131 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
     );
   }
 
-  Widget _buildHeading(HazardReport report) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 10,
-      children: [
-        SizedBox(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                report.category,
-                style: const TextStyle(
-                  color: ExplorerColors.navy,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${report.severity} severity • ${report.createdAt == null ? 'Recently submitted' : DateFormat.yMMMd().add_jm().format(report.createdAt!)}',
-                style: const TextStyle(
-                  color: ExplorerColors.muted,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ),
-        ExplorerStatusBadge(
-          label: report.status.toUpperCase(),
-          tone: report.status == HazardReportStatus.verified
-              ? ExplorerStatusTone.success
-              : report.status == HazardReportStatus.rejected
-              ? ExplorerStatusTone.danger
-              : ExplorerStatusTone.warning,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEvidence(HazardReport report) {
+  Widget _buildHazardOverview(HazardReport report) {
     return ExplorerCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const ExplorerSectionTitle('Photo Evidence'),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: HazardEvidenceImage(
-              report: report,
-              width: double.infinity,
-              height: 280,
-              placeholderBuilder: (_) => _AdminHazardPlaceholder.image(),
-            ),
-          ),
-          if (report.evidenceValidation != null) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                ExplorerStatusBadge(
-                  label: report.evidenceValidation!.validationLevel,
-                  tone:
-                      report.evidenceValidation!.validationLevel ==
-                          EvidenceValidationLevel.lowQuality
-                      ? ExplorerStatusTone.warning
-                      : ExplorerStatusTone.success,
-                  icon: Icons.fact_check_outlined,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${report.evidenceValidation!.evidenceSource.toLowerCase()} evidence • quality checked',
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 480;
+              final badges = Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  ExplorerStatusBadge(
+                    label: '${report.severity.toUpperCase()} SEVERITY',
+                    tone: switch (report.severity) {
+                      'High' => ExplorerStatusTone.danger,
+                      'Medium' => ExplorerStatusTone.warning,
+                      _ => ExplorerStatusTone.neutral,
+                    },
+                  ),
+                  ExplorerStatusBadge(
+                    label: report.status.toUpperCase(),
+                    tone: report.status == HazardReportStatus.verified
+                        ? ExplorerStatusTone.success
+                        : report.status == HazardReportStatus.rejected
+                        ? ExplorerStatusTone.danger
+                        : ExplorerStatusTone.warning,
+                  ),
+                ],
+              );
+
+              final titleInfo = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    report.category,
+                    style: const TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)} • '
+                    '${report.createdAt == null ? 'Recently submitted' : DateFormat.yMMMd().add_jm().format(report.createdAt!)}',
                     style: const TextStyle(
                       color: ExplorerColors.muted,
                       fontSize: 11,
                     ),
                   ),
-                ),
-              ],
-            ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text(
-                'Evidence Details',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-              ),
-              children: [
-                _AdminDetailRow(
-                  label: 'Resolution',
-                  value:
-                      '${report.evidenceValidation!.width} × ${report.evidenceValidation!.height}',
-                ),
-                _AdminDetailRow(
-                  label: 'Visibility',
-                  value: report.evidenceValidation!.exposureStatus,
-                ),
-                if (report.evidenceValidation!.warnings.isNotEmpty)
-                  _AdminDetailRow(
-                    label: 'Notes',
-                    value: report.evidenceValidation!.warnings.join(' '),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+                ],
+              );
 
-  Widget _buildDetails(HazardReport report) {
-    return ExplorerCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const ExplorerSectionTitle('Report Information'),
-          const SizedBox(height: 12),
-          _AdminDetailRow(label: 'Category', value: report.category),
-          _AdminDetailRow(label: 'Severity', value: report.severity),
-          _AdminDetailRow(
-            label: 'Submitted',
-            value: report.createdAt == null
-                ? 'Recently'
-                : DateFormat.yMMMd().add_jm().format(report.createdAt!),
+              if (isNarrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [titleInfo, const SizedBox(height: 8), badges],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: titleInfo),
+                  const SizedBox(width: 8),
+                  badges,
+                ],
+              );
+            },
           ),
-          _AdminDetailRow(
-            label: 'Location',
-            value:
-                'GPS captured near ${report.latitude.toStringAsFixed(4)}, '
-                '${report.longitude.toStringAsFixed(4)}',
-          ),
-          const Divider(height: 24),
+          const SizedBox(height: 14),
           const Text(
             'Description',
             style: TextStyle(
               color: ExplorerColors.navy,
               fontWeight: FontWeight.w800,
+              fontSize: 12,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(report.description, style: const TextStyle(height: 1.5)),
+          const SizedBox(height: 4),
+          Text(
+            report.description,
+            style: const TextStyle(
+              height: 1.5,
+              fontSize: 13,
+              color: ExplorerColors.text,
+            ),
+          ),
+          FutureBuilder<Map<String, dynamic>?>(
+            future: _reporter(report.userId),
+            builder: (context, snapshot) {
+              final reporter = snapshot.data;
+              final name = reporter?['displayName'] as String?;
+              if (name == null || name.trim().isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.person_outline,
+                        size: 16,
+                        color: ExplorerColors.muted,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Reported by $name',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: ExplorerColors.text,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
@@ -534,7 +476,7 @@ class _StickyActionBar extends StatelessWidget {
       elevation: 8,
       shadowColor: Colors.black12,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: ExplorerColors.border)),
@@ -544,7 +486,25 @@ class _StickyActionBar extends StatelessWidget {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1050),
-              child: _buildButtons(context),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (report.status == HazardReportStatus.verified) ...[
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Review the community evidence and confidence analysis before changing the hazard status.',
+                        style: TextStyle(
+                          color: ExplorerColors.muted,
+                          fontSize: 11,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                  _buildButtons(context),
+                ],
+              ),
             ),
           ),
         ),
@@ -605,46 +565,6 @@ class _StickyActionBar extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton(onPressed: onClose, child: const Text('Close')),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Shared detail row
-// ---------------------------------------------------------------------------
-
-class _AdminDetailRow extends StatelessWidget {
-  const _AdminDetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: ExplorerColors.text,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
