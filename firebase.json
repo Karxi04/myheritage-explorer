@@ -19,6 +19,10 @@
                                                }
                                   }
                 },
+    "firestore": {
+        "rules": "firestore.rules",
+        "indexes": "firebase_rules/safety_module.indexes.json"
+    },
     "functions": [
         {
             "source": "functions",

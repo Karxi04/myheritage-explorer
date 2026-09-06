@@ -54,6 +54,16 @@ class HazardReportService {
         .map(_mapAndSort);
   }
 
+  Future<List<HazardReport>> getVerifiedReportsFromServer({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final snapshot = await _collection
+        .where('status', isEqualTo: HazardReportStatus.verified)
+        .get(const GetOptions(source: Source.server))
+        .timeout(timeout);
+    return _mapAndSort(snapshot);
+  }
+
   Stream<List<HazardReport>> watchReportsByUser(String userId) {
     return _collection
         .where('userId', isEqualTo: userId)

@@ -24,6 +24,7 @@ export interface ServerConfidenceSummary {
   sceneMatchedCount: number;
   evidenceStrength: string;
   recommendation: string;
+  validUntil?: Date | null;
 }
 
 const MINIMUM_VALID_VOTES = 5;
@@ -151,6 +152,23 @@ export function calculateConfidence(
   const stillExistsVotes = recognized.filter((vote) => vote['voteType'] === 'HAZARD_EXISTS').length;
   const recentStillExistsVotes = recent.filter((vote) => vote['voteType'] === 'HAZARD_EXISTS').length;
 
+  const nowMs = now.getTime();
+  const upcomingBoundaries: number[] = [];
+  for (const vote of valid) {
+    const createdAt = dateFromUnknown(vote['createdAt']);
+    if (createdAt === null) continue;
+    const t = createdAt.getTime();
+    for (const offsetMin of [15, 30, 60]) {
+      const boundary = t + offsetMin * 60 * 1000;
+      if (boundary > nowMs) {
+        upcomingBoundaries.push(boundary);
+      }
+    }
+  }
+  const validUntil = upcomingBoundaries.length > 0
+    ? new Date(Math.min(...upcomingBoundaries))
+    : new Date(nowMs + 15 * 60 * 1000);
+
   return {
     formulaVersion: CONFIDENCE_FORMULA_VERSION,
     confidencePercent: percent,
@@ -184,5 +202,6 @@ export function calculateConfidence(
     evidenceStrength: recent.length < MINIMUM_VALID_VOTES ? 'Insufficient' :
       recent.length < SUFFICIENT_VALID_VOTES ? 'Limited' : 'Sufficient',
     recommendation: recommendation(level),
+    validUntil,
   };
 }

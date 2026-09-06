@@ -5,10 +5,7 @@ import '../core/explorer_ui.dart';
 import '../models/hazard_report.dart';
 
 /// User action when resolving a duplicate hazard advisory warning.
-enum DuplicateWarningAction {
-  submitAnyway,
-  cancel,
-}
+enum DuplicateWarningAction { submitAnyway, cancel }
 
 /// Advisory warning sheet presented when one or more nearby hazards matching
 /// the selected category already exist in Firestore (Pending Review or Verified).
@@ -148,8 +145,9 @@ class DuplicateHazardWarningSheet extends StatelessWidget {
                       final report = candidate.report;
                       final isVerified =
                           report.status == HazardReportStatus.verified;
-                      final statusLabel =
-                          isVerified ? 'VERIFIED' : 'PENDING REVIEW';
+                      final statusLabel = isVerified
+                          ? 'VERIFIED'
+                          : 'PENDING REVIEW';
                       final statusTone = isVerified
                           ? ExplorerStatusTone.success
                           : ExplorerStatusTone.warning;
@@ -199,7 +197,9 @@ class DuplicateHazardWarningSheet extends StatelessWidget {
                               children: [
                                 _MetaChip(
                                   icon: Icons.near_me_outlined,
-                                  label: _formatDistance(candidate.distanceMeters),
+                                  label: _formatDistance(
+                                    candidate.distanceMeters,
+                                  ),
                                 ),
                                 _MetaChip(
                                   icon: Icons.priority_high_rounded,
@@ -311,10 +311,7 @@ class DuplicateHazardWarningSheet extends StatelessWidget {
                       if (onCancel != null) {
                         onCancel!();
                       } else {
-                        Navigator.pop(
-                          context,
-                          DuplicateWarningAction.cancel,
-                        );
+                        Navigator.pop(context, DuplicateWarningAction.cancel);
                       }
                     },
                     style: TextButton.styleFrom(

@@ -34,10 +34,12 @@ class ServerConfidenceSummary {
     required this.evidenceStrength,
     required this.recommendation,
     required this.isStructurallyValid,
+    this.validUntil,
   });
 
   final String formulaVersion;
   final DateTime? calculatedAt;
+  final DateTime? validUntil;
   final double confidencePercent;
   final String confidenceLevel;
   final double weightedStillExists;
@@ -62,9 +64,14 @@ class ServerConfidenceSummary {
 
   bool isFresh({DateTime? now}) {
     if (!isStructurallyValid || calculatedAt == null) return false;
-    final age = (now ?? DateTime.now()).difference(calculatedAt!);
-    return age >= -SafetyConfig.serverConfidenceFutureTolerance &&
-        age <= SafetyConfig.serverConfidenceFreshness;
+    final current = now ?? DateTime.now();
+    final skew = calculatedAt!.difference(current);
+    if (skew > SafetyConfig.serverConfidenceFutureTolerance) return false;
+    if (validUntil != null) {
+      return !current.isAfter(validUntil!);
+    }
+    final age = current.difference(calculatedAt!);
+    return age <= SafetyConfig.serverConfidenceFreshness;
   }
 
   factory ServerConfidenceSummary.fromMap(Map<String, dynamic> map) {
@@ -86,6 +93,7 @@ class ServerConfidenceSummary {
         ? map['formulaVersion'] as String
         : '';
     final calculatedAt = asDate(map['calculatedAt']);
+    final validUntil = asDate(map['validUntil']);
     final confidencePercent = number('confidencePercent');
     final confidenceLevel = map['confidenceLevel'] is String
         ? map['confidenceLevel'] as String
@@ -186,6 +194,7 @@ class ServerConfidenceSummary {
       evidenceStrength: evidenceStrength,
       recommendation: recommendation,
       isStructurallyValid: valid,
+      validUntil: validUntil,
     );
   }
 }

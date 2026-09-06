@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as image_lib;
@@ -29,10 +29,7 @@ class EvidenceImageValidationService {
 
   /// Compute a [0,1] scene-match score between two perceptual hashes.
   /// Higher score = more visually similar scenes.
-  static double computeSceneMatchScore(
-    String voteHash,
-    String referenceHash,
-  ) {
+  static double computeSceneMatchScore(String voteHash, String referenceHash) {
     final distance = _hashDistance(voteHash, referenceHash);
     if (distance <= SafetyConfig.strongSceneMatchMaxDistance) return 1.0;
     if (distance <= SafetyConfig.partialSceneMatchMaxDistance) return 0.7;

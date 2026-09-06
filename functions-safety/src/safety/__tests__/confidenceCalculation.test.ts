@@ -89,3 +89,62 @@ describe('trusted AI multiplier', () => {
     expect(trustedAiMultiplier({aiAnalysisStatus: 'COMPLETE', aiEvidenceWeightMultiplier: NaN})).toBe(1);
   });
 });
+
+describe('Step 15: validUntil recency boundary calculation', () => {
+  const baseNow = new Date('2026-09-06T12:00:00Z');
+
+  function singleVote(ageMs: number): Record<string, unknown>[] {
+    return [{
+      userId: 'test-user',
+      voteType: 'HAZARD_RESOLVED',
+      createdAt: new Date(baseNow.getTime() - ageMs),
+      distanceFromHazardMeters: 50,
+      proximityBand: 'STRONG',
+      isGpsValidated: true,
+      hasPhotoEvidence: false,
+      evidenceStorage: 'none',
+    }];
+  }
+
+  test('14m59s old vote: validUntil is 15m boundary (1s in future)', () => {
+    const ageMs = (14 * 60 + 59) * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 1000);
+  });
+
+  test('15m old vote: validUntil is 30m boundary (15m in future)', () => {
+    const ageMs = 15 * 60 * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 15 * 60 * 1000);
+  });
+
+  test('29m59s old vote: validUntil is 30m boundary (1s in future)', () => {
+    const ageMs = (29 * 60 + 59) * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 1000);
+  });
+
+  test('30m old vote: validUntil is 60m boundary (30m in future)', () => {
+    const ageMs = 30 * 60 * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 30 * 60 * 1000);
+  });
+
+  test('59m59s old vote: validUntil is 60m boundary (1s in future)', () => {
+    const ageMs = (59 * 60 + 59) * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 1000);
+  });
+
+  test('60m old vote (expired): validUntil defaults to now + 15m', () => {
+    const ageMs = 60 * 60 * 1000;
+    const summary = calculateConfidence(singleVote(ageMs), baseNow);
+    expect(summary.validUntil).toBeDefined();
+    expect(summary.validUntil!.getTime()).toBe(baseNow.getTime() + 15 * 60 * 1000);
+  });
+});

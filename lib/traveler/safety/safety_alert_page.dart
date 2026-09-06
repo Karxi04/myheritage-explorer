@@ -611,12 +611,12 @@ class _ProximityStatusBadge extends StatelessWidget {
           Expanded(
             child: Text(
               locating
-                  ? 'Validating your GPS location...'
+                  ? 'Checking your location...'
                   : validatedDistance == null
-                  ? 'GPS validation is required before voting.'
+                  ? 'Location check is required before voting.'
                   : tooFar
-                  ? 'Move closer to this hazard to submit a location-verified vote.'
-                  : "You're close enough to provide a location-verified update.",
+                  ? 'Move closer to this hazard to submit a location-checked update.'
+                  : "You're close enough to provide a location-checked update.",
               style: TextStyle(
                 color: color,
                 fontSize: 11,

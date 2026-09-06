@@ -178,74 +178,143 @@ class _HazardDetailPageState extends State<HazardDetailPage> {
                           children: [
                             const ExplorerSectionTitle('Location'),
                             const SizedBox(height: 10),
-                            if (report.hasValidLocation)
+                            if (report.hasValidLocation) ...[
                               SizedBox(
-                                height: 160,
+                                height: 180,
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
-                                  child: fm.FlutterMap(
-                                    options: fm.MapOptions(
-                                      initialCenter: latlng.LatLng(
-                                        report.latitude,
-                                        report.longitude,
-                                      ),
-                                      initialZoom: 15,
-                                      interactionOptions:
-                                          const fm.InteractionOptions(
-                                            flags: fm.InteractiveFlag.none,
-                                          ),
-                                    ),
-                                    children: [
-                                      fm.TileLayer(
-                                        urlTemplate:
-                                            HazardMapService.osmTileUrl,
-                                        userAgentPackageName:
-                                            'com.myheritage.explorer',
-                                      ),
-                                      const fm.SimpleAttributionWidget(
-                                        source: Text(
-                                          '© OpenStreetMap contributors',
+                                  child: IgnorePointer(
+                                    child: fm.FlutterMap(
+                                      options: fm.MapOptions(
+                                        initialCenter: latlng.LatLng(
+                                          report.latitude,
+                                          report.longitude,
                                         ),
-                                      ),
-                                      fm.MarkerLayer(
-                                        markers: [
-                                          fm.Marker(
-                                            point: latlng.LatLng(
-                                              report.latitude,
-                                              report.longitude,
+                                        initialZoom: 15,
+                                        interactionOptions:
+                                            const fm.InteractionOptions(
+                                              flags: fm.InteractiveFlag.none,
                                             ),
-                                            width: 36,
-                                            height: 36,
-                                            child: const Icon(
-                                              Icons.location_on,
-                                              color: ExplorerColors.danger,
-                                              size: 34,
-                                            ),
-                                          ),
-                                        ],
                                       ),
-                                    ],
+                                      children: [
+                                        fm.TileLayer(
+                                          urlTemplate:
+                                              HazardMapService.osmTileUrl,
+                                          userAgentPackageName:
+                                              'com.myheritage.explorer',
+                                        ),
+                                        fm.CircleLayer(
+                                          circles: [
+                                            fm.CircleMarker(
+                                              point: latlng.LatLng(
+                                                report.latitude,
+                                                report.longitude,
+                                              ),
+                                              radius:
+                                                  SafetyConfig.dangerRadiusForSeverity(
+                                                    report.severity,
+                                                  ),
+                                              useRadiusInMeter: true,
+                                              color:
+                                                  HazardMapService.severityColor(
+                                                    report.severity,
+                                                  ).withValues(alpha: .14),
+                                              borderColor:
+                                                  HazardMapService.severityColor(
+                                                    report.severity,
+                                                  ).withValues(alpha: .78),
+                                              borderStrokeWidth: 2,
+                                            ),
+                                          ],
+                                        ),
+                                        fm.MarkerLayer(
+                                          markers: [
+                                            fm.Marker(
+                                              point: latlng.LatLng(
+                                                report.latitude,
+                                                report.longitude,
+                                              ),
+                                              width: 36,
+                                              height: 36,
+                                              child: Icon(
+                                                Icons.location_on,
+                                                color:
+                                                    HazardMapService.severityColor(
+                                                      report.severity,
+                                                    ),
+                                                size: 34,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const fm.RichAttributionWidget(
+                                          alignment: fm
+                                              .AttributionAlignment
+                                              .bottomLeft,
+                                          showFlutterMapAttribution: false,
+                                          attributions: [
+                                            fm.TextSourceAttribution(
+                                              'OpenStreetMap contributors',
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            const SizedBox(height: 8),
-                            const Row(
-                              children: [
-                                Icon(
-                                  Icons.location_on_outlined,
-                                  size: 14,
-                                  color: ExplorerColors.muted,
-                                ),
-                                SizedBox(width: 5),
-                                Text(
-                                  'Approximate report location',
-                                  style: TextStyle(
+                              const SizedBox(height: 8),
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_on_outlined,
+                                    size: 14,
                                     color: ExplorerColors.muted,
-                                    fontSize: 10,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Expanded(
+                                    child: Text(
+                                      'Approximate report location',
+                                      style: TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ] else ...[
+                              Container(
+                                height: 120,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: ExplorerColors.subtle,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: ExplorerColors.border,
                                   ),
                                 ),
-                              ],
-                            ),
+                                child: const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.location_off_outlined,
+                                      size: 32,
+                                      color: ExplorerColors.muted,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Location unavailable',
+                                      style: TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

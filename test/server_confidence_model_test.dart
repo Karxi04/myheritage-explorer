@@ -99,4 +99,35 @@ void main() {
     expect(stale.isStructurallyValid, isTrue);
     expect(stale.isFresh(), isFalse);
   });
+
+  test('Step 15 Fix 5: validUntil governs server confidence freshness', () {
+    final baseCalculated = DateTime(2026, 9, 6, 12, 0);
+    final validUntil = DateTime(2026, 9, 6, 12, 15);
+
+    final summary = ServerConfidenceSummary.fromMap({
+      ...summaryMap(calculatedAt: baseCalculated),
+      'validUntil': Timestamp.fromDate(validUntil),
+    });
+
+    expect(summary.validUntil, validUntil);
+    expect(summary.isStructurallyValid, isTrue);
+
+    // Fresh at exact calculated time
+    expect(summary.isFresh(now: baseCalculated), isTrue);
+
+    // Fresh at 14m59s
+    expect(
+      summary.isFresh(now: validUntil.subtract(const Duration(seconds: 1))),
+      isTrue,
+    );
+
+    // Fresh right at boundary (12:15:00)
+    expect(summary.isFresh(now: validUntil), isTrue);
+
+    // Stale 1 second past validUntil boundary (12:15:01)
+    expect(
+      summary.isFresh(now: validUntil.add(const Duration(seconds: 1))),
+      isFalse,
+    );
+  });
 }

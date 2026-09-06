@@ -28,6 +28,24 @@ class MobileNotificationService {
     }
   }
 
+  void clearPendingPayload() {
+    pendingHazardPayload = null;
+  }
+
+  Future<bool> areNotificationsEnabled() async {
+    if (!_supportsMobileNotifications) return true;
+    await initialize();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final enabled = await _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.areNotificationsEnabled();
+      return enabled ?? true;
+    }
+    return true;
+  }
+
   bool _permissionRequested = false;
   int _nextId = DateTime.now().millisecondsSinceEpoch.remainder(1 << 30);
 

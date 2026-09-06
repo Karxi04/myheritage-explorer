@@ -486,8 +486,8 @@ class _CommunityConfirmationSummaryCard extends StatelessWidget {
                   SizedBox(
                     width: itemWidth,
                     child: _ConfirmationMetricBox(
-                      label: 'Recent GPS-Verified',
-                      value: '${analysis.gpsValidatedCount}',
+                      label: 'Recent Location-Checked',
+                      value: '${analysis.totalRecentVotes}',
                       icon: Icons.my_location,
                       color: ExplorerColors.navy,
                       bgColor: ExplorerColors.subtle,
@@ -1216,7 +1216,11 @@ class _SyntheticRiskSubSection extends StatelessWidget {
             spacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Icon(Icons.shield_outlined, size: 14, color: ExplorerColors.muted),
+              Icon(
+                Icons.shield_outlined,
+                size: 14,
+                color: ExplorerColors.muted,
+              ),
               Text(
                 'Synthetic Image Risk',
                 style: TextStyle(
@@ -1470,7 +1474,9 @@ class _AggregatedAiEvidenceCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: ExplorerColors.warningSoft,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: ExplorerColors.goldDark.withAlpha(80)),
+                border: Border.all(
+                  color: ExplorerColors.goldDark.withAlpha(80),
+                ),
               ),
               child: Row(
                 children: [

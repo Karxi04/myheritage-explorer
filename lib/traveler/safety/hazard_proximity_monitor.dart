@@ -34,15 +34,22 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Restore cooldown history persisted from the previous session so the
-    // hazard alert cooldown survives app restarts and process kills.
-    unawaited(_loadPersistedCooldowns());
     MobileNotificationService.instance.onHazardOpened = _openNotification;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final pending = MobileNotificationService.instance.pendingHazardPayload;
       MobileNotificationService.instance.pendingHazardPayload = null;
       if (pending != null && mounted) _openNotification(pending);
     });
+    unawaited(_initializeMonitor());
+  }
+
+  Future<void> _initializeMonitor() async {
+    // Restore cooldown history persisted from previous sessions so the
+    // hazard alert cooldown survives app restarts and process kills BEFORE
+    // any live location or report snapshots trigger proximity evaluation.
+    await _loadPersistedCooldowns();
+    if (!mounted) return;
+
     _reportsSub = _reportService.watchVerifiedReports().listen(
       (reports) {
         _reports = HazardMapService.activeReports(reports);

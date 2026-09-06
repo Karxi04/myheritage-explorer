@@ -63,12 +63,41 @@ async function seedVerified(id = 'report') {
 }
 async function decide(db, status, id = 'report') {
   const batch = writeBatch(db);
-  batch.update(reportRef(db,id), {
-    status, reviewedBy: 'admin', reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  const repRef = reportRef(db, id);
+  const repSnap = await getDoc(repRef);
+  const prevStatus = repSnap.exists() ? repSnap.data().status : 'Pending Review';
+  const prevHistory = repSnap.exists() && repSnap.data().statusHistory ? repSnap.data().statusHistory : [];
+  const action = status === 'Verified' ? 'VERIFIED' :
+                 status === 'Rejected' ? 'REJECTED' :
+                 status === 'Resolved' ? 'MARKED_RESOLVED' : 'REVIEWED_KEEP_VERIFIED';
+
+  batch.update(repRef, {
+    status,
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      ...prevHistory,
+      { status, changedBy: 'admin', changedAt: Timestamp.now() },
+    ],
   });
-  batch.set(doc(db,'notifications',id+'-'+status), {
-    notificationId:id+'-'+status, userId:'owner', type:'hazard_status', hazardId:id,
-    title:'Hazard report updated', message:status, isRead:false, createdAt:serverTimestamp(),
+  batch.set(doc(db, 'hazard_reports', id, 'audit_logs', 'audit-' + id + '-' + status), {
+    action,
+    previousStatus: prevStatus,
+    newStatus: status,
+    performedBy: 'admin',
+    performedAt: serverTimestamp(),
+    note: 'Admin decision',
+  });
+  batch.set(doc(db, 'notifications', id + '-' + status), {
+    notificationId: id + '-' + status,
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: id,
+    title: 'Hazard report updated',
+    message: status,
+    isRead: false,
+    createdAt: serverTimestamp(),
   });
   return batch.commit();
 }
@@ -76,8 +105,11 @@ async function decide(db, status, id = 'report') {
 before(async () => {
   env = await initializeTestEnvironment({
     projectId: 'demo-myheritage-safety',
-    firestore: {host:'127.0.0.1', port:8088,
-      rules: await readFile(new URL('../safety_module.firestore.rules', import.meta.url),'utf8')},
+    firestore: {
+      host: '127.0.0.1',
+      port: 8088,
+      rules: await readFile(new URL('../../firestore.rules', import.meta.url), 'utf8'),
+    },
   });
 });
 after(async () => { await env?.cleanup(); });
@@ -488,25 +520,43 @@ test('Step 9: audit_logs subcollection security and Keep Verified lifecycle acti
   const auditLogRef = (db, hazardId, auditId) =>
     doc(db, 'hazard_reports', hazardId, 'audit_logs', auditId);
 
-  // 1. Admin can write valid audit log entry
-  await assertSucceeds(setDoc(auditLogRef(admin, 'audit_hazard', 'log1'), {
+  // 1. Admin CANNOT write a standalone audit log entry without corresponding hazard update
+  await assertFails(setDoc(auditLogRef(admin, 'audit_hazard', 'log1'), {
     action: 'REVIEWED_KEEP_VERIFIED',
     previousStatus: 'Verified',
     newStatus: 'Verified',
     performedBy: 'admin',
     performedByName: 'Admin Sherman',
     performedAt: serverTimestamp(),
-    note: 'Reviewed community evidence and kept verified',
+    note: 'Standalone uncoupled audit entry',
   }));
 
-  // 2. Admin can read audit log
+  // 2. Admin CAN perform Keep Verified update on hazard_report with atomic audit log
+  const batch = writeBatch(admin);
+  batch.update(reportRef(admin, 'audit_hazard'), {
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(auditLogRef(admin, 'audit_hazard', 'log1'), {
+    action: 'REVIEWED_KEEP_VERIFIED',
+    previousStatus: 'Verified',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Atomic review action',
+  });
+  await assertSucceeds(batch.commit());
+
+  // 3. Admin can read audit log
   const adminReadSnap = await assertSucceeds(getDoc(auditLogRef(admin, 'audit_hazard', 'log1')));
   assert.equal(adminReadSnap.data().action, 'REVIEWED_KEEP_VERIFIED');
 
-  // 3. Tourist CANNOT read audit log
+  // 4. Tourist CANNOT read audit log
   await assertFails(getDoc(auditLogRef(tourist, 'audit_hazard', 'log1')));
 
-  // 4. Tourist CANNOT create audit log
+  // 5. Tourist CANNOT create audit log
   await assertFails(setDoc(auditLogRef(tourist, 'audit_hazard', 'log2'), {
     action: 'REVIEWED_KEEP_VERIFIED',
     previousStatus: 'Verified',
@@ -516,25 +566,500 @@ test('Step 9: audit_logs subcollection security and Keep Verified lifecycle acti
     note: 'Unauthorized tourist audit entry',
   }));
 
-  // 5. Nobody can update or delete audit log
+  // 6. Nobody can update or delete audit log
   await assertFails(updateDoc(auditLogRef(admin, 'audit_hazard', 'log1'), {
     note: 'Tampered note',
   }));
+});
 
-  // 6. Admin can perform Keep Verified update on hazard_report (Verified -> Verified)
-  const batch = writeBatch(admin);
-  batch.update(reportRef(admin, 'audit_hazard'), {
+test('Step 15 Fix 2: Tourist cannot seed fake status history', async () => {
+  const owner = dbFor('owner');
+  // a) Multiple statusHistory items fails
+  await assertFails(create(owner, 'owner', 'fake-hist-1', {
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() },
+    ],
+  }));
+  // b) statusHistory with status == 'Verified' fails
+  await assertFails(create(owner, 'owner', 'fake-hist-2', {
+    statusHistory: [
+      { status: 'Verified', changedBy: 'owner', changedAt: Timestamp.now() },
+    ],
+  }));
+  // c) statusHistory with changedBy != request.auth.uid fails
+  await assertFails(create(owner, 'owner', 'fake-hist-3', {
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'admin', changedAt: Timestamp.now() },
+    ],
+  }));
+});
+
+test('Step 15 Fix 2: Standalone fake audit and audit identity enforcement', async () => {
+  const admin = dbFor('admin');
+  await seedVerified('audit-test-hazard');
+  const auditRef = (id) => doc(admin, 'hazard_reports', 'audit-test-hazard', 'audit_logs', id);
+
+  // Standalone audit log without updating hazard in batch fails
+  await assertFails(setDoc(auditRef('fake-standalone'), {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedAt: serverTimestamp(),
+    note: 'Standalone fake verification',
+  }));
+
+  // Mismatched transition (action doesn't match hazard state) fails
+  const badBatch = writeBatch(admin);
+  badBatch.update(reportRef(admin, 'audit-test-hazard'), {
     reviewedBy: 'admin',
     reviewedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  batch.set(auditLogRef(admin, 'audit_hazard', 'log2'), {
+  badBatch.set(auditRef('mismatched-log'), {
+    action: 'VERIFIED', // hazard is already Verified, not Pending Review
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedAt: serverTimestamp(),
+    note: 'Mismatched action',
+  });
+  await assertFails(badBatch.commit());
+
+  // Wrong performedBy fails
+  const wrongUidBatch = writeBatch(admin);
+  wrongUidBatch.update(reportRef(admin, 'audit-test-hazard'), {
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  wrongUidBatch.set(auditRef('wrong-uid-log'), {
+    action: 'REVIEWED_KEEP_VERIFIED',
+    previousStatus: 'Verified',
+    newStatus: 'Verified',
+    performedBy: 'other_admin',
+    performedAt: serverTimestamp(),
+    note: 'Impersonating another admin',
+  });
+  await assertFails(wrongUidBatch.commit());
+});
+
+test('Step 15 Fix 1: Unified ruleset rejects unknown collections and protects teammate modules', async () => {
+  const tourist = dbFor('owner');
+  const admin = dbFor('admin');
+
+  // Wildcard / arbitrary unknown path write fails
+  await assertFails(setDoc(doc(tourist, 'secret_records', 'doc1'), { secret: 'data' }));
+  await assertFails(setDoc(doc(admin, 'secret_records', 'doc1'), { secret: 'data' }));
+  await assertFails(getDoc(doc(tourist, 'secret_records', 'doc1')));
+
+  // Teammates' valid paths succeed:
+  // Public places read
+  await assertSucceeds(getDoc(doc(tourist, 'places', 'place1')));
+  // Cultural task submission
+  await assertSucceeds(setDoc(doc(tourist, 'cultural_tasks', 't1', 'task_submissions', 'sub1'), {
+    userId: 'owner',
+    status: 'submitted',
+  }));
+  // Unauthorized user cannot forge another user's submission
+  await assertFails(setDoc(doc(tourist, 'cultural_tasks', 't1', 'task_submissions', 'sub2'), {
+    userId: 'other_user',
+    status: 'submitted',
+  }));
+});
+
+// =========================================================================
+// REGRESSION TESTS: BUGS 2 & 3 (Tests 1 - 15)
+// =========================================================================
+
+test('Regression Tests 1-4: Audit logs read permissions (Admin, Tourist, Vendor, Unauthenticated)', async () => {
+  const admin = dbFor('admin');
+  const tourist = dbFor('owner');
+  const vendor = dbFor('vendor_user');
+  const unauth = env.unauthenticatedContext().firestore();
+
+  // Setup vendor and an audit log under hazard_reports/reg_audit_hazard
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'vendors', 'vendor_user'), { role: 'vendor', status: 'active' });
+    await setDoc(reportRef(db, 'reg_audit_hazard'), report('owner', 'reg_audit_hazard'));
+    await setDoc(doc(db, 'hazard_reports', 'reg_audit_hazard', 'audit_logs', 'log1'), {
+      action: 'VERIFIED',
+      previousStatus: 'Pending Review',
+      newStatus: 'Verified',
+      performedBy: 'admin',
+      performedByName: 'Admin Sherman',
+      performedAt: serverTimestamp(),
+      note: 'Verified during audit',
+    });
+  });
+
+  const auditCol = (db) => collection(db, 'hazard_reports', 'reg_audit_hazard', 'audit_logs');
+  const auditDocRef = (db) => doc(db, 'hazard_reports', 'reg_audit_hazard', 'audit_logs', 'log1');
+
+  // 1. Admin reads audit_logs successfully
+  const adminSnap = await assertSucceeds(getDocs(auditCol(admin)));
+  assert.equal(adminSnap.size, 1);
+  const adminDocSnap = await assertSucceeds(getDoc(auditDocRef(admin)));
+  assert.equal(adminDocSnap.data().action, 'VERIFIED');
+
+  // 2. Tourist cannot read audit_logs
+  await assertFails(getDocs(auditCol(tourist)));
+  await assertFails(getDoc(auditDocRef(tourist)));
+
+  // 3. Vendor cannot read audit_logs
+  await assertFails(getDocs(auditCol(vendor)));
+  await assertFails(getDoc(auditDocRef(vendor)));
+
+  // 4. Unauthenticated user cannot read audit_logs
+  await assertFails(getDocs(auditCol(unauth)));
+  await assertFails(getDoc(auditDocRef(unauth)));
+});
+
+test('Regression Tests 5-6: Verify atomic batch/transaction succeeds on legacy report without statusHistory and report with existing statusHistory', async () => {
+  const admin = dbFor('admin');
+
+  // 5. Verify atomic batch succeeds on legacy report without statusHistory
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    const legacy = report('owner', 'legacy_report');
+    delete legacy.statusHistory;
+    await setDoc(reportRef(db, 'legacy_report'), legacy);
+  });
+
+  const batchLegacy = writeBatch(admin);
+  batchLegacy.update(reportRef(admin, 'legacy_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchLegacy.set(doc(admin, 'hazard_reports', 'legacy_report', 'audit_logs', 'audit-legacy'), {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Verified legacy hazard',
+  });
+  batchLegacy.set(doc(admin, 'notifications', 'legacy_report-Verified'), {
+    notificationId: 'legacy_report-Verified',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'legacy_report',
+    title: 'Hazard report updated',
+    message: 'Verified',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(batchLegacy.commit());
+  const updatedLegacy = await getDoc(reportRef(admin, 'legacy_report'));
+  assert.equal(updatedLegacy.data().status, 'Verified');
+  assert.equal(updatedLegacy.data().statusHistory.length, 1);
+
+  // 6. Verify atomic batch succeeds on report with existing statusHistory
+  await create(dbFor('owner'), 'owner', 'normal_report');
+  const batchNormal = writeBatch(admin);
+  batchNormal.update(reportRef(admin, 'normal_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchNormal.set(doc(admin, 'hazard_reports', 'normal_report', 'audit_logs', 'audit-normal'), {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Verified standard hazard',
+  });
+  batchNormal.set(doc(admin, 'notifications', 'normal_report-Verified'), {
+    notificationId: 'normal_report-Verified',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'normal_report',
+    title: 'Hazard report updated',
+    message: 'Verified',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(batchNormal.commit());
+  const updatedNormal = await getDoc(reportRef(admin, 'normal_report'));
+  assert.equal(updatedNormal.data().status, 'Verified');
+  assert.equal(updatedNormal.data().statusHistory.length, 2);
+});
+
+test('Regression Tests 7-9: Verify fails if audit_log omitted, action is wrong, or performedBy != auth.uid', async () => {
+  const admin = dbFor('admin');
+  await create(dbFor('owner'), 'owner', 'guard_report');
+
+  // 7. Verify audit log creation fails if hazard update is omitted (standalone audit log cannot verify)
+  const auditAloneRef = doc(admin, 'hazard_reports', 'guard_report', 'audit_logs', 'audit-alone');
+  await assertFails(setDoc(auditAloneRef, {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Standalone audit without hazard update',
+  }));
+
+  // 8. Verify fails if audit action is wrong (e.g. MARKED_RESOLVED when verifying Pending Review)
+  const batchWrongAction = writeBatch(admin);
+  batchWrongAction.update(reportRef(admin, 'guard_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchWrongAction.set(doc(admin, 'hazard_reports', 'guard_report', 'audit_logs', 'audit-wrong-act'), {
+    action: 'MARKED_RESOLVED', // Invalid action for Pending Review -> Verified
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Wrong action test',
+  });
+  batchWrongAction.set(doc(admin, 'notifications', 'guard_report-Verified-2'), {
+    notificationId: 'guard_report-Verified-2',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'guard_report',
+    title: 'Hazard report updated',
+    message: 'Verified',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertFails(batchWrongAction.commit());
+
+  // 9. Verify fails if audit performedBy != auth.uid
+  const batchWrongUid = writeBatch(admin);
+  batchWrongUid.update(reportRef(admin, 'guard_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchWrongUid.set(doc(admin, 'hazard_reports', 'guard_report', 'audit_logs', 'audit-wrong-uid'), {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'impostor_admin', // Mismatched auth.uid
+    performedByName: 'Impostor',
+    performedAt: serverTimestamp(),
+    note: 'Wrong UID test',
+  });
+  batchWrongUid.set(doc(admin, 'notifications', 'guard_report-Verified-3'), {
+    notificationId: 'guard_report-Verified-3',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'guard_report',
+    title: 'Hazard report updated',
+    message: 'Verified',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertFails(batchWrongUid.commit());
+});
+
+test('Regression Tests 10-12: Verify fails if already Rejected, already Resolved, or initiated by Tourist', async () => {
+  const admin = dbFor('admin');
+  const tourist = dbFor('owner');
+
+  // Seed Rejected report
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(reportRef(db, 'rejected_report'), { ...report('owner', 'rejected_report'), status: 'Rejected' });
+    await setDoc(reportRef(db, 'resolved_report'), { ...report('owner', 'resolved_report'), status: 'Resolved' });
+  });
+
+  // 10. Verify fails if report already Rejected
+  const batchFromRejected = writeBatch(admin);
+  batchFromRejected.update(reportRef(admin, 'rejected_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Rejected', changedBy: 'admin', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchFromRejected.set(doc(admin, 'hazard_reports', 'rejected_report', 'audit_logs', 'audit-rej-to-ver'), {
+    action: 'VERIFIED',
+    previousStatus: 'Rejected',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Trying to verify rejected',
+  });
+  await assertFails(batchFromRejected.commit());
+
+  // 11. Verify fails if report already Resolved
+  const batchFromResolved = writeBatch(admin);
+  batchFromResolved.update(reportRef(admin, 'resolved_report'), {
+    status: 'Verified',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Resolved', changedBy: 'admin', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchFromResolved.set(doc(admin, 'hazard_reports', 'resolved_report', 'audit_logs', 'audit-res-to-ver'), {
+    action: 'VERIFIED',
+    previousStatus: 'Resolved',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Trying to verify resolved',
+  });
+  await assertFails(batchFromResolved.commit());
+
+  // 12. Tourist cannot execute verify transition
+  await create(dbFor('owner'), 'owner', 'tourist_verify_target');
+  const batchTouristVerify = writeBatch(tourist);
+  batchTouristVerify.update(reportRef(tourist, 'tourist_verify_target'), {
+    status: 'Verified',
+    reviewedBy: 'owner',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Verified', changedBy: 'owner', changedAt: Timestamp.now() }
+    ],
+  });
+  batchTouristVerify.set(doc(tourist, 'hazard_reports', 'tourist_verify_target', 'audit_logs', 'audit-tourist'), {
+    action: 'VERIFIED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Verified',
+    performedBy: 'owner',
+    performedByName: 'Tourist Owner',
+    performedAt: serverTimestamp(),
+    note: 'Unauthorized verify',
+  });
+  await assertFails(batchTouristVerify.commit());
+});
+
+test('Regression Tests 13-15: Admin lifecycle transitions (Pending->Rejected, Verified->Keep Verified, Verified->Resolved)', async () => {
+  const admin = dbFor('admin');
+
+  // 13. Admin can execute Pending -> Rejected transition with REJECTED audit log
+  await create(dbFor('owner'), 'owner', 'trans_pending_rej');
+  const batchRej = writeBatch(admin);
+  batchRej.update(reportRef(admin, 'trans_pending_rej'), {
+    status: 'Rejected',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Rejected', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchRej.set(doc(admin, 'hazard_reports', 'trans_pending_rej', 'audit_logs', 'audit-rej'), {
+    action: 'REJECTED',
+    previousStatus: 'Pending Review',
+    newStatus: 'Rejected',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Rejecting invalid report',
+  });
+  batchRej.set(doc(admin, 'notifications', 'trans_pending_rej-Rejected'), {
+    notificationId: 'trans_pending_rej-Rejected',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'trans_pending_rej',
+    title: 'Hazard report updated',
+    message: 'Rejected',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(batchRej.commit());
+  const rejectedSnap = await getDoc(reportRef(admin, 'trans_pending_rej'));
+  assert.equal(rejectedSnap.data().status, 'Rejected');
+
+  // 14. Admin can execute Verified -> Keep Verified action with REVIEWED_KEEP_VERIFIED audit log
+  await seedVerified('trans_keep_ver');
+  const batchKeep = writeBatch(admin);
+  batchKeep.update(reportRef(admin, 'trans_keep_ver'), {
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batchKeep.set(doc(admin, 'hazard_reports', 'trans_keep_ver', 'audit_logs', 'audit-keep'), {
     action: 'REVIEWED_KEEP_VERIFIED',
     previousStatus: 'Verified',
     newStatus: 'Verified',
     performedBy: 'admin',
+    performedByName: 'Admin Sherman',
     performedAt: serverTimestamp(),
-    note: 'Atomic review action',
+    note: 'Keep verified after review',
   });
-  await assertSucceeds(batch.commit());
+  await assertSucceeds(batchKeep.commit());
+  const keptSnap = await getDoc(reportRef(admin, 'trans_keep_ver'));
+  assert.equal(keptSnap.data().status, 'Verified');
+
+  // 15. Admin can execute Verified -> Resolved transition with MARKED_RESOLVED audit log
+  await seedVerified('trans_to_res');
+  const batchRes = writeBatch(admin);
+  batchRes.update(reportRef(admin, 'trans_to_res'), {
+    status: 'Resolved',
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    statusHistory: [
+      { status: 'Pending Review', changedBy: 'owner', changedAt: Timestamp.now() },
+      { status: 'Resolved', changedBy: 'admin', changedAt: Timestamp.now() }
+    ],
+  });
+  batchRes.set(doc(admin, 'hazard_reports', 'trans_to_res', 'audit_logs', 'audit-res'), {
+    action: 'MARKED_RESOLVED',
+    previousStatus: 'Verified',
+    newStatus: 'Resolved',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Hazard cleared, marking resolved',
+  });
+  batchRes.set(doc(admin, 'notifications', 'trans_to_res-Resolved'), {
+    notificationId: 'trans_to_res-Resolved',
+    userId: 'owner',
+    type: 'hazard_status',
+    hazardId: 'trans_to_res',
+    title: 'Hazard report updated',
+    message: 'Resolved',
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(batchRes.commit());
+  const resolvedSnap = await getDoc(reportRef(admin, 'trans_to_res'));
+  assert.equal(resolvedSnap.data().status, 'Resolved');
 });

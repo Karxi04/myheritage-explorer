@@ -866,114 +866,119 @@ void main() {
   });
 
   group('Step 11 — Synthetic Image Risk Analysis Admin UI', () {
-    testWidgets('LOW synthetic risk renders restrained neutral tone and required disclaimer', (
-      tester,
-    ) async {
-      addTearDown(() => tester.view.resetPhysicalSize());
-      final report = _createReport();
-      final vote = _createVote(
-        id: 'v_low',
-        userId: 'u_low',
-        syntheticRisk: SyntheticImageRisk.low,
-        syntheticConfidence: 0.92,
-        syntheticSummary:
+    testWidgets(
+      'LOW synthetic risk renders restrained neutral tone and required disclaimer',
+      (tester) async {
+        addTearDown(() => tester.view.resetPhysicalSize());
+        final report = _createReport();
+        final vote = _createVote(
+          id: 'v_low',
+          userId: 'u_low',
+          syntheticRisk: SyntheticImageRisk.low,
+          syntheticConfidence: 0.92,
+          syntheticSummary:
+              'No visible geometric inconsistencies or synthetic patterns.',
+        );
+
+        await _pumpAdminPage(tester, report: report, votes: [vote]);
+
+        expect(find.text('Synthetic Image Risk'), findsWidgets);
+        expect(find.text('LOW'), findsOneWidget);
+        expect(
+          find.text(
+            'No strong synthetic indicators were identified. This assessment is advisory only.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('92% assessment confidence'), findsOneWidget);
+        expect(
+          find.text(
             'No visible geometric inconsistencies or synthetic patterns.',
-      );
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            'Synthetic-image risk is an AI-assisted visual assessment and is not proof that an image is genuine or generated.',
+          ),
+          findsWidgets,
+        );
 
-      await _pumpAdminPage(tester, report: report, votes: [vote]);
+        // Verify absence of forbidden terminology
+        expect(find.textContaining('Fake Image'), findsNothing);
+        expect(find.textContaining('Authentic'), findsNothing);
+        expect(find.textContaining('Fraud detected'), findsNothing);
+        expect(find.textContaining('AI-GENERATED CONFIRMED'), findsNothing);
+      },
+    );
 
-      expect(find.text('Synthetic Image Risk'), findsWidgets);
-      expect(find.text('LOW'), findsOneWidget);
-      expect(
-        find.text(
-          'No strong synthetic indicators were identified. This assessment is advisory only.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('92% assessment confidence'), findsOneWidget);
-      expect(
-        find.text('No visible geometric inconsistencies or synthetic patterns.'),
-        findsOneWidget,
-      );
-      expect(
-        find.text(
-          'Synthetic-image risk is an AI-assisted visual assessment and is not proof that an image is genuine or generated.',
-        ),
-        findsWidgets,
-      );
+    testWidgets(
+      'UNCERTAIN synthetic risk renders warning tone and advisory message',
+      (tester) async {
+        addTearDown(() => tester.view.resetPhysicalSize());
+        final report = _createReport();
+        final vote = _createVote(
+          id: 'v_uncertain',
+          userId: 'u_uncertain',
+          syntheticRisk: SyntheticImageRisk.uncertain,
+          syntheticConfidence: 0.45,
+          syntheticSummary:
+              'Image blur and low light prevent definitive analysis.',
+        );
 
-      // Verify absence of forbidden terminology
-      expect(find.textContaining('Fake Image'), findsNothing);
-      expect(find.textContaining('Authentic'), findsNothing);
-      expect(find.textContaining('Fraud detected'), findsNothing);
-      expect(find.textContaining('AI-GENERATED CONFIRMED'), findsNothing);
-    });
+        await _pumpAdminPage(tester, report: report, votes: [vote]);
 
-    testWidgets('UNCERTAIN synthetic risk renders warning tone and advisory message', (
-      tester,
-    ) async {
-      addTearDown(() => tester.view.resetPhysicalSize());
-      final report = _createReport();
-      final vote = _createVote(
-        id: 'v_uncertain',
-        userId: 'u_uncertain',
-        syntheticRisk: SyntheticImageRisk.uncertain,
-        syntheticConfidence: 0.45,
-        syntheticSummary:
-            'Image blur and low light prevent definitive analysis.',
-      );
+        expect(find.text('Synthetic Image Risk'), findsWidgets);
+        expect(find.text('UNCERTAIN'), findsOneWidget);
+        expect(
+          find.text(
+            'There is not enough visual evidence for a reliable assessment.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('45% assessment confidence'), findsOneWidget);
+        expect(
+          find.text('Image blur and low light prevent definitive analysis.'),
+          findsOneWidget,
+        );
+      },
+    );
 
-      await _pumpAdminPage(tester, report: report, votes: [vote]);
+    testWidgets(
+      'ELEVATED synthetic risk renders restrained warning tone (review recommended)',
+      (tester) async {
+        addTearDown(() => tester.view.resetPhysicalSize());
+        final report = _createReport();
+        final vote = _createVote(
+          id: 'v_elevated',
+          userId: 'u_elevated',
+          syntheticRisk: SyntheticImageRisk.elevated,
+          syntheticConfidence: 0.88,
+          syntheticSummary:
+              'Inconsistent perspective lines and repetitive generative smoothing.',
+        );
 
-      expect(find.text('Synthetic Image Risk'), findsWidgets);
-      expect(find.text('UNCERTAIN'), findsOneWidget);
-      expect(
-        find.text(
-          'There is not enough visual evidence for a reliable assessment.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('45% assessment confidence'), findsOneWidget);
-      expect(
-        find.text('Image blur and low light prevent definitive analysis.'),
-        findsOneWidget,
-      );
-    });
+        await _pumpAdminPage(tester, report: report, votes: [vote]);
 
-    testWidgets('ELEVATED synthetic risk renders restrained warning tone (review recommended)', (
-      tester,
-    ) async {
-      addTearDown(() => tester.view.resetPhysicalSize());
-      final report = _createReport();
-      final vote = _createVote(
-        id: 'v_elevated',
-        userId: 'u_elevated',
-        syntheticRisk: SyntheticImageRisk.elevated,
-        syntheticConfidence: 0.88,
-        syntheticSummary:
-            'Inconsistent perspective lines and repetitive generative smoothing.',
-      );
+        expect(find.text('Synthetic Image Risk'), findsWidgets);
+        expect(find.text('ELEVATED'), findsOneWidget);
+        expect(
+          find.text(
+            'Several visual anomalies may be consistent with synthetic or heavily manipulated imagery.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('88% assessment confidence'), findsOneWidget);
+        expect(
+          find.text('Elevated Synthetic Risk: 1 photo (review recommended)'),
+          findsOneWidget,
+        );
 
-      await _pumpAdminPage(tester, report: report, votes: [vote]);
-
-      expect(find.text('Synthetic Image Risk'), findsWidgets);
-      expect(find.text('ELEVATED'), findsOneWidget);
-      expect(
-        find.text(
-          'Several visual anomalies may be consistent with synthetic or heavily manipulated imagery.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('88% assessment confidence'), findsOneWidget);
-      expect(
-        find.text('Elevated Synthetic Risk: 1 photo (review recommended)'),
-        findsOneWidget,
-      );
-
-      // Verifies no inflammatory "Fake" or "Fraud" labels are used
-      expect(find.textContaining('Fake'), findsNothing);
-      expect(find.textContaining('Fraud'), findsNothing);
-    });
+        // Verifies no inflammatory "Fake" or "Fraud" labels are used
+        expect(find.textContaining('Fake'), findsNothing);
+        expect(find.textContaining('Fraud'), findsNothing);
+      },
+    );
 
     testWidgets('Synthetic analysis unavailable on failed AI state', (
       tester,
@@ -994,48 +999,53 @@ void main() {
       expect(find.text('LOW'), findsNothing);
     });
 
-    testWidgets('Synthetic analysis unavailable on legacy vote without synthetic fields', (
-      tester,
-    ) async {
-      addTearDown(() => tester.view.resetPhysicalSize());
-      final report = _createReport();
-      final vote = _createVote(
-        id: 'v_legacy',
-        userId: 'u_legacy',
-        aiStatus: null,
-        syntheticRisk: null,
-      );
-
-      await _pumpAdminPage(tester, report: report, votes: [vote]);
-
-      expect(find.text('Synthetic image analysis unavailable'), findsOneWidget);
-    });
-
-    testWidgets('Responsive layouts render cleanly without overflow at 390px, 1200px and 200% scale', (
-      tester,
-    ) async {
-      addTearDown(() => tester.view.resetPhysicalSize());
-      final report = _createReport();
-      final vote = _createVote(
-        id: 'v_resp',
-        userId: 'u_resp',
-        syntheticRisk: SyntheticImageRisk.elevated,
-        syntheticConfidence: 0.85,
-        syntheticSummary:
-            'A very detailed multi-line explanation of anomalous structural artifacts in the pavement texture.',
-      );
-
-      for (final (w, s) in [(390.0, 1.0), (1200.0, 1.0), (800.0, 2.0)]) {
-        await _pumpAdminPage(
-          tester,
-          report: report,
-          votes: [vote],
-          width: w,
-          scale: s,
+    testWidgets(
+      'Synthetic analysis unavailable on legacy vote without synthetic fields',
+      (tester) async {
+        addTearDown(() => tester.view.resetPhysicalSize());
+        final report = _createReport();
+        final vote = _createVote(
+          id: 'v_legacy',
+          userId: 'u_legacy',
+          aiStatus: null,
+          syntheticRisk: null,
         );
-        expect(tester.takeException(), isNull);
-        expect(find.text('Synthetic Image Risk'), findsWidgets);
-      }
-    });
+
+        await _pumpAdminPage(tester, report: report, votes: [vote]);
+
+        expect(
+          find.text('Synthetic image analysis unavailable'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'Responsive layouts render cleanly without overflow at 390px, 1200px and 200% scale',
+      (tester) async {
+        addTearDown(() => tester.view.resetPhysicalSize());
+        final report = _createReport();
+        final vote = _createVote(
+          id: 'v_resp',
+          userId: 'u_resp',
+          syntheticRisk: SyntheticImageRisk.elevated,
+          syntheticConfidence: 0.85,
+          syntheticSummary:
+              'A very detailed multi-line explanation of anomalous structural artifacts in the pavement texture.',
+        );
+
+        for (final (w, s) in [(390.0, 1.0), (1200.0, 1.0), (800.0, 2.0)]) {
+          await _pumpAdminPage(
+            tester,
+            report: report,
+            votes: [vote],
+            width: w,
+            scale: s,
+          );
+          expect(tester.takeException(), isNull);
+          expect(find.text('Synthetic Image Risk'), findsWidgets);
+        }
+      },
+    );
   });
 }

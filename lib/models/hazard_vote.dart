@@ -281,23 +281,25 @@ HazardVote _attachAiFields(HazardVote base, Map<String, dynamic> data) {
   final multiplier = rawMultiplier.clamp(0.90, 1.10);
 
   final rawSyntheticRisk = data['aiSyntheticImageRisk'] as String?;
-  final normalizedSyntheticRisk = switch (rawSyntheticRisk?.trim().toUpperCase()) {
+  final normalizedSyntheticRisk = switch (rawSyntheticRisk
+      ?.trim()
+      .toUpperCase()) {
     'LOW' => SyntheticImageRisk.low,
     'UNCERTAIN' => SyntheticImageRisk.uncertain,
     'ELEVATED' => SyntheticImageRisk.elevated,
     _ => null,
   };
 
-  final rawSyntheticConf =
-      (data['aiSyntheticImageConfidence'] as num?)?.toDouble();
+  final rawSyntheticConf = (data['aiSyntheticImageConfidence'] as num?)
+      ?.toDouble();
   final syntheticConfidence = rawSyntheticConf?.clamp(0.0, 1.0);
 
   final rawSyntheticSummary = data['aiSyntheticImageSummary'] as String?;
   final trimmedSummary = rawSyntheticSummary?.trim();
   final syntheticSummary = trimmedSummary != null
       ? (trimmedSummary.length > 200
-          ? trimmedSummary.substring(0, 200)
-          : trimmedSummary)
+            ? trimmedSummary.substring(0, 200)
+            : trimmedSummary)
       : null;
 
   final ai = HazardVoteAi(

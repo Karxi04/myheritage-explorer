@@ -192,4 +192,51 @@ void main() {
 
     expect(service.voteWeight(duplicate, now), service.voteWeight(base, now));
   });
+
+  test(
+    'Step 15 Fix 4: fallback confidence excludes server-invalid votes and includes valid/legacy votes',
+    () {
+      final validVote = HazardVote(
+        id: 'v1',
+        userId: 'u1',
+        voteType: HazardVoteType.hazardResolved,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+        distanceFromHazardMeters: 50,
+        proximityBand: 'STRONG',
+        isGpsValidated: true,
+        hasPhotoEvidence: false,
+        serverValidationStatus: ServerVoteValidationStatus.valid,
+      );
+      final invalidVote = HazardVote(
+        id: 'v2',
+        userId: 'u2',
+        voteType: HazardVoteType.hazardResolved,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+        distanceFromHazardMeters: 50,
+        proximityBand: 'STRONG',
+        isGpsValidated: true,
+        hasPhotoEvidence: false,
+        serverValidationStatus: ServerVoteValidationStatus.invalid,
+      );
+      final legacyVote = HazardVote(
+        id: 'v3',
+        userId: 'u3',
+        voteType: HazardVoteType.hazardResolved,
+        createdAt: now.subtract(const Duration(minutes: 5)),
+        distanceFromHazardMeters: 50,
+        proximityBand: 'STRONG',
+        isGpsValidated: true,
+        hasPhotoEvidence: false,
+        serverValidationStatus: null,
+      );
+
+      final result = service.analyze([
+        validVote,
+        invalidVote,
+        legacyVote,
+      ], now: now);
+      expect(result.validVoteCount, 2);
+      expect(result.totalVotes, 3);
+    },
+  );
 }

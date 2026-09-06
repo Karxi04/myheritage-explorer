@@ -181,7 +181,9 @@ class ConfidenceAnalysisService {
               v.distanceFromHazardMeters.isFinite &&
               v.distanceFromHazardMeters >= 0 &&
               v.distanceFromHazardMeters <=
-                  SafetyConfig.maxHazardConfirmationDistanceMeters,
+                  SafetyConfig.maxHazardConfirmationDistanceMeters &&
+              v.serverValidationStatus != ServerVoteValidationStatus.invalid &&
+              v.serverValidationStatus != 'INVALID',
         )
         .toList();
     final exists = recognized

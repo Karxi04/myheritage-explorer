@@ -342,7 +342,8 @@ class _AutoSafetyAlertSection extends StatefulWidget {
 class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
     with WidgetsBindingObserver {
   static const _permissionService = BackgroundLocationPermissionService();
-  bool _hasBackgroundPermission = false;
+  bool _hasBackgroundLocation = false;
+  bool _hasNotifications = false;
   bool _checked = false;
 
   @override
@@ -366,14 +367,18 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
   }
 
   Future<void> _checkPermission() async {
-    final granted = await _permissionService.hasBackgroundPermission();
+    final locationGranted = await _permissionService.hasBackgroundPermission();
+    final notificationsGranted = await MobileNotificationService.instance
+        .areNotificationsEnabled();
     if (mounted) {
-      final previouslyGranted = _hasBackgroundPermission;
+      final wasFullyEnabled = _hasBackgroundLocation && _hasNotifications;
+      final isFullyEnabled = locationGranted && notificationsGranted;
       setState(() {
-        _hasBackgroundPermission = granted;
+        _hasBackgroundLocation = locationGranted;
+        _hasNotifications = notificationsGranted;
         _checked = true;
       });
-      if (!previouslyGranted && granted) {
+      if (!wasFullyEnabled && isFullyEnabled) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Background hazard alerts enabled.'),
@@ -381,6 +386,18 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
           ),
         );
       }
+    }
+  }
+
+  Future<void> _fixNotifications() async {
+    await MobileNotificationService.instance.requestPermissions();
+    if (mounted) {
+      final enabled = await MobileNotificationService.instance
+          .areNotificationsEnabled();
+      if (!enabled) {
+        await _permissionService.openLocationSettings();
+      }
+      await _checkPermission();
     }
   }
 
@@ -440,6 +457,33 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
     }
     if (!_checked) return const SizedBox.shrink();
 
+    final isFullyActive = _hasBackgroundLocation && _hasNotifications;
+    final isNotificationMissing = _hasBackgroundLocation && !_hasNotifications;
+
+    final iconData = isFullyActive
+        ? Icons.shield_rounded
+        : isNotificationMissing
+        ? Icons.notifications_off_outlined
+        : Icons.shield_outlined;
+
+    final iconColor = isFullyActive
+        ? ExplorerColors.success
+        : isNotificationMissing
+        ? ExplorerColors.warning
+        : ExplorerColors.navy;
+
+    final iconBgColor = isFullyActive
+        ? ExplorerColors.success.withValues(alpha: 0.12)
+        : isNotificationMissing
+        ? ExplorerColors.warningSoft
+        : ExplorerColors.navy.withValues(alpha: 0.08);
+
+    final subtitle = isFullyActive
+        ? 'Active when app is closed'
+        : isNotificationMissing
+        ? 'Notifications disabled; alerts cannot be posted'
+        : 'Alerts active in foreground only';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: ExplorerCard(
@@ -450,20 +494,10 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: _hasBackgroundPermission
-                    ? ExplorerColors.success.withValues(alpha: 0.12)
-                    : ExplorerColors.navy.withValues(alpha: 0.08),
+                color: iconBgColor,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                _hasBackgroundPermission
-                    ? Icons.shield_rounded
-                    : Icons.shield_outlined,
-                color: _hasBackgroundPermission
-                    ? ExplorerColors.success
-                    : ExplorerColors.navy,
-                size: 22,
-              ),
+              child: Icon(iconData, color: iconColor, size: 22),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -480,9 +514,7 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _hasBackgroundPermission
-                        ? 'Active when app is closed'
-                        : 'Alerts active in foreground only',
+                    subtitle,
                     style: const TextStyle(
                       fontSize: 12,
                       color: ExplorerColors.muted,
@@ -491,15 +523,17 @@ class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
                 ],
               ),
             ),
-            if (!_hasBackgroundPermission)
-              TextButton(
-                onPressed: _requestUpgrade,
-                child: const Text('Enable'),
-              )
-            else
+            if (isFullyActive)
               const ExplorerStatusBadge(
                 label: 'ENABLED',
                 tone: ExplorerStatusTone.success,
+              )
+            else if (isNotificationMissing)
+              TextButton(onPressed: _fixNotifications, child: const Text('Fix'))
+            else
+              TextButton(
+                onPressed: _requestUpgrade,
+                child: const Text('Enable'),
               ),
           ],
         ),

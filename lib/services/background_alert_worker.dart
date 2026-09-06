@@ -94,14 +94,20 @@ Future<void> _runBackgroundCheck() async {
     return;
   }
 
-  // 4. Fetch active Verified hazards from Firestore.
+  // 4. Fetch active Verified hazards directly from the server.
+  // Avoids evaluating against a stale-first local cache snapshot and skips
+  // the background cycle safely if offline or if the fetch times out.
   List<HazardReport> reports;
   try {
     reports = HazardMapService.activeReports(
-      await HazardReportService().watchVerifiedReports().first,
+      await HazardReportService().getVerifiedReportsFromServer(
+        timeout: const Duration(seconds: 10),
+      ),
     );
   } catch (e) {
-    debugPrint('Background safety check: hazard fetch failed — ');
+    debugPrint(
+      'Background safety check: fresh server hazard fetch failed ($e) — skipping cycle.',
+    );
     return;
   }
 

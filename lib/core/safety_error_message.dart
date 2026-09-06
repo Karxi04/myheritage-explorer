@@ -45,7 +45,7 @@ String friendlySafetyActionError(Object error, {required String fallback}) {
       return 'Please sign in again to continue.';
     }
     if (error.code == 'permission-denied') {
-      return 'This action is no longer available. Refresh the report or sign in again.';
+      return 'Action not permitted. Ensure your account is authorized or sign in again.';
     }
     return fallback;
   }
