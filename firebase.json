@@ -1,4 +1,4 @@
-﻿{
+{
     "flutter":  {
                     "platforms":  {
                                       "android":  {
@@ -19,9 +19,16 @@
                                                }
                                   }
                 },
-    "functions":  {
-                      "source":  "functions"
-                  },
+    "functions": [
+        {
+            "source": "functions",
+            "codebase": "daily-planner"
+        },
+        {
+            "source": "functions-safety",
+            "codebase": "safety"
+        }
+    ],
     "hosting":  {
                     "public":  "build/web",
                     "ignore":  [

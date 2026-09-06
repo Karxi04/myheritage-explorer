@@ -227,3 +227,96 @@ test('duplicate or invalid evidence validation is denied', async () => {
     }));
   }
 });
+
+test('tourist cannot inject AI analysis fields on vote creation or vote update', async () => {
+  await seedVerified('ai_report');
+  const tourist = dbFor('other');
+
+  // A & D: Tourist can create a normal valid vote with NO AI fields
+  await assertSucceeds(setDoc(voteRef(tourist, 'other', 'ai_report'), vote('other')));
+
+  // C: Tourist CANNOT update an existing vote to inject trusted AI fields
+  await assertFails(updateDoc(voteRef(tourist, 'other', 'ai_report'), {
+    aiAnalysisStatus: 'COMPLETE',
+    aiEvidenceWeightMultiplier: 1.10,
+  }));
+
+  // B: Tourist CANNOT create a new vote with trusted AI fields
+  await seedVerified('ai_report_2');
+  const aiFieldsToTest = [
+    { aiAnalysisStatus: 'COMPLETE' },
+    { aiEvidenceWeightMultiplier: 1.10 },
+    { aiAgreement: 'SUPPORTS_VOTE' },
+    { aiSceneMatchScore: 0.90 },
+    { aiHazardRelevanceScore: 0.95 },
+    { aiConditionAssessment: 'HAZARD_STILL_PRESENT' },
+    { aiConditionConfidence: 0.85 },
+    { aiAnalysisSummary: 'Injected summary' },
+    { aiAnalysisCompletedAt: Timestamp.now() },
+    { aiAnalysisFailureReason: 'NONE' },
+  ];
+
+  for (const aiField of aiFieldsToTest) {
+    await assertFails(
+      setDoc(voteRef(tourist, 'other', 'ai_report_2'), {
+        ...vote('other'),
+        ...aiField,
+      })
+    );
+  }
+});
+
+test('administrator client can read AI results but CANNOT modify server-owned AI fields', async () => {
+  await seedVerified('ai_admin_report');
+  const admin = dbFor('admin');
+
+  // Cloud Function writes AI fields via Admin SDK (simulated via withSecurityRulesDisabled)
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(voteRef(db, 'other', 'ai_admin_report'), {
+      ...vote('other'),
+      aiAnalysisStatus: 'COMPLETE',
+      aiAgreement: 'SUPPORTS_VOTE',
+      aiEvidenceWeightMultiplier: 1.10,
+      aiSceneMatchScore: 0.88,
+      aiHazardRelevanceScore: 0.92,
+      aiConditionAssessment: 'HAZARD_STILL_PRESENT',
+      aiConditionConfidence: 0.85,
+      aiAnalysisSummary: 'Scene matches and hazard is clearly visible.',
+      aiAnalysisCompletedAt: Timestamp.now(),
+    });
+  });
+
+  // D: Administrator client CAN read vote containing server-computed AI results
+  const snap = await assertSucceeds(getDoc(voteRef(admin, 'other', 'ai_admin_report')));
+  assert.equal(snap.data().aiAgreement, 'SUPPORTS_VOTE');
+  assert.equal(snap.data().aiEvidenceWeightMultiplier, 1.10);
+  assert.equal(snap.data().aiAnalysisStatus, 'COMPLETE');
+
+  // E: Administrator CLIENT attempts to manually modify aiAgreement → FAILS
+  await assertFails(updateDoc(voteRef(admin, 'other', 'ai_admin_report'), {
+    aiAgreement: 'CONFLICTS_WITH_VOTE',
+  }));
+
+  // F: Administrator CLIENT attempts to manually modify aiEvidenceWeightMultiplier → FAILS
+  await assertFails(updateDoc(voteRef(admin, 'other', 'ai_admin_report'), {
+    aiEvidenceWeightMultiplier: 0.90,
+  }));
+
+  // G: Administrator CLIENT attempts to modify other server-owned AI fields → FAILS
+  const forbiddenAdminPatches = [
+    { aiAnalysisStatus: 'FAILED' },
+    { aiSceneMatchScore: 0.50 },
+    { aiHazardRelevanceScore: 0.50 },
+    { aiConditionAssessment: 'APPEARS_RESOLVED' },
+    { aiConditionConfidence: 0.50 },
+    { aiAnalysisSummary: 'Manually tampered summary' },
+    { aiAnalysisFailureReason: 'TAMPERED' },
+  ];
+  for (const patch of forbiddenAdminPatches) {
+    await assertFails(updateDoc(voteRef(admin, 'other', 'ai_admin_report'), patch));
+  }
+
+  // H: Legitimate Admin hazard management actions (Verify, Resolve, notifications) still succeed
+  await assertSucceeds(decide(admin, 'Resolved', 'ai_admin_report'));
+});

@@ -1,0 +1,41 @@
+{
+  "name": "myheritage-safety-functions",
+  "description": "Firebase Cloud Functions — Safety Module AI evidence analysis",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "jest --forceExit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.1",
+    "firebase-admin": "^14.0.0",
+    "firebase-functions": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.3.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.ts"],
+    "moduleNameMapper": {
+      "firebase-admin/app": "<rootDir>/src/__mocks__/firebase-admin/app.ts",
+      "firebase-admin/firestore": "<rootDir>/src/__mocks__/firebase-admin/firestore.ts",
+      "firebase-functions/v2/firestore": "<rootDir>/src/__mocks__/firebase-functions/v2/firestore.ts",
+      "firebase-functions/v2/https": "<rootDir>/src/__mocks__/firebase-functions/v2/https.ts",
+      "firebase-functions/params": "<rootDir>/src/__mocks__/firebase-functions/params.ts",
+      "firebase-functions/logger": "<rootDir>/src/__mocks__/firebase-functions/logger.ts",
+      "@google/genai": "<rootDir>/src/__mocks__/@google/genai.ts"
+    }
+  }
+}

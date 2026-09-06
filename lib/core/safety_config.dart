@@ -99,4 +99,14 @@ abstract final class SafetyConfig {
 
   /// High-confidence labels require a meaningful recent sample.
   static const int minimumReliableRecentVotes = 10;
+
+  // ── Step 6: AI evidence weight multiplier bounds ──────────────────────────
+
+  /// Lower bound of the AI evidence weight multiplier applied to a vote.
+  /// An AI conflict can reduce the existing evidence weight by at most 10 %.
+  static const double aiMultiplierMin = 0.90;
+
+  /// Upper bound of the AI evidence weight multiplier applied to a vote.
+  /// An AI support can increase the existing evidence weight by at most 10 %.
+  static const double aiMultiplierMax = 1.10;
 }

@@ -407,6 +407,7 @@ class _VoteEvidenceTile extends StatelessWidget {
   Future<void> _showDetails(BuildContext context) {
     final validation = vote.evidenceValidation;
     final sceneScore = vote.sceneMatchScore ?? validation?.sceneMatchScore;
+    final ai = vote.aiAnalysis;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -454,14 +455,14 @@ class _VoteEvidenceTile extends StatelessWidget {
               ),
               if (sceneScore != null)
                 _AdminDetailRow(
-                  label: 'Scene Match',
+                  label: 'Image Similarity',
                   value: sceneScore >= 1
-                      ? 'Strong visual-pattern match'
+                      ? 'Strong visual match'
                       : sceneScore >= .7
-                      ? 'Partial visual-pattern match'
+                      ? 'Partial visual match'
                       : sceneScore >= .4
-                      ? 'Weak visual-pattern match'
-                      : 'No visual-pattern match',
+                      ? 'Weak visual match'
+                      : 'No visual match',
                 ),
               if (validation != null)
                 Material(
@@ -475,7 +476,9 @@ class _VoteEvidenceTile extends StatelessWidget {
                     children: [
                       _AdminDetailRow(
                         label: 'Capture',
-                        value: validation.evidenceSource,
+                        value: validation.evidenceSource == 'CAMERA'
+                            ? 'Captured in App'
+                            : 'From Gallery',
                       ),
                       _AdminDetailRow(
                         label: 'Visibility',
@@ -493,11 +496,332 @@ class _VoteEvidenceTile extends StatelessWidget {
                     ],
                   ),
                 ),
+              // ── AI Evidence Decision Support ──────────────────────────────
+              const SizedBox(height: 16),
+              _AiEvidenceSection(ai: ai),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI Evidence Decision Support section (Admin-only — displayed in vote sheet)
+// ---------------------------------------------------------------------------
+
+class _AiEvidenceSection extends StatelessWidget {
+  const _AiEvidenceSection({required this.ai});
+  final HazardVoteAi ai;
+
+  @override
+  Widget build(BuildContext context) {
+    // Legacy votes created before Step 6 or missing status: static neutral note, no spinner
+    if (ai.isNotAvailable) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: ExplorerColors.subtle,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ExplorerColors.border),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline, size: 16, color: ExplorerColors.muted),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'AI analysis not available for this evidence',
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Explicit PENDING: server trigger is currently processing
+    if (ai.isPending) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: ExplorerColors.subtle,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ExplorerColors.border),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'AI evidence analysis in progress…',
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (ai.isSkipped || ai.isFailed) {
+      final skipMessage = switch (ai.failureReason) {
+        'ORIGINAL_EVIDENCE_UNAVAILABLE' =>
+          'AI analysis skipped: Original hazard evidence photo is unavailable for comparison.',
+        'NO_PHOTO' => 'AI analysis not available (no photo evidence).',
+        _ => 'AI analysis not available for this evidence.',
+      };
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: ExplorerColors.subtle,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ExplorerColors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              ai.isSkipped
+                  ? Icons.do_not_disturb_outlined
+                  : Icons.error_outline,
+              size: 16,
+              color: ExplorerColors.muted,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                ai.isSkipped
+                    ? skipMessage
+                    : 'AI analysis could not be completed for this vote.',
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // COMPLETE: Render qualitative decision support
+    final agreement = ai.agreement;
+    final (agreementColor, agreementBg, agreementIcon, agreementLabel) =
+        _agreementStyle(agreement);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: agreementBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: agreementColor.withAlpha(60)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(agreementIcon, size: 16, color: agreementColor),
+              const SizedBox(width: 8),
+              Text(
+                'AI Decision Support',
+                style: TextStyle(
+                  color: agreementColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              ExplorerStatusBadge(
+                label: agreementLabel,
+                tone: _agreementTone(agreement),
+              ),
+            ],
+          ),
+          if (ai.conditionAssessment != null) ...[
+            const SizedBox(height: 10),
+            _AdminDetailRow(
+              label: 'Current Condition',
+              value: _conditionLabel(ai.conditionAssessment!),
+            ),
+          ],
+          if (ai.analysisSummary != null && ai.analysisSummary!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              ai.analysisSummary!,
+              style: const TextStyle(fontSize: 12, height: 1.5),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              if (ai.sceneMatchScore != null)
+                _AiScorePill(
+                  label: 'Scene Match',
+                  qualitativeText: _sceneQualitative(ai.sceneMatchScore!),
+                  value: ai.sceneMatchScore!,
+                  tooltip: 'AI semantic scene similarity with original hazard',
+                ),
+              if (ai.hazardRelevanceScore != null)
+                _AiScorePill(
+                  label: 'Relevance',
+                  qualitativeText: _relevanceQualitative(
+                    ai.hazardRelevanceScore!,
+                  ),
+                  value: ai.hazardRelevanceScore!,
+                  tooltip: 'Relevance to reported hazard category',
+                ),
+              if (ai.conditionConfidence != null)
+                _AiScorePill(
+                  label: 'Confidence',
+                  qualitativeText: _confidenceQualitative(
+                    ai.conditionConfidence!,
+                  ),
+                  value: ai.conditionConfidence!,
+                  tooltip: 'Model confidence in condition assessment',
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _AdminDetailRow(
+            label: 'Evidence Support',
+            value: _supportDescription(ai.evidenceWeightMultiplier),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'AI is decision support only — it does not automatically change the hazard status.',
+            style: TextStyle(
+              color: ExplorerColors.muted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  (Color, Color, IconData, String) _agreementStyle(String? agreement) =>
+      switch (agreement) {
+        AiAgreement.supportsVote => (
+          ExplorerColors.success,
+          ExplorerColors.successSoft,
+          Icons.thumb_up_alt_outlined,
+          'SUPPORTS VOTE',
+        ),
+        AiAgreement.conflictsWithVote => (
+          ExplorerColors.danger,
+          ExplorerColors.dangerSoft,
+          Icons.thumb_down_alt_outlined,
+          'CONFLICTS WITH VOTE',
+        ),
+        _ => (
+          ExplorerColors.muted,
+          ExplorerColors.subtle,
+          Icons.help_outline,
+          'INCONCLUSIVE',
+        ),
+      };
+
+  ExplorerStatusTone _agreementTone(String? agreement) => switch (agreement) {
+    AiAgreement.supportsVote => ExplorerStatusTone.success,
+    AiAgreement.conflictsWithVote => ExplorerStatusTone.danger,
+    _ => ExplorerStatusTone.neutral,
+  };
+
+  String _conditionLabel(String raw) => switch (raw) {
+    'HAZARD_STILL_PRESENT' => 'Hazard Still Present',
+    'APPEARS_RESOLVED' => 'Hazard Appears Resolved',
+    _ => 'Condition Uncertain',
+  };
+
+  String _sceneQualitative(double score) => score >= 0.80
+      ? 'High'
+      : score >= 0.55
+      ? 'Moderate'
+      : 'Low';
+
+  String _relevanceQualitative(double score) => score >= 0.80
+      ? 'High'
+      : score >= 0.55
+      ? 'Relevant'
+      : 'Low';
+
+  String _confidenceQualitative(double score) => score >= 0.80
+      ? 'High'
+      : score >= 0.60
+      ? 'Moderate'
+      : 'Low';
+
+  String _supportDescription(double multiplier) {
+    if (multiplier >= 1.08) {
+      return 'Strong support weight (+10%)';
+    } else if (multiplier >= 1.04) {
+      return 'Moderate support weight (+5%)';
+    } else if (multiplier > 1.00) {
+      return 'Mild support weight (+2%)';
+    } else if (multiplier <= 0.92) {
+      return 'Strong conflict weight (-10%)';
+    } else if (multiplier <= 0.96) {
+      return 'Moderate conflict weight (-5%)';
+    } else if (multiplier < 1.00) {
+      return 'Mild conflict weight (-2%)';
+    }
+    return 'Neutral weight (no adjustment)';
+  }
+}
+
+class _AiScorePill extends StatelessWidget {
+  const _AiScorePill({
+    required this.label,
+    required this.qualitativeText,
+    required this.value,
+    this.tooltip,
+  });
+
+  final String label;
+  final String qualitativeText;
+  final double value;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (value * 100).round();
+    final color = value >= 0.80
+        ? ExplorerColors.success
+        : value >= 0.55
+        ? ExplorerColors.goldDark
+        : ExplorerColors.muted;
+
+    Widget pill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: ExplorerColors.subtle,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withAlpha(100)),
+      ),
+      child: Text(
+        '$label: $qualitativeText ($percent%)',
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    if (tooltip != null) {
+      pill = Tooltip(message: tooltip!, child: pill);
+    }
+    return pill;
   }
 }
 

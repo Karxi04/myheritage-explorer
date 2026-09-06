@@ -108,13 +108,25 @@ class ConfidenceAnalysisService {
       sceneBoost = SafetyConfig.weakSceneMatchWeight;
     }
 
+    double baseWeight;
     if (evidence.overallEvidenceScore >= .85) {
-      return SafetyConfig.strongPhotoEvidenceWeight * sceneBoost;
+      baseWeight = SafetyConfig.strongPhotoEvidenceWeight * sceneBoost;
+    } else if (evidence.overallEvidenceScore >= .65) {
+      baseWeight = SafetyConfig.photoEvidenceWeight * sceneBoost;
+    } else {
+      baseWeight = 1.05 * sceneBoost;
     }
-    if (evidence.overallEvidenceScore >= .65) {
-      return SafetyConfig.photoEvidenceWeight * sceneBoost;
-    }
-    return 1.05 * sceneBoost;
+
+    // Step 6 extension — multiply by AI evidence weight multiplier.
+    // The multiplier is stored on the vote document by the Cloud Function.
+    // It defaults to 1.0 (neutral) for legacy votes or while AI is pending.
+    // The multiplier is clamped to [0.90–1.10] to bound its influence.
+    final rawAiMultiplier = vote.aiAnalysis.evidenceWeightMultiplier;
+    final aiMultiplier = rawAiMultiplier.clamp(
+      SafetyConfig.aiMultiplierMin,
+      SafetyConfig.aiMultiplierMax,
+    );
+    return baseWeight * aiMultiplier;
   }
 
   double voteWeight(HazardVote vote, DateTime now) =>

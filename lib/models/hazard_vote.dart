@@ -49,9 +49,12 @@ class HazardVote {
       (sceneMatchScore ?? evidenceValidation?.sceneMatchScore ?? 0) >= 0.7;
 
   factory HazardVote.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    return HazardVote(
-      id: doc.id,
+    return HazardVote.fromMap(doc.id, doc.data() ?? {});
+  }
+
+  factory HazardVote.fromMap(String id, Map<String, dynamic> data) {
+    final base = HazardVote(
+      id: id,
       userId: '${data['userId'] ?? ''}',
       voteType: _normalizeVoteType('${data['voteType'] ?? data['type'] ?? ''}'),
       createdAt: asDate(data['createdAt']),
@@ -73,6 +76,7 @@ class HazardVote {
           : null,
       sceneMatchScore: (data['sceneMatchScore'] as num?)?.toDouble(),
     );
+    return _attachAiFields(base, data);
   }
 
   Map<String, dynamic> toMap({
@@ -103,6 +107,8 @@ class HazardVote {
         'evidenceSource': evidenceValidation.evidenceSource,
       },
       'sceneMatchScore': ?sceneMatchScore,
+      // AI analysis fields are intentionally NOT written by the client.
+      // They are set exclusively by the Cloud Function via Admin SDK.
     };
   }
 
@@ -112,5 +118,145 @@ class HazardVote {
       'resolved' || 'hazard_resolved' => HazardVoteType.hazardResolved,
       _ => raw,
     };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI analysis fields — read-only, written exclusively by Cloud Function
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Possible values for [HazardVoteAi.analysisStatus].
+abstract final class AiAnalysisStatus {
+  static const pending = 'PENDING';
+  static const complete = 'COMPLETE';
+  static const failed = 'FAILED';
+  static const skipped = 'SKIPPED';
+  static const notAvailable = 'NOT_AVAILABLE';
+}
+
+/// Possible values for [HazardVoteAi.agreement].
+abstract final class AiAgreement {
+  static const supportsVote = 'SUPPORTS_VOTE';
+  static const conflictsWithVote = 'CONFLICTS_WITH_VOTE';
+  static const inconclusive = 'INCONCLUSIVE';
+}
+
+/// AI evidence analysis result — attached to a [HazardVote] after the
+/// Cloud Function writes back the Gemini result.
+///
+/// All fields are nullable/defaulted so legacy votes without AI data
+/// remain fully functional. The multiplier defaults to 1.0 (neutral).
+class HazardVoteAi {
+  const HazardVoteAi({
+    this.analysisStatus,
+    this.sceneMatchScore,
+    this.hazardRelevanceScore,
+    this.conditionAssessment,
+    this.conditionConfidence,
+    this.agreement,
+    this.evidenceWeightMultiplier = 1.0,
+    this.analysisSummary,
+    this.failureReason,
+    this.completedAt,
+  });
+
+  /// e.g. PENDING / COMPLETE / FAILED / SKIPPED / NOT_AVAILABLE. Null on legacy votes.
+  final String? analysisStatus;
+
+  /// AI semantic scene similarity [0,1]. Null until COMPLETE.
+  final double? sceneMatchScore;
+
+  /// AI hazard relevance [0,1]. Null until COMPLETE.
+  final double? hazardRelevanceScore;
+
+  /// AI condition: HAZARD_STILL_PRESENT / APPEARS_RESOLVED / UNCERTAIN.
+  final String? conditionAssessment;
+
+  /// AI condition confidence [0,1]. Null until COMPLETE.
+  final double? conditionConfidence;
+
+  /// SUPPORTS_VOTE / CONFLICTS_WITH_VOTE / INCONCLUSIVE. Null until COMPLETE.
+  final String? agreement;
+
+  /// Multiplier applied to the existing evidence weight. Defaults to 1.0
+  /// (neutral) while pending, skipped, failed, or legacy. Clamped server-side [0.90–1.10].
+  final double evidenceWeightMultiplier;
+
+  /// One-sentence admin summary from Gemini. Null until COMPLETE.
+  final String? analysisSummary;
+
+  /// Failure or skip reason code (e.g. NO_PHOTO, ORIGINAL_EVIDENCE_UNAVAILABLE).
+  final String? failureReason;
+
+  /// Timestamp when server-side AI analysis finished.
+  final DateTime? completedAt;
+
+  bool get isComplete => analysisStatus == AiAnalysisStatus.complete;
+
+  /// True ONLY when explicitly marked PENDING by server or client.
+  /// Legacy votes where status is null return false.
+  bool get isPending => analysisStatus == AiAnalysisStatus.pending;
+
+  bool get isFailed => analysisStatus == AiAnalysisStatus.failed;
+  bool get isSkipped => analysisStatus == AiAnalysisStatus.skipped;
+
+  /// True when the vote was created before AI analysis or without AI tracking.
+  bool get isNotAvailable =>
+      analysisStatus == null || analysisStatus == AiAnalysisStatus.notAvailable;
+}
+
+/// Subclass that carries AI analysis data alongside the base vote.
+final class _HazardVoteWithAi extends HazardVote {
+  _HazardVoteWithAi(HazardVote base, this._ai)
+    : super(
+        id: base.id,
+        userId: base.userId,
+        voteType: base.voteType,
+        createdAt: base.createdAt,
+        distanceFromHazardMeters: base.distanceFromHazardMeters,
+        proximityBand: base.proximityBand,
+        isGpsValidated: base.isGpsValidated,
+        photoUrl: base.photoUrl,
+        hasPhotoEvidence: base.hasPhotoEvidence,
+        evidenceStorage: base.evidenceStorage,
+        evidenceValidation: base.evidenceValidation,
+        sceneMatchScore: base.sceneMatchScore,
+      );
+
+  final HazardVoteAi _ai;
+}
+
+/// Parse and attach AI fields from a Firestore document data map.
+HazardVote _attachAiFields(HazardVote base, Map<String, dynamic> data) {
+  final status = data['aiAnalysisStatus'] as String?;
+  final rawMultiplier =
+      (data['aiEvidenceWeightMultiplier'] as num?)?.toDouble() ?? 1.0;
+  // Defensive clamp on the client — authoritative clamping is server-side.
+  final multiplier = rawMultiplier.clamp(0.90, 1.10);
+
+  final ai = HazardVoteAi(
+    analysisStatus: status,
+    sceneMatchScore: (data['aiSceneMatchScore'] as num?)?.toDouble(),
+    hazardRelevanceScore: (data['aiHazardRelevanceScore'] as num?)?.toDouble(),
+    conditionAssessment: data['aiConditionAssessment'] as String?,
+    conditionConfidence: (data['aiConditionConfidence'] as num?)?.toDouble(),
+    agreement: data['aiAgreement'] as String?,
+    evidenceWeightMultiplier: multiplier,
+    analysisSummary: data['aiAnalysisSummary'] as String?,
+    failureReason: data['aiAnalysisFailureReason'] as String?,
+    completedAt: asDate(data['aiAnalysisCompletedAt']),
+  );
+  return _HazardVoteWithAi(base, ai);
+}
+
+/// Extension to safely access AI analysis from any [HazardVote].
+extension HazardVoteAiAccess on HazardVote {
+  /// AI analysis result for this vote. Returns a default neutral result if
+  /// the vote was created before AI analysis was deployed (legacy).
+  HazardVoteAi get aiAnalysis {
+    if (this is _HazardVoteWithAi) {
+      return (this as _HazardVoteWithAi)._ai;
+    }
+    return const HazardVoteAi(); // legacy vote — neutral defaults
   }
 }

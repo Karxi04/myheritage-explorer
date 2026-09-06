@@ -34,6 +34,21 @@ service cloud.firestore {
           && data.sceneMatchScore <= 1);
     }
 
+    // Ensure tourists cannot inject AI analysis fields.
+    // All ai* fields are written exclusively by the Cloud Function (Admin SDK).
+    function hasNoAiFields(data) {
+      return !('aiAnalysisStatus' in data)
+        && !('aiEvidenceWeightMultiplier' in data)
+        && !('aiSceneMatchScore' in data)
+        && !('aiHazardRelevanceScore' in data)
+        && !('aiConditionAssessment' in data)
+        && !('aiConditionConfidence' in data)
+        && !('aiAgreement' in data)
+        && !('aiAnalysisSummary' in data)
+        && !('aiAnalysisCompletedAt' in data)
+        && !('aiAnalysisFailureReason' in data);
+    }
+
     function validEvidenceValidation(value) {
       return value is map
         && validOptionalSceneMatch(value)
@@ -208,7 +223,12 @@ service cloud.firestore {
               && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256
             )
           )
+          && hasNoAiFields(request.resource.data)
           && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified';
+        // Votes are immutable from client SDKs. Neither tourists nor administrator
+        // clients can update or delete vote documents or modify server-owned AI fields.
+        // Server-owned AI fields are written exclusively by Cloud Functions via the
+        // Firebase Admin SDK (which bypasses security rules).
         allow update, delete: if false;
 
         match /evidence/{evidenceId} {
