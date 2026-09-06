@@ -61,14 +61,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
             ),
             icon: const Icon(Icons.search),
           ),
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const NotificationsPage()),
-            ),
-            icon: const Icon(Icons.notifications_none),
-          ),
+          const TravelerNotificationBell(),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: CircleAvatar(

@@ -1,3 +1,11 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import 'auth/auth_gate.dart';
+import 'core/app_theme.dart';
+import 'core/push_notification_service.dart';
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -19,10 +27,28 @@ const _deepLinkEventChannel = EventChannel(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  if (!kIsWeb) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+      appleProvider: AppleProvider.debug,
+    );
+
+    // ============================================================
+    // REGISTER PHONE FOR PUSH NOTIFICATIONS
+    // ============================================================
+    await PushNotificationService.initialize();
+  }
+
+  // System notification listener setup
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
   SystemNotificationService.instance.init();
+
   runApp(const MyHeritageApp());
 }
 
@@ -52,7 +78,9 @@ String _itineraryIdFromNotificationPayload(String? payload) {
 }
 
 class MyHeritageApp extends StatelessWidget {
-  const MyHeritageApp({super.key});
+  const MyHeritageApp({
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +94,24 @@ class MyHeritageApp extends StatelessWidget {
   }
 }
 
+class _AppEntry extends StatelessWidget {
+  const _AppEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    final shareId =
+    Uri.base.queryParameters['share']?.trim();
+
+    final encodedItinerary =
+    Uri.base
+        .queryParameters['itinerary']
+        ?.trim();
+
+    if (shareId != null &&
+        shareId.isNotEmpty) {
+      return SharedItineraryPage(
+        shareId: shareId,
+      );
 class _SharedLinkTarget {
   const _SharedLinkTarget({this.shareId, this.encodedItinerary})
     : assert(shareId != null || encodedItinerary != null);
@@ -143,6 +189,11 @@ class _AppEntryState extends State<_AppEntry> {
     super.dispose();
   }
 
+    if (encodedItinerary != null &&
+        encodedItinerary.isNotEmpty) {
+      return SharedItineraryPage(
+        encodedItinerary:
+        encodedItinerary,
   Future<void> _loadInitialDeepLink() async {
     try {
       final value = await _deepLinkMethodChannel.invokeMethod<String>(
