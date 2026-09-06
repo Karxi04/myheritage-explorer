@@ -19,6 +19,7 @@ class EvidencePickerCard extends StatelessWidget {
     this.requiredEvidence = false,
     this.onGallery,
     this.enabled = true,
+    this.evidenceSource,
   });
 
   final Uint8List? imageBytes;
@@ -31,6 +32,7 @@ class EvidencePickerCard extends StatelessWidget {
   final bool requiredEvidence;
   final VoidCallback? onGallery;
   final bool enabled;
+  final String? evidenceSource;
 
   @override
   Widget build(BuildContext context) {
@@ -64,30 +66,108 @@ class EvidencePickerCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            if (validating)
-              const _ValidationMessage.loading()
-            else if (checkError != null)
-              _ValidationMessage.error(checkError!)
-            else if (validation != null)
-              _ValidationMessage.result(validation!),
-            if (!validating && checkError != null && onRetry != null)
-              TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Retry Photo Check'),
+            const SizedBox(height: 10),
+            Builder(
+              builder: (context) {
+                final source =
+                    evidenceSource ??
+                    validation?.evidenceSource ??
+                    EvidenceSource.camera;
+                final isCamera = source == EvidenceSource.camera;
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isCamera
+                            ? Icons.camera_alt_outlined
+                            : Icons.photo_library_outlined,
+                        size: 15,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          isCamera
+                              ? 'Captured in App'
+                              : 'Selected from Gallery',
+                          style: const TextStyle(
+                            color: ExplorerColors.navy,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            if (checkError != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: ExplorerColors.dangerSoft,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: ExplorerColors.danger,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        checkError!,
+                        style: const TextStyle(
+                          color: ExplorerColors.danger,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: validating || !enabled ? null : onCamera,
-                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                    label: const Text('Retake Photo'),
+              if (onRetry != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: TextButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Retry Photo Check'),
                   ),
                 ),
-                const SizedBox(width: 8),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: validating || !enabled ? null : onCamera,
+                  icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                  label: const Text('Retake Photo'),
+                ),
+                if (onGallery != null)
+                  OutlinedButton.icon(
+                    onPressed: validating || !enabled ? null : onGallery,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Choose from Gallery'),
+                  ),
                 TextButton.icon(
                   onPressed: validating || !enabled ? null : onRemove,
                   icon: const Icon(Icons.delete_outline, size: 18),
@@ -164,106 +244,6 @@ class _EmptyState extends StatelessWidget {
               icon: const Icon(Icons.photo_library_outlined),
               label: const Text('Choose from Gallery'),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ValidationMessage extends StatelessWidget {
-  const _ValidationMessage.loading()
-    : result = null,
-      loading = true,
-      errorMessage = null;
-
-  const _ValidationMessage.result(this.result)
-    : loading = false,
-      errorMessage = null;
-
-  const _ValidationMessage.error(this.errorMessage)
-    : result = null,
-      loading = false;
-
-  final EvidenceValidationResult? result;
-  final bool loading;
-  final String? errorMessage;
-
-  @override
-  Widget build(BuildContext context) {
-    final validation = result;
-    final isProblem =
-        errorMessage != null || (validation != null && !validation.canSubmit);
-    final isWarning =
-        validation != null &&
-        validation.validationLevel == EvidenceValidationLevel.lowQuality;
-    final color = isProblem
-        ? ExplorerColors.danger
-        : isWarning
-        ? ExplorerColors.goldDark
-        : ExplorerColors.success;
-    final background = isProblem
-        ? ExplorerColors.dangerSoft
-        : isWarning
-        ? ExplorerColors.warningSoft
-        : ExplorerColors.successSoft;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: loading ? ExplorerColors.navySoft : background,
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (loading)
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            Icon(
-              isProblem
-                  ? Icons.error_outline_rounded
-                  : isWarning
-                  ? Icons.info_outline_rounded
-                  : Icons.check_circle_outline_rounded,
-              color: color,
-              size: 20,
-            ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  loading
-                      ? 'Checking photo quality…'
-                      : errorMessage != null
-                      ? 'Photo check could not finish'
-                      : validation!.touristTitle,
-                  style: TextStyle(
-                    color: loading ? ExplorerColors.navy : color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (!loading) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    errorMessage ?? validation!.touristMessage,
-                    style: const TextStyle(
-                      color: ExplorerColors.text,
-                      fontSize: 11,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
         ],
       ),
     );

@@ -58,14 +58,8 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
       );
       return;
     }
-    if (_evidenceValidation?.canSubmit != true) {
-      showMessage(
-        context,
-        _evidenceCheckError ??
-            _evidenceValidation?.touristMessage ??
-            'Wait for the evidence quality check to finish.',
-        error: true,
-      );
+    if (_evidenceCheckError != null) {
+      showMessage(context, _evidenceCheckError!, error: true);
       return;
     }
 
@@ -157,6 +151,7 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
             ? EvidenceSource.camera
             : EvidenceSource.gallery;
         _imageBytes = bytes;
+        _evidenceCheckError = null;
       });
       await _checkEvidence();
     } catch (error, stack) {
@@ -186,11 +181,27 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
         imageBytes: bytes,
         evidenceSource: _evidenceSource,
       );
-      if (mounted) setState(() => _evidenceValidation = validation);
+      if (mounted) {
+        if (!validation.isValid) {
+          setState(() {
+            _evidenceValidation = validation;
+            _evidenceCheckError =
+                'Unable to use this image. Please choose another photo.';
+          });
+        } else {
+          setState(() {
+            _evidenceValidation = validation;
+            _evidenceCheckError = null;
+          });
+        }
+      }
     } catch (error, stack) {
       debugPrint('Hazard evidence check failed: $error\n$stack');
       if (mounted) {
-        setState(() => _evidenceCheckError = friendlyEvidenceCheckError(error));
+        setState(() {
+          _evidenceCheckError =
+              'Unable to use this image. Please choose another photo.';
+        });
       }
     } finally {
       if (mounted) setState(() => _validatingImage = false);
@@ -250,6 +261,7 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                     checkError: _evidenceCheckError,
                     onRetry: _checkEvidence,
                     requiredEvidence: true,
+                    evidenceSource: _evidenceSource,
                     onCamera: _takePhoto,
                     onGallery: () => _takePhoto(ImageSource.gallery),
                     enabled: !busy && !_pickingImage,

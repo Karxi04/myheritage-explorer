@@ -46,7 +46,14 @@ class HazardVoteService {
   Future<EvidenceValidationResult> validateEvidence({
     required Uint8List imageBytes,
     required String evidenceSource,
+    bool checkDuplicates = false,
   }) async {
+    if (!checkDuplicates) {
+      return _validationService.validate(
+        bytes: imageBytes,
+        evidenceSource: evidenceSource,
+      );
+    }
     final uid = _auth.currentUser?.uid;
     if (uid == null) throw FirebaseAuthException(code: 'unauthenticated');
     final fingerprints = await HazardReportService(
@@ -91,12 +98,7 @@ class HazardVoteService {
                 evidenceSource: evidenceSource,
               );
     if (checkedEvidence != null && !checkedEvidence.isValid) {
-      throw Exception(checkedEvidence.touristMessage);
-    }
-    if (checkedEvidence?.duplicateDetected == true) {
-      throw Exception(
-        'This image appears to have been used previously. Please provide a current photo.',
-      );
+      throw Exception('Unable to use this image. Please choose another photo.');
     }
 
     final compressedPhoto = photoBytes == null
@@ -128,7 +130,7 @@ class HazardVoteService {
       final canMatch =
           referenceHash is String &&
           EvidenceImageValidationService.isValidPerceptualHash(referenceHash);
-      final validation = checkedEvidence?.withSceneMatchScore(
+      final rawValidation = checkedEvidence?.withSceneMatchScore(
         canMatch
             ? EvidenceImageValidationService.computeSceneMatchScore(
                 checkedEvidence.perceptualHash,
@@ -136,6 +138,42 @@ class HazardVoteService {
               )
             : null,
       );
+
+      final EvidenceValidationResult? validation;
+      if (rawValidation != null) {
+        final sanitizedLevel = switch (rawValidation.validationLevel) {
+          EvidenceValidationLevel.strong => EvidenceValidationLevel.strong,
+          EvidenceValidationLevel.good => EvidenceValidationLevel.good,
+          EvidenceValidationLevel.lowQuality =>
+            EvidenceValidationLevel.lowQuality,
+          _ => EvidenceValidationLevel.acceptable,
+        };
+        validation = EvidenceValidationResult(
+          isValid: true,
+          qualityScore: rawValidation.qualityScore,
+          sharpnessScore: rawValidation.sharpnessScore,
+          brightnessScore: rawValidation.brightnessScore,
+          resolutionScore: rawValidation.resolutionScore,
+          duplicateDetected: false,
+          evidenceSource: evidenceSource,
+          semanticValidationAvailable: false,
+          validationLevel: sanitizedLevel,
+          warnings: rawValidation.warnings,
+          overallEvidenceScore: rawValidation.overallEvidenceScore > 0
+              ? rawValidation.overallEvidenceScore
+              : rawValidation.qualityScore.clamp(0.1, 1.0),
+          sha256Fingerprint: rawValidation.sha256Fingerprint,
+          perceptualHash: rawValidation.perceptualHash,
+          exposureStatus: rawValidation.exposureStatus,
+          width: rawValidation.width,
+          height: rawValidation.height,
+          fileFormat: rawValidation.fileFormat,
+          semanticRelevanceScore: rawValidation.semanticRelevanceScore,
+          sceneMatchScore: rawValidation.sceneMatchScore,
+        );
+      } else {
+        validation = null;
+      }
 
       final hasPhoto = compressedPhoto != null;
       transaction.set(

@@ -88,7 +88,14 @@ class HazardReportService {
   Future<EvidenceValidationResult> validateEvidence({
     required Uint8List imageBytes,
     required String evidenceSource,
+    bool checkDuplicates = false,
   }) async {
+    if (!checkDuplicates) {
+      return _validationService.validate(
+        bytes: imageBytes,
+        evidenceSource: evidenceSource,
+      );
+    }
     final uid = _uid;
     if (uid == null) throw FirebaseAuthException(code: 'unauthenticated');
     final fingerprints = await loadEvidenceFingerprintsForUser(uid);
@@ -162,13 +169,38 @@ class HazardReportService {
           evidenceSource: evidenceSource,
         );
     if (!validation.isValid) {
-      throw Exception(validation.touristMessage);
+      throw Exception('Unable to use this image. Please choose another photo.');
     }
-    if (validation.duplicateDetected) {
-      throw Exception(
-        'This image appears to have been used previously. Please provide a current photo.',
-      );
-    }
+
+    final sanitizedLevel = switch (validation.validationLevel) {
+      EvidenceValidationLevel.strong => EvidenceValidationLevel.strong,
+      EvidenceValidationLevel.good => EvidenceValidationLevel.good,
+      EvidenceValidationLevel.lowQuality => EvidenceValidationLevel.lowQuality,
+      _ => EvidenceValidationLevel.acceptable,
+    };
+    final sanitizedValidation = EvidenceValidationResult(
+      isValid: true,
+      qualityScore: validation.qualityScore,
+      sharpnessScore: validation.sharpnessScore,
+      brightnessScore: validation.brightnessScore,
+      resolutionScore: validation.resolutionScore,
+      duplicateDetected: false,
+      evidenceSource: evidenceSource,
+      semanticValidationAvailable: false,
+      validationLevel: sanitizedLevel,
+      warnings: validation.warnings,
+      overallEvidenceScore: validation.overallEvidenceScore > 0
+          ? validation.overallEvidenceScore
+          : validation.qualityScore.clamp(0.1, 1.0),
+      sha256Fingerprint: validation.sha256Fingerprint,
+      perceptualHash: validation.perceptualHash,
+      exposureStatus: validation.exposureStatus,
+      width: validation.width,
+      height: validation.height,
+      fileFormat: validation.fileFormat,
+      semanticRelevanceScore: validation.semanticRelevanceScore,
+      sceneMatchScore: validation.sceneMatchScore,
+    );
 
     final compressedBytes = await compute(compressHazardEvidence, imageBytes);
     final doc = _collection.doc();
@@ -197,7 +229,7 @@ class HazardReportService {
         latitude: latitude,
         longitude: longitude,
         hasPhotoEvidence: true,
-        evidenceValidation: validation,
+        evidenceValidation: sanitizedValidation,
       ),
     );
     batch.set(evidenceRef, {
@@ -206,10 +238,10 @@ class HazardReportService {
       'imageBytes': Blob(compressedBytes),
       'contentType': 'image/jpeg',
       'byteLength': compressedBytes.lengthInBytes,
-      'sourceSha256': validation.sha256Fingerprint,
-      'perceptualHash': validation.perceptualHash,
-      'validationLevel': validation.validationLevel,
-      'evidenceSource': validation.evidenceSource,
+      'sourceSha256': sanitizedValidation.sha256Fingerprint,
+      'perceptualHash': sanitizedValidation.perceptualHash,
+      'validationLevel': sanitizedValidation.validationLevel,
+      'evidenceSource': sanitizedValidation.evidenceSource,
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();

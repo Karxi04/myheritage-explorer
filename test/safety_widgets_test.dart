@@ -195,7 +195,7 @@ void main() {
         EvidencePickerCard(
           imageBytes: Uint8List.fromList([1, 2, 3]),
           validation: null,
-          checkError: 'The photo could not be checked.',
+          checkError: 'Unable to use this image. Please choose another photo.',
           validating: false,
           onRetry: () {},
           onCamera: () {},
@@ -205,9 +205,71 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Photo preview unavailable'), findsOneWidget);
+    expect(
+      find.text('Unable to use this image. Please choose another photo.'),
+      findsOneWidget,
+    );
     expect(find.text('Retry Photo Check'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'evidence picker displays human-readable source badges and non-blocking tourist actions',
+    (tester) async {
+      var cameraCount = 0;
+      var galleryCount = 0;
+      var removeCount = 0;
+
+      // 1. Camera captured photo
+      await tester.pumpWidget(
+        page(
+          EvidencePickerCard(
+            imageBytes: photo,
+            validation: null,
+            validating: false,
+            evidenceSource: EvidenceSource.camera,
+            onCamera: () => cameraCount++,
+            onGallery: () => galleryCount++,
+            onRemove: () => removeCount++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Captured in App'), findsOneWidget);
+      expect(find.text('Selected from Gallery'), findsNothing);
+      expect(find.text('Checking photo quality…'), findsNothing);
+      expect(find.textContaining('blurry'), findsNothing);
+
+      await tester.ensureVisible(find.text('Retake Photo'));
+      await tester.tap(find.text('Retake Photo'));
+      expect(cameraCount, 1);
+
+      await tester.ensureVisible(find.text('Choose from Gallery'));
+      await tester.tap(find.text('Choose from Gallery'));
+      expect(galleryCount, 1);
+
+      await tester.ensureVisible(find.text('Remove'));
+      await tester.tap(find.text('Remove'));
+      expect(removeCount, 1);
+
+      // 2. Gallery selected photo
+      await tester.pumpWidget(
+        page(
+          EvidencePickerCard(
+            imageBytes: photo,
+            validation: null,
+            validating: false,
+            evidenceSource: EvidenceSource.gallery,
+            onCamera: () => cameraCount++,
+            onGallery: () => galleryCount++,
+            onRemove: () => removeCount++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Selected from Gallery'), findsOneWidget);
+      expect(find.text('Captured in App'), findsNothing);
+    },
+  );
   testWidgets('error state exposes a working retry', (tester) async {
     var retries = 0;
     await tester.pumpWidget(

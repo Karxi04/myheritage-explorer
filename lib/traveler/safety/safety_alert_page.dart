@@ -107,6 +107,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
         _evidenceSource = source == ImageSource.camera
             ? EvidenceSource.camera
             : EvidenceSource.gallery;
+        _photoCheckError = null;
       });
       await _checkPhoto();
     } catch (error, stack) {
@@ -136,11 +137,27 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
         imageBytes: bytes,
         evidenceSource: _evidenceSource,
       );
-      if (mounted) setState(() => _photoValidation = validation);
+      if (mounted) {
+        if (!validation.isValid) {
+          setState(() {
+            _photoValidation = validation;
+            _photoCheckError =
+                'Unable to use this image. Please choose another photo.';
+          });
+        } else {
+          setState(() {
+            _photoValidation = validation;
+            _photoCheckError = null;
+          });
+        }
+      }
     } catch (error, stack) {
       debugPrint('Vote evidence check failed: $error\n$stack');
       if (mounted) {
-        setState(() => _photoCheckError = friendlyEvidenceCheckError(error));
+        setState(() {
+          _photoCheckError =
+              'Unable to use this image. Please choose another photo.';
+        });
       }
     } finally {
       if (mounted) setState(() => _validatingPhoto = false);
@@ -165,14 +182,8 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
 
   Future<void> _submitVote(String voteType) async {
     if (voting || _locating || _pickingPhoto || _validatingPhoto) return;
-    if (_photoBytes != null && _photoValidation?.canSubmit != true) {
-      showMessage(
-        context,
-        _photoCheckError ??
-            _photoValidation?.touristMessage ??
-            'Wait for the evidence quality check to finish.',
-        error: true,
-      );
+    if (_photoBytes != null && _photoCheckError != null) {
+      showMessage(context, _photoCheckError!, error: true);
       return;
     }
     setState(() => voting = true);
@@ -438,6 +449,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                               validating: _validatingPhoto,
                               checkError: _photoCheckError,
                               onRetry: _checkPhoto,
+                              evidenceSource: _evidenceSource,
                               onCamera: _takePhoto,
                               onGallery: () => _takePhoto(ImageSource.gallery),
                               enabled: !voting && !_pickingPhoto,
@@ -485,8 +497,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                                               userHasVoted ||
                                               _validatingPhoto ||
                                               (_photoBytes != null &&
-                                                  _photoValidation?.canSubmit !=
-                                                      true) ||
+                                                  _photoCheckError != null) ||
                                               _validatedDistance == null ||
                                               _validatedDistance! >
                                                   SafetyConfig
@@ -512,8 +523,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                                               userHasVoted ||
                                               _validatingPhoto ||
                                               (_photoBytes != null &&
-                                                  _photoValidation?.canSubmit !=
-                                                      true) ||
+                                                  _photoCheckError != null) ||
                                               _validatedDistance == null ||
                                               _validatedDistance! >
                                                   SafetyConfig
