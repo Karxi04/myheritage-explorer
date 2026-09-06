@@ -200,3 +200,13 @@ class HazardReport {
     };
   }
 }
+
+class HazardDuplicateCandidate {
+  const HazardDuplicateCandidate({
+    required this.report,
+    required this.distanceMeters,
+  });
+
+  final HazardReport report;
+  final double distanceMeters;
+}

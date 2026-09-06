@@ -8,14 +8,20 @@ import '../core/safety_config.dart';
 import '../models/evidence_validation_result.dart';
 import '../models/hazard_report.dart';
 import 'evidence_image_validation_service.dart';
+import 'location_service.dart';
 
 class HazardReportService {
-  HazardReportService({FirebaseFirestore? firestore, FirebaseAuth? auth})
-    : _db = firestore ?? AppServices.db,
-      _auth = auth ?? AppServices.auth;
+  HazardReportService({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    LocationService? locationService,
+  }) : _db = firestore ?? AppServices.db,
+       _auth = auth ?? AppServices.auth,
+       _locationService = locationService ?? const LocationService();
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
+  final LocationService _locationService;
 
   static const collectionName = 'hazard_reports';
   static const evidenceCollectionName = 'evidence';
@@ -83,6 +89,93 @@ class HazardReportService {
           final value = snapshot.data()?['imageBytes'];
           return value is Blob ? value.bytes : null;
         });
+  }
+
+  Future<List<HazardDuplicateCandidate>> findDuplicateCandidates({
+    required String category,
+    required double latitude,
+    required double longitude,
+    double radiusMeters = SafetyConfig.duplicateHazardRadiusMeters,
+    Duration lookback = SafetyConfig.duplicateHazardLookback,
+  }) async {
+    if (!SafetyConfig.validCoordinates(latitude, longitude)) {
+      return const [];
+    }
+
+    final now = DateTime.now();
+    final docsMap = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+
+    // 1. Fetch active Verified reports in this category.
+    final verifiedSnapshots = await _collection
+        .where('status', isEqualTo: HazardReportStatus.verified)
+        .where('category', isEqualTo: category)
+        .get();
+    for (final doc in verifiedSnapshots.docs) {
+      docsMap[doc.id] = doc;
+    }
+
+    // 2. Also fetch the current user's own Pending Review reports in this category.
+    final uid = _uid;
+    if (uid != null) {
+      try {
+        final pendingSnapshots = await _collection
+            .where('userId', isEqualTo: uid)
+            .where('status', isEqualTo: HazardReportStatus.pendingReview)
+            .where('category', isEqualTo: category)
+            .get();
+        for (final doc in pendingSnapshots.docs) {
+          docsMap[doc.id] = doc;
+        }
+      } catch (e) {
+        // Fallback gracefully if own pending reports query fails
+        debugPrint('Pending reports check warning: $e');
+      }
+    }
+
+    final candidates = <HazardDuplicateCandidate>[];
+
+    for (final doc in docsMap.values) {
+      final report = HazardReport.fromDoc(doc);
+      if (!report.hasValidLocation) continue;
+      if (report.category != category) continue;
+      if (report.status != HazardReportStatus.verified &&
+          report.status != HazardReportStatus.pendingReview) {
+        continue;
+      }
+
+      // Check recency lookback
+      if (report.createdAt != null) {
+        final age = now.difference(report.createdAt!);
+        if (age > lookback) continue;
+      }
+
+      final distance = _locationService.distanceBetween(
+        startLatitude: latitude,
+        startLongitude: longitude,
+        endLatitude: report.latitude,
+        endLongitude: report.longitude,
+      );
+
+      if (distance <= radiusMeters) {
+        candidates.add(
+          HazardDuplicateCandidate(
+            report: report,
+            distanceMeters: distance,
+          ),
+        );
+      }
+    }
+
+    // Sort by nearest distance first, then newer report first
+    candidates.sort((a, b) {
+      final distDiff = a.distanceMeters.compareTo(b.distanceMeters);
+      if (distDiff != 0) return distDiff;
+      final timeA = a.report.createdAt ?? DateTime(2000);
+      final timeB = b.report.createdAt ?? DateTime(2000);
+      return timeB.compareTo(timeA);
+    });
+
+    return candidates;
   }
 
   Future<EvidenceValidationResult> validateEvidence({

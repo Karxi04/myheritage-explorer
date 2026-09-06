@@ -64,10 +64,110 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
     }
 
     setState(() => busy = true);
+
+    final Position position;
     try {
-      final position = await _locationService.getCurrentPosition();
+      final currentPos = await _locationService.getCurrentPosition();
       if (!mounted) return;
-      _capturedPosition = position;
+      _capturedPosition = currentPos;
+      position = currentPos;
+    } catch (e) {
+      if (mounted) {
+        setState(() => busy = false);
+        showMessage(
+          context,
+          friendlySafetyActionError(
+            e,
+            fallback:
+                'Location could not be captured. Check location access and retry.',
+          ),
+          error: true,
+        );
+      }
+      return;
+    }
+
+    List<HazardDuplicateCandidate> duplicates = const [];
+    try {
+      duplicates = await _reportService.findDuplicateCandidates(
+        category: category,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+    } catch (e, stack) {
+      debugPrint('Duplicate hazard check failed: $e\n$stack');
+      if (mounted) {
+        setState(() => busy = false);
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unable to Check for Nearby Hazards'),
+            content: const Text(
+              'A network error occurred while checking for existing reports. '
+              'Would you like to try checking again, or continue submitting your report?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Try Again'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Continue Submission'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (proceed == null) {
+          return;
+        } else if (proceed == false) {
+          submit();
+          return;
+        } else {
+          await _createReportFinal(position);
+          return;
+        }
+      }
+      return;
+    }
+
+    if (duplicates.isNotEmpty) {
+      if (!mounted) return;
+      setState(() => busy = false);
+      final action = await showDuplicateHazardWarning(
+        context: context,
+        candidates: duplicates,
+        onViewExisting: (report) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => HazardDetailPage(
+                hazardId: report.id,
+                reportService: _reportService,
+              ),
+            ),
+          );
+        },
+      );
+
+      if (!mounted) return;
+      if (action == DuplicateWarningAction.submitAnyway) {
+        await _createReportFinal(position);
+      }
+      return;
+    }
+
+    await _createReportFinal(position);
+  }
+
+  Future<void> _createReportFinal(Position position) async {
+    setState(() => busy = true);
+    try {
       await _reportService.createReport(
         category: category,
         severity: severity,

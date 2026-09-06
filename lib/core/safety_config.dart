@@ -23,6 +23,12 @@ abstract final class SafetyConfig {
   static const double strongProximityMeters = 100;
   static const double normalProximityMeters = 300;
 
+  /// Search radius for detecting possible duplicate hazards of the same category.
+  static const double duplicateHazardRadiusMeters = 100;
+
+  /// Lookback window for considering an existing report a duplicate candidate.
+  static const Duration duplicateHazardLookback = Duration(days: 14);
+
   static const Duration recencyFullWeight = Duration(minutes: 15);
   static const Duration recencyHighWeight = Duration(minutes: 30);
   static const Duration recencyMediumWeight = Duration(minutes: 60);

@@ -37,6 +37,7 @@ import '../services/notification_service.dart';
 import '../widgets/hazard_evidence_image.dart';
 import '../widgets/evidence_picker_card.dart';
 import '../widgets/safety_loading_state.dart';
+import '../widgets/duplicate_hazard_warning_sheet.dart';
 
 part 'home/traveler_home_page.dart';
 part 'daily_planner/daily_planner_page.dart';
