@@ -8,30 +8,68 @@ import 'core/app_theme.dart';
 import 'core/push_notification_service.dart';
 import 'firebase_options.dart';
 import 'shared/shared_itinerary_page.dart';
+import 'traveler/traveler_pages.dart';
+
+final GlobalKey<NavigatorState> navigatorKey =
+GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options:
+    DefaultFirebaseOptions.currentPlatform,
   );
 
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.debug,
-      appleProvider: AppleProvider.debug,
+      androidProvider:
+      AndroidProvider.debug,
+      appleProvider:
+      AppleProvider.debug,
     );
 
-    // ============================================================
-    // REGISTER PHONE FOR PUSH NOTIFICATIONS
-    // ============================================================
+    await PushNotificationService.initialize(
+      onNotificationTap:
+          (
+          Map<String, dynamic> data,
+          ) {
+        WidgetsBinding.instance
+            .addPostFrameCallback(
+              (_) {
+            final navigator =
+                navigatorKey.currentState;
 
-    await PushNotificationService.initialize();
+            if (navigator == null) {
+              return;
+            }
+
+            navigator.push(
+              MaterialPageRoute(
+                builder:
+                    (_) =>
+                const NotificationsPage(),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   runApp(
     const MyHeritageApp(),
   );
+
+  if (!kIsWeb) {
+    WidgetsBinding.instance
+        .addPostFrameCallback(
+          (_) async {
+        await PushNotificationService
+            .handlePendingInitialNotification();
+      },
+    );
+  }
 }
 
 class MyHeritageApp extends StatelessWidget {
@@ -42,10 +80,20 @@ class MyHeritageApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'MyHeritage Explorer',
-      theme: AppTheme.light,
-      home: const _AppEntry(),
+      navigatorKey:
+      navigatorKey,
+
+      debugShowCheckedModeBanner:
+      false,
+
+      title:
+      'MyHeritage Explorer',
+
+      theme:
+      AppTheme.light,
+
+      home:
+      const _AppEntry(),
     );
   }
 }
@@ -56,7 +104,9 @@ class _AppEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shareId =
-    Uri.base.queryParameters['share']?.trim();
+    Uri.base
+        .queryParameters['share']
+        ?.trim();
 
     final encodedItinerary =
     Uri.base
@@ -66,7 +116,8 @@ class _AppEntry extends StatelessWidget {
     if (shareId != null &&
         shareId.isNotEmpty) {
       return SharedItineraryPage(
-        shareId: shareId,
+        shareId:
+        shareId,
       );
     }
 
