@@ -674,24 +674,6 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                                   style: const TextStyle(fontWeight: FontWeight.w700),
                                 ),
                               ),
-                              if (scheduledStops.isNotEmpty)
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2E7D32),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  onPressed: () => ItineraryShareHelper.openMultiStopNavigation(
-                                    context,
-                                    scheduledStops,
-                                  ),
-                                  icon: const Icon(Icons.directions_outlined, size: 18),
-                                  label: const Text(
-                                    'Navigate Route',
-                                    style: TextStyle(fontWeight: FontWeight.w700),
-                                  ),
-                                ),
                               if (kIsWeb &&
                                   '${widget.itinerary['shareId'] ?? ''}'
                                       .trim()
@@ -709,20 +691,6 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                                   ),
                                   label: const Text('Open in App'),
                                 ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                onPressed: () => ItineraryShareHelper.exportAndShareItinerary(
-                                  context,
-                                  itinerary: widget.itinerary,
-                                  schedule: schedule,
-                                ),
-                                icon: const Icon(Icons.file_download_outlined, size: 18),
-                                label: const Text('Export / Copy'),
-                              ),
                               OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   shape: RoundedRectangleBorder(
