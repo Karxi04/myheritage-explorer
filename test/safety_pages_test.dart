@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:myheritage_explorer/core/app_theme.dart';
 import 'package:myheritage_explorer/models/hazard_report.dart';
+import 'package:myheritage_explorer/models/hazard_audit_entry.dart';
 import 'package:myheritage_explorer/models/hazard_vote.dart';
 import 'package:myheritage_explorer/services/hazard_report_service.dart';
 import 'package:myheritage_explorer/services/hazard_vote_service.dart';
@@ -24,6 +25,9 @@ class Reports implements HazardReportService {
   final HazardReport? report;
   @override
   Stream<HazardReport?> watchReport(String id) => Stream.value(report);
+  @override
+  Stream<List<HazardAuditEntry>> watchAuditTrail(String id) =>
+      Stream.value(const []);
   @override
   Future<HazardReport?> getReport(String id) async => report;
   @override

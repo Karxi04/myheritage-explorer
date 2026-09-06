@@ -1691,3 +1691,335 @@ class _VoteEvidenceImage extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// SECTION 8: Administrative History Card & Timeline
+// ---------------------------------------------------------------------------
+
+class _AdministrativeHistoryCard extends StatelessWidget {
+  const _AdministrativeHistoryCard({
+    required this.report,
+    required this.auditTrailStream,
+  });
+
+  final HazardReport report;
+  final Stream<List<HazardAuditEntry>> auditTrailStream;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ExplorerSectionTitle(
+            'Administrative History',
+            subtitle:
+                'Chronological audit record of administrative review and lifecycle actions.',
+          ),
+          const SizedBox(height: 16),
+          StreamBuilder<List<HazardAuditEntry>>(
+            stream: auditTrailStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(
+                  'Unable to load administrative history: ${snapshot.error}',
+                  style: const TextStyle(
+                    color: ExplorerColors.danger,
+                    fontSize: 12,
+                  ),
+                );
+              }
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+
+              final entries = _synthesizeTimeline(
+                report,
+                snapshot.data ?? const <HazardAuditEntry>[],
+              );
+
+              if (entries.isEmpty) {
+                return const Text(
+                  'No administrative history recorded.',
+                  style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+                );
+              }
+
+              return Column(
+                children: [
+                  for (int i = 0; i < entries.length; i++)
+                    _TimelineEventRow(
+                      entry: entries[i],
+                      isLast: i == entries.length - 1,
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  static List<HazardAuditEntry> _synthesizeTimeline(
+    HazardReport report,
+    List<HazardAuditEntry> liveEntries,
+  ) {
+    final results = <HazardAuditEntry>[];
+
+    // 1. Initial submission event derived from report.createdAt
+    results.add(
+      HazardAuditEntry(
+        id: 'initial_submission',
+        action: HazardAuditAction.reportSubmitted,
+        previousStatus: null,
+        newStatus: HazardReportStatus.pendingReview,
+        performedBy: null, // Never expose tourist UID
+        performedByName: 'Reporter',
+        performedAt: report.createdAt,
+        note: 'Hazard report submitted',
+      ),
+    );
+
+    if (liveEntries.isNotEmpty) {
+      for (final e in liveEntries) {
+        if (e.action == HazardAuditAction.reportSubmitted) {
+          results[0] = e;
+        } else {
+          results.add(e);
+        }
+      }
+    } else {
+      // Legacy fallback: derive events from report.statusHistory
+      for (int i = 0; i < report.statusHistory.length; i++) {
+        final item = report.statusHistory[i];
+        final action = switch (item.status) {
+          HazardReportStatus.verified => HazardAuditAction.verified,
+          HazardReportStatus.rejected => HazardAuditAction.rejected,
+          HazardReportStatus.resolved => HazardAuditAction.markedResolved,
+          _ => null,
+        };
+        if (action != null) {
+          results.add(
+            HazardAuditEntry(
+              id: 'legacy_$i',
+              action: action,
+              previousStatus: i > 0
+                  ? report.statusHistory[i - 1].status
+                  : HazardReportStatus.pendingReview,
+              newStatus: item.status,
+              performedBy: null, // Never display raw UID
+              performedByName: null, // Falls back to 'Administrator'
+              performedAt: item.changedAt,
+              note: item.note,
+            ),
+          );
+        }
+      }
+    }
+
+    results.sort((a, b) {
+      final aTime = a.performedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.performedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return aTime.compareTo(bTime);
+    });
+
+    return results;
+  }
+}
+
+class _TimelineEventRow extends StatelessWidget {
+  const _TimelineEventRow({required this.entry, required this.isLast});
+
+  final HazardAuditEntry entry;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, iconColor, bgColor, tone) = switch (entry.action) {
+      HazardAuditAction.reportSubmitted => (
+        Icons.send_rounded,
+        ExplorerColors.navy,
+        ExplorerColors.subtle,
+        ExplorerStatusTone.navy,
+      ),
+      HazardAuditAction.verified => (
+        Icons.verified_outlined,
+        ExplorerColors.success,
+        ExplorerColors.successSoft,
+        ExplorerStatusTone.success,
+      ),
+      HazardAuditAction.reviewedKeepVerified => (
+        Icons.fact_check_outlined,
+        ExplorerColors.navy,
+        ExplorerColors.subtle,
+        ExplorerStatusTone.navy,
+      ),
+      HazardAuditAction.markedResolved => (
+        Icons.task_alt,
+        ExplorerColors.success,
+        ExplorerColors.successSoft,
+        ExplorerStatusTone.success,
+      ),
+      HazardAuditAction.rejected => (
+        Icons.cancel_outlined,
+        ExplorerColors.danger,
+        ExplorerColors.dangerSoft,
+        ExplorerStatusTone.danger,
+      ),
+      _ => (
+        Icons.history,
+        ExplorerColors.muted,
+        ExplorerColors.subtle,
+        ExplorerStatusTone.neutral,
+      ),
+    };
+
+    final title = switch (entry.action) {
+      HazardAuditAction.reportSubmitted => 'Hazard Submitted',
+      HazardAuditAction.verified => 'Verified',
+      HazardAuditAction.reviewedKeepVerified => 'Reviewed — Kept Verified',
+      HazardAuditAction.markedResolved => 'Marked Resolved',
+      HazardAuditAction.rejected => 'Rejected',
+      _ => entry.humanAction,
+    };
+
+    final attribution = switch (entry.action) {
+      HazardAuditAction.reportSubmitted => 'Submitted by Reporter',
+      _ => () {
+        final name = (entry.performedByName ?? '').trim();
+        final display = name.isNotEmpty ? name : 'Administrator';
+        return '${entry.humanAction} by $display';
+      }(),
+    };
+
+    final formattedTime = entry.performedAt != null
+        ? DateFormat.yMMMd().add_jm().format(entry.performedAt!)
+        : 'Date unavailable';
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Timeline node + connector line
+        Column(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: bgColor,
+                shape: BoxShape.circle,
+                border: Border.all(color: iconColor.withAlpha(80), width: 1.5),
+              ),
+              child: Center(child: Icon(icon, size: 13, color: iconColor)),
+            ),
+            if (!isLast)
+              Container(width: 2, height: 48, color: ExplorerColors.border),
+          ],
+        ),
+        const SizedBox(width: 12),
+        // Event content
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    ExplorerStatusBadge(label: title.toUpperCase(), tone: tone),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      attribution,
+                      style: const TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Text(
+                      '•',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                    Text(
+                      formattedTime,
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                if (entry.previousStatus != null &&
+                    entry.newStatus != null &&
+                    entry.previousStatus != entry.newStatus) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Transition: ${entry.previousStatus} → ${entry.newStatus}',
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 10,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+                if ((entry.note ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ExplorerColors.subtle,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: ExplorerColors.border),
+                    ),
+                    child: Text(
+                      entry.note!.trim(),
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 11,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}

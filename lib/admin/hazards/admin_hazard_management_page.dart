@@ -7,10 +7,14 @@ class AdminHazardManagementPage extends StatefulWidget {
     this.reportService,
     this.voteService,
     this.reporterLoader,
+    this.currentAdminId,
+    this.currentAdminName,
   });
   final HazardReportService? reportService;
   final HazardVoteService? voteService;
   final Future<Map<String, dynamic>?> Function(String)? reporterLoader;
+  final String? currentAdminId;
+  final String? currentAdminName;
 
   final String hazardId;
 
@@ -27,6 +31,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   bool _confirming = false;
   late Stream<HazardReport?> _reportStream;
   late Stream<List<HazardVote>> _voteStream;
+  late Stream<List<HazardAuditEntry>> _auditTrailStream;
   final Map<String, Future<Map<String, dynamic>?>> _reporters = {};
   Timer? _clock;
 
@@ -35,6 +40,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
     super.initState();
     _reportStream = _reportService.watchReport(widget.hazardId);
     _voteStream = _voteService.watchVotes(widget.hazardId);
+    _auditTrailStream = _reportService.watchAuditTrail(widget.hazardId);
     _clock = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
@@ -85,11 +91,14 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
     _confirming = false;
     if (confirmed != true || !mounted || _busy) return;
 
-    final adminId = AppServices.auth.currentUser?.uid;
+    final currentUser = AppServices.auth.currentUser;
+    final adminId = widget.currentAdminId ?? currentUser?.uid;
     if (adminId == null) {
       showMessage(context, 'Administrator sign-in is required.', error: true);
       return;
     }
+    final adminName =
+        widget.currentAdminName ?? currentUser?.displayName ?? 'Administrator';
 
     setState(() => _busy = true);
     try {
@@ -97,6 +106,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
         report: report,
         status: status,
         adminId: adminId,
+        adminName: adminName,
         note: '$action by administrator',
       );
       if (!mounted) return;
@@ -114,6 +124,67 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
             error,
             fallback:
                 'This report may already have been processed. Refresh it and try again.',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _handleKeepVerified(HazardReport report) async {
+    if (_busy || _confirming) return;
+    _confirming = true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Keep hazard verified?'),
+        content: const Text(
+          'This will record an administrative review log confirming this hazard remains active. The report will remain published.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm Review'),
+          ),
+        ],
+      ),
+    );
+    _confirming = false;
+    if (confirmed != true || !mounted || _busy) return;
+
+    final currentUser = AppServices.auth.currentUser;
+    final adminId = widget.currentAdminId ?? currentUser?.uid;
+    if (adminId == null) {
+      showMessage(context, 'Administrator sign-in is required.', error: true);
+      return;
+    }
+    final adminName =
+        widget.currentAdminName ?? currentUser?.displayName ?? 'Administrator';
+
+    setState(() => _busy = true);
+    try {
+      await _reportService.keepVerified(
+        report: report,
+        adminId: adminId,
+        adminName: adminName,
+        note: 'Reviewed and kept verified by administrator',
+      );
+      if (!mounted) return;
+      showMessage(context, 'Review recorded: Hazard kept verified.');
+    } catch (error, stack) {
+      debugPrint('Admin keep verified failed: $error\n$stack');
+      if (mounted) {
+        showMessage(
+          context,
+          friendlySafetyActionError(
+            error,
+            fallback: 'Failed to record review. Refresh it and try again.',
           ),
           error: true,
         );
@@ -151,10 +222,12 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                 reportSnapshot.error,
                 subject: 'this hazard report',
               ),
-              onRetry: () => setState(
-                () =>
-                    _reportStream = _reportService.watchReport(widget.hazardId),
-              ),
+              onRetry: () => setState(() {
+                _reportStream = _reportService.watchReport(widget.hazardId);
+                _auditTrailStream = _reportService.watchAuditTrail(
+                  widget.hazardId,
+                );
+              }),
             );
           }
           if (reportSnapshot.connectionState == ConnectionState.waiting &&
@@ -247,6 +320,13 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                                   ),
                                 ],
 
+                                const SizedBox(height: 16),
+                                // 7. Administrative History (Audit Trail)
+                                _AdministrativeHistoryCard(
+                                  report: report,
+                                  auditTrailStream: _auditTrailStream,
+                                ),
+
                                 // Bottom padding to clear sticky bar
                                 const SizedBox(height: 24),
                               ],
@@ -257,11 +337,12 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                     ),
                   ),
 
-                  // 7. Administrator Decision Area (Sticky action bar)
+                  // 8. Administrator Decision Area (Sticky action bar)
                   _StickyActionBar(
                     report: report,
                     busy: _busy,
                     onChangeStatus: _changeStatus,
+                    onKeepVerified: () => _handleKeepVerified(report),
                     onClose: () => Navigator.pop(context),
                   ),
                 ],
@@ -470,12 +551,14 @@ class _StickyActionBar extends StatelessWidget {
     required this.report,
     required this.busy,
     required this.onChangeStatus,
+    required this.onKeepVerified,
     required this.onClose,
   });
 
   final HazardReport report;
   final bool busy;
   final Future<void> Function(HazardReport, String) onChangeStatus;
+  final VoidCallback onKeepVerified;
   final VoidCallback onClose;
 
   @override
@@ -552,7 +635,7 @@ class _StickyActionBar extends StatelessWidget {
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: busy ? null : onClose,
+              onPressed: busy ? null : onKeepVerified,
               child: const Text('Keep Verified'),
             ),
           ),

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:myheritage_explorer/admin/admin_pages.dart';
 import 'package:myheritage_explorer/core/app_theme.dart';
 import 'package:myheritage_explorer/models/evidence_validation_result.dart';
+import 'package:myheritage_explorer/models/hazard_audit_entry.dart';
 import 'package:myheritage_explorer/models/hazard_report.dart';
 import 'package:myheritage_explorer/models/hazard_vote.dart';
 import 'package:myheritage_explorer/models/server_confidence_summary.dart';
@@ -20,6 +21,10 @@ class _MockReportService implements HazardReportService {
 
   @override
   Stream<HazardReport?> watchReport(String id) => Stream.value(report);
+
+  @override
+  Stream<List<HazardAuditEntry>> watchAuditTrail(String id) =>
+      Stream.value(const []);
 
   @override
   Future<HazardReport?> getReport(String id) async => report;

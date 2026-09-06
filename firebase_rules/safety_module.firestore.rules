@@ -163,9 +163,29 @@ service cloud.firestore {
             && request.resource.data.status in ['Verified', 'Rejected'])
           || (resource.data.status == 'Verified'
             && request.resource.data.status == 'Resolved')
+          || (resource.data.status == 'Verified'
+            && request.resource.data.status == 'Verified')
         );
 
       allow delete: if false;
+
+      match /audit_logs/{auditId} {
+        allow read: if isAdmin();
+
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'action', 'previousStatus', 'newStatus', 'performedBy',
+            'performedByName', 'performedAt', 'note'
+          ])
+          && request.resource.data.performedBy == request.auth.uid
+          && request.resource.data.performedAt == request.time
+          && request.resource.data.action in [
+            'REPORT_SUBMITTED', 'VERIFIED', 'REJECTED',
+            'REVIEWED_KEEP_VERIFIED', 'MARKED_RESOLVED'
+          ];
+
+        allow update, delete: if false;
+      }
 
       match /evidence/{evidenceId} {
         allow read: if canReadHazard(hazardId);

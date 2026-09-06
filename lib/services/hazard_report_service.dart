@@ -6,6 +6,7 @@ import 'package:image/image.dart' as image_lib;
 import '../core/services.dart';
 import '../core/safety_config.dart';
 import '../models/evidence_validation_result.dart';
+import '../models/hazard_audit_entry.dart';
 import '../models/hazard_report.dart';
 import 'evidence_image_validation_service.dart';
 import 'location_service.dart';
@@ -26,6 +27,7 @@ class HazardReportService {
   static const collectionName = 'hazard_reports';
   static const evidenceCollectionName = 'evidence';
   static const evidenceDocumentName = 'photo';
+  static const auditCollectionName = 'audit_logs';
   static const maxEvidenceBytes = 400 * 1024;
   static const _validationService = EvidenceImageValidationService();
 
@@ -33,6 +35,17 @@ class HazardReportService {
       _db.collection(collectionName);
 
   String? get _uid => _auth.currentUser?.uid;
+
+  Stream<List<HazardAuditEntry>> watchAuditTrail(String hazardId) {
+    return _collection
+        .doc(hazardId)
+        .collection(auditCollectionName)
+        .orderBy('performedAt', descending: false)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs.map(HazardAuditEntry.fromDoc).toList(),
+        );
+  }
 
   Stream<List<HazardReport>> watchVerifiedReports() {
     return _collection
@@ -158,10 +171,7 @@ class HazardReportService {
 
       if (distance <= radiusMeters) {
         candidates.add(
-          HazardDuplicateCandidate(
-            report: report,
-            distanceMeters: distance,
-          ),
+          HazardDuplicateCandidate(report: report, distanceMeters: distance),
         );
       }
     }
@@ -346,6 +356,7 @@ class HazardReportService {
     required HazardReport report,
     required String status,
     required String adminId,
+    String? adminName,
     required String note,
   }) async {
     if (_uid == null || _uid != adminId) {
@@ -357,6 +368,14 @@ class HazardReportService {
 
     final reportRef = _collection.doc(report.id);
     final notificationRef = _db.collection('notifications').doc();
+    final auditRef = reportRef.collection(auditCollectionName).doc();
+
+    final auditAction = switch (status) {
+      HazardReportStatus.verified => HazardAuditAction.verified,
+      HazardReportStatus.rejected => HazardAuditAction.rejected,
+      HazardReportStatus.resolved => HazardAuditAction.markedResolved,
+      _ => status,
+    };
 
     await _db.runTransaction((transaction) async {
       final currentSnapshot = await transaction.get(reportRef);
@@ -387,6 +406,17 @@ class HazardReportService {
         ]),
       });
 
+      transaction.set(auditRef, {
+        'action': auditAction,
+        'previousStatus': current.status,
+        'newStatus': status,
+        'performedBy': adminId,
+        if (adminName != null && adminName.isNotEmpty)
+          'performedByName': adminName,
+        'performedAt': FieldValue.serverTimestamp(),
+        'note': note,
+      });
+
       transaction.set(notificationRef, {
         'notificationId': notificationRef.id,
         'userId': current.userId,
@@ -398,6 +428,52 @@ class HazardReportService {
         'isRead': false,
         'read': false,
         'createdAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  Future<void> keepVerified({
+    required HazardReport report,
+    required String adminId,
+    String? adminName,
+    required String note,
+  }) async {
+    if (_uid == null || _uid != adminId) {
+      throw FirebaseAuthException(code: 'unauthenticated');
+    }
+    if (report.status != HazardReportStatus.verified) {
+      throw ArgumentError('Only verified hazards can be kept verified.');
+    }
+
+    final reportRef = _collection.doc(report.id);
+    final auditRef = reportRef.collection(auditCollectionName).doc();
+
+    await _db.runTransaction((transaction) async {
+      final currentSnapshot = await transaction.get(reportRef);
+      if (!currentSnapshot.exists) {
+        throw Exception('This hazard report no longer exists.');
+      }
+
+      final current = HazardReport.fromDoc(currentSnapshot);
+      if (current.status != HazardReportStatus.verified) {
+        throw Exception('This hazard report is no longer verified.');
+      }
+
+      transaction.update(reportRef, {
+        'reviewedBy': adminId,
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      transaction.set(auditRef, {
+        'action': HazardAuditAction.reviewedKeepVerified,
+        'previousStatus': HazardReportStatus.verified,
+        'newStatus': HazardReportStatus.verified,
+        'performedBy': adminId,
+        if (adminName != null && adminName.isNotEmpty)
+          'performedByName': adminName,
+        'performedAt': FieldValue.serverTimestamp(),
+        'note': note,
       });
     });
   }

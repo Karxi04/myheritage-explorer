@@ -379,3 +379,61 @@ test('existing AI protections and Admin lifecycle updates preserve serverConfide
   const result = await getDoc(reportRef(dbFor('admin'), 'preserve_server_summary'));
   assert.equal(result.data().serverConfidence.confidencePercent, 60);
 });
+
+test('Step 9: audit_logs subcollection security and Keep Verified lifecycle action', async () => {
+  const admin = dbFor('admin'), tourist = dbFor('owner');
+  await seedVerified('audit_hazard');
+
+  const auditLogRef = (db, hazardId, auditId) =>
+    doc(db, 'hazard_reports', hazardId, 'audit_logs', auditId);
+
+  // 1. Admin can write valid audit log entry
+  await assertSucceeds(setDoc(auditLogRef(admin, 'audit_hazard', 'log1'), {
+    action: 'REVIEWED_KEEP_VERIFIED',
+    previousStatus: 'Verified',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedByName: 'Admin Sherman',
+    performedAt: serverTimestamp(),
+    note: 'Reviewed community evidence and kept verified',
+  }));
+
+  // 2. Admin can read audit log
+  const adminReadSnap = await assertSucceeds(getDoc(auditLogRef(admin, 'audit_hazard', 'log1')));
+  assert.equal(adminReadSnap.data().action, 'REVIEWED_KEEP_VERIFIED');
+
+  // 3. Tourist CANNOT read audit log
+  await assertFails(getDoc(auditLogRef(tourist, 'audit_hazard', 'log1')));
+
+  // 4. Tourist CANNOT create audit log
+  await assertFails(setDoc(auditLogRef(tourist, 'audit_hazard', 'log2'), {
+    action: 'REVIEWED_KEEP_VERIFIED',
+    previousStatus: 'Verified',
+    newStatus: 'Verified',
+    performedBy: 'owner',
+    performedAt: serverTimestamp(),
+    note: 'Unauthorized tourist audit entry',
+  }));
+
+  // 5. Nobody can update or delete audit log
+  await assertFails(updateDoc(auditLogRef(admin, 'audit_hazard', 'log1'), {
+    note: 'Tampered note',
+  }));
+
+  // 6. Admin can perform Keep Verified update on hazard_report (Verified -> Verified)
+  const batch = writeBatch(admin);
+  batch.update(reportRef(admin, 'audit_hazard'), {
+    reviewedBy: 'admin',
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(auditLogRef(admin, 'audit_hazard', 'log2'), {
+    action: 'REVIEWED_KEEP_VERIFIED',
+    previousStatus: 'Verified',
+    newStatus: 'Verified',
+    performedBy: 'admin',
+    performedAt: serverTimestamp(),
+    note: 'Atomic review action',
+  });
+  await assertSucceeds(batch.commit());
+});

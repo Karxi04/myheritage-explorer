@@ -9,6 +9,7 @@ import '../core/safety_config.dart';
 import '../core/explorer_ui.dart';
 import '../core/safety_error_message.dart';
 import '../core/services.dart';
+import '../models/hazard_audit_entry.dart';
 import '../models/hazard_report.dart';
 import '../models/hazard_vote.dart';
 import '../services/confidence_analysis_service.dart';
