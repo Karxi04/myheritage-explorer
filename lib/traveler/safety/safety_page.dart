@@ -119,7 +119,9 @@ class _SafetyPageState extends State<SafetyPage> {
                 label: const Text('Report a Hazard'),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            const _AutoSafetyAlertSection(),
+            const SizedBox(height: 8),
             StreamBuilder<List<HazardReport>>(
               stream: _reports,
               builder: (context, snapshot) {
@@ -327,4 +329,181 @@ class _FullSafetyMapPageState extends State<_FullSafetyMapPage> {
       },
     ),
   );
+}
+
+class _AutoSafetyAlertSection extends StatefulWidget {
+  const _AutoSafetyAlertSection();
+
+  @override
+  State<_AutoSafetyAlertSection> createState() =>
+      _AutoSafetyAlertSectionState();
+}
+
+class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
+    with WidgetsBindingObserver {
+  static const _permissionService = BackgroundLocationPermissionService();
+  bool _hasBackgroundPermission = false;
+  bool _checked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermission();
+    }
+  }
+
+  Future<void> _checkPermission() async {
+    final granted = await _permissionService.hasBackgroundPermission();
+    if (mounted) {
+      final previouslyGranted = _hasBackgroundPermission;
+      setState(() {
+        _hasBackgroundPermission = granted;
+        _checked = true;
+      });
+      if (!previouslyGranted && granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Background hazard alerts enabled.'),
+            backgroundColor: ExplorerColors.success,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _requestUpgrade() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Background Safety Alerts'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Allow background location to receive nearby verified hazard alerts even while MyHeritage Explorer is closed.',
+              style: TextStyle(fontSize: 14, height: 1.4),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Android requires you to enable this in App Settings:\n'
+              '1. Tap "Permissions"\n'
+              '2. Tap "Location"\n'
+              '3. Select "Allow all the time"',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ExplorerColors.navy,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not Now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true || !mounted) return;
+
+    await _permissionService.openLocationSettings();
+    if (mounted) {
+      await _checkPermission();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb && defaultTargetPlatform != TargetPlatform.android) {
+      return const SizedBox.shrink();
+    }
+    if (!_checked) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: ExplorerCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _hasBackgroundPermission
+                    ? ExplorerColors.success.withValues(alpha: 0.12)
+                    : ExplorerColors.navy.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _hasBackgroundPermission
+                    ? Icons.shield_rounded
+                    : Icons.shield_outlined,
+                color: _hasBackgroundPermission
+                    ? ExplorerColors.success
+                    : ExplorerColors.navy,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Auto Safety Alerts',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _hasBackgroundPermission
+                        ? 'Active when app is closed'
+                        : 'Alerts active in foreground only',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: ExplorerColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!_hasBackgroundPermission)
+              TextButton(
+                onPressed: _requestUpgrade,
+                child: const Text('Enable'),
+              )
+            else
+              const ExplorerStatusBadge(
+                label: 'ENABLED',
+                tone: ExplorerStatusTone.success,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -116,12 +116,27 @@ class MobileNotificationService {
     );
   }
 
-  Future<void> showProximityAlert({
+  Future<bool> showProximityAlert({
     required HazardReport report,
     required double distanceMeters,
   }) async {
-    if (!_supportsMobileNotifications) return;
+    if (!_supportsMobileNotifications) return false;
     await initialize();
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final enabled = await androidPlugin?.areNotificationsEnabled();
+      if (enabled == false) {
+        debugPrint(
+          'Proximity alert skipped: notifications are disabled by user.',
+        );
+        return false;
+      }
+    }
+
     final distanceLabel = distanceMeters < 1000
         ? '${distanceMeters.round()} m'
         : '${(distanceMeters / 1000).toStringAsFixed(1)} km';
@@ -145,13 +160,19 @@ class MobileNotificationService {
       threadIdentifier: 'hazard_proximity_alerts',
     );
 
-    await _plugin.show(
-      id: _notificationId(),
-      title: 'Danger zone nearby',
-      body: body,
-      notificationDetails: NotificationDetails(android: android, iOS: darwin),
-      payload: 'review:${report.id}',
-    );
+    try {
+      await _plugin.show(
+        id: _notificationId(),
+        title: 'Danger zone nearby',
+        body: body,
+        notificationDetails: NotificationDetails(android: android, iOS: darwin),
+        payload: 'review:${report.id}',
+      );
+      return true;
+    } catch (e) {
+      debugPrint('Proximity alert notification display failed: $e');
+      return false;
+    }
   }
 
   int _notificationId() {

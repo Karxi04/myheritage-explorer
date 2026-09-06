@@ -1,8 +1,11 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:workmanager/workmanager.dart';
 import 'auth/auth_gate.dart';
 import 'core/app_theme.dart';
 import 'firebase_options.dart';
+import 'services/background_alert_worker.dart';
 import 'services/mobile_notification_service.dart';
 import 'shared/shared_itinerary_page.dart';
 
@@ -10,6 +13,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await MobileNotificationService.instance.initialize();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await Workmanager().initialize(backgroundAlertDispatcher);
+      await registerBackgroundSafetyWorker();
+    } catch (e) {
+      debugPrint('Background safety worker initialization failed: $e');
+    }
+  }
   runApp(const MyHeritageApp());
 }
 

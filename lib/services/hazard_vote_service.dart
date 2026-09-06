@@ -28,6 +28,9 @@ class HazardVoteService {
       .snapshots()
       .map((snapshot) => snapshot.docs.map(HazardVote.fromDoc).toList());
 
+  Future<List<HazardVote>> getVotes(String hazardId) async =>
+      (await _votesRef(hazardId).get()).docs.map(HazardVote.fromDoc).toList();
+
   Future<bool> hasUserVoted(String hazardId, String userId) async =>
       (await _votesRef(hazardId).doc(userId).get()).exists;
 

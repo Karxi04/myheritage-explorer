@@ -14,6 +14,7 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
   final _locationService = const LocationService();
   final _confidenceService = const ConfidenceAnalysisService();
   final _priorityService = const SafetyAlertPriorityService();
+  final _cooldownStore = const AlertCooldownStore();
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<List<HazardReport>>? _reportsSub;
   StreamSubscription<AppNotification>? _notificationSub;
@@ -33,6 +34,9 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Restore cooldown history persisted from the previous session so the
+    // hazard alert cooldown survives app restarts and process kills.
+    unawaited(_loadPersistedCooldowns());
     MobileNotificationService.instance.onHazardOpened = _openNotification;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final pending = MobileNotificationService.instance.pendingHazardPayload;
@@ -45,6 +49,7 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
         final ids = _reports.map((r) => r.id).toSet();
         _lastAlertedAt.removeWhere((id, _) => !ids.contains(id));
         _lastAlertPriority.removeWhere((id, _) => !ids.contains(id));
+        unawaited(_cooldownStore.pruneInactive(ids));
         _syncNearby();
       },
       onError: (Object e, StackTrace st) {
@@ -223,8 +228,16 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
   ) async {
     if (_showing || !mounted || !_foreground) return;
     _showing = true;
-    _lastAlertedAt[report.id] = DateTime.now();
+    final alertedAt = DateTime.now();
+    _lastAlertedAt[report.id] = alertedAt;
     _lastAlertPriority[report.id] = priority.priorityScore;
+    unawaited(
+      _cooldownStore.recordAlert(
+        report.id,
+        now: alertedAt,
+        priority: priority.priorityScore,
+      ),
+    );
     try {
       // Check again immediately before presentation; report may have resolved.
       if (!_reports.any((r) => r.id == report.id)) return;
@@ -285,7 +298,31 @@ class _HazardProximityMonitorState extends State<HazardProximityMonitor>
       _syncNearby();
     } else if (state == AppLifecycleState.resumed) {
       _foreground = true;
-      unawaited(_startLocation());
+      unawaited(
+        _loadPersistedCooldowns().then((_) {
+          if (mounted && _foreground) {
+            unawaited(_startLocation());
+          }
+        }),
+      );
+    }
+  }
+
+  Future<void> _loadPersistedCooldowns() async {
+    try {
+      final entries = await _cooldownStore.loadEntries();
+      if (!mounted) return;
+      for (final entry in entries.entries) {
+        final existing = _lastAlertedAt[entry.key];
+        if (existing == null || entry.value.timestamp.isAfter(existing)) {
+          _lastAlertedAt[entry.key] = entry.value.timestamp;
+          if (entry.value.priority != null) {
+            _lastAlertPriority[entry.key] = entry.value.priority!;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Safety cooldown store load error: $e');
     }
   }
 
