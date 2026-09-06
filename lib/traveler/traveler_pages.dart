@@ -16,15 +16,17 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart'
     hide GeoPoint;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_pages.dart';
-import '../core/app_theme.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
@@ -37,13 +39,24 @@ import '../core/ai_chat_service.dart';
 
 part 'home/traveler_home_page.dart';
 
+import 'daily_planner/models/itinerary_model.dart';
+import 'daily_planner/models/travel_preferences_model.dart';
+import 'daily_planner/services/malaysia_location_service.dart';
+import 'daily_planner/services/place_repository.dart';
+import 'daily_planner/services/cultural_task_service.dart';
+import 'daily_planner/services/itinerary_recommendation_service.dart';
+
+part 'home/traveler_home_page.dart';
+part 'daily_planner/malaysian_planner_data.dart';
 part 'daily_planner/daily_planner_page.dart';
 part 'daily_planner/review_ml_model.dart';
+part 'daily_planner/review_flag_model.dart';
 part 'daily_planner/place_detail_page.dart';
 part 'daily_planner/my_itineraries_page.dart';
 part 'daily_planner/itinerary_detail_page.dart';
 part 'daily_planner/itinerary_share_helper.dart';
 part 'daily_planner/itinerary_image_resolver.dart';
+part 'daily_planner/itinerary_schedule_planner.dart';
 part 'daily_planner/itinerary_edit_page.dart';
 
 part 'cultural/cultural_tasks_page.dart';
@@ -75,5 +88,9 @@ part 'weather/weather_reminder_page.dart';
 
 part 'chatbot/chatbot_page.dart';
 
+part 'notifications/notifications_page.dart';
+part 'profile/traveler_profile_page.dart';
+part 'weather/weather_reminder_page.dart';
+part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
