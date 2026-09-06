@@ -259,11 +259,21 @@ class ItineraryDetailPage extends StatelessWidget {
                       else
                         StreamBuilder<List<HazardReport>>(
                           stream: HazardReportService().watchVerifiedReports(),
-                          builder: (context, hazardSnapshot) => _PreparedItineraryRoute(
-                            stops: stops,
-                            warnings: const ItinerarySafetyService().checkStops(stops, hazardSnapshot.data ?? const []),
-                            onResolved: (resolvedStops) => _saveResolvedImages(reference, stops, resolvedStops),
-                          ),
+                          builder: (context, hazardSnapshot) =>
+                              _PreparedItineraryRoute(
+                                stops: stops,
+                                warnings: const ItinerarySafetyService()
+                                    .checkStops(
+                                      stops,
+                                      hazardSnapshot.data ?? const [],
+                                    ),
+                                onResolved: (resolvedStops) =>
+                                    _saveResolvedImages(
+                                      reference,
+                                      stops,
+                                      resolvedStops,
+                                    ),
+                              ),
                         ),
                       const SizedBox(height: 10),
                       Wrap(
@@ -441,7 +451,9 @@ class _PreparedItineraryRouteState extends State<_PreparedItineraryRoute> {
               child: _SavedItineraryStopCard(
                 number: entry.key + 1,
                 stop: stop,
-                warnings: widget.warnings.where((warning) => warning.stopIndex == entry.key).toList(),
+                warnings: widget.warnings
+                    .where((warning) => warning.stopIndex == entry.key)
+                    .toList(),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -687,17 +699,14 @@ class _SavedItineraryStopCard extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        onTap: warnings.isEmpty ? null : () => _showItinerarySafetyWarning(context, warnings),
-                        child: Row(
-                          children: [
-                            Icon(warnings.isEmpty ? Icons.verified_user_outlined : Icons.warning_amber_rounded, size: 16, color: warnings.isEmpty ? ExplorerColors.success : ExplorerColors.danger),
-                            const SizedBox(width: 5),
-                            Expanded(child: Text(warnings.isEmpty ? 'No nearby verified hazards' : '${warnings.length} verified hazard${warnings.length == 1 ? '' : 's'} nearby - tap for details', style: TextStyle(color: warnings.isEmpty ? ExplorerColors.success : ExplorerColors.danger, fontSize: 10, fontWeight: FontWeight.w800))),
-                          ],
+                      if (warnings.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _ItineraryHazardBanner(
+                          warnings: warnings,
+                          onTap: () =>
+                              _showItinerarySafetyWarning(context, warnings),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -714,21 +723,181 @@ class _SavedItineraryStopCard extends StatelessWidget {
   }
 }
 
-Future<void> _showItinerarySafetyWarning(BuildContext context, List<ItineraryHazardWarning> warnings) async {
-  final ordered = [...warnings]..sort((a, b) {
-    const rank = {'High': 3, 'Medium': 2, 'Low': 1};
-    final severity = (rank[b.hazard.severity] ?? 0).compareTo(rank[a.hazard.severity] ?? 0);
-    return severity != 0 ? severity : a.distanceMeters.compareTo(b.distanceMeters);
-  });
-  await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
-    title: const Text('Safety Warning'),
-    content: SizedBox(width: 440, child: ListView(shrinkWrap: true, children: ordered.map((warning) => ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.warning_amber_rounded, color: ExplorerColors.danger),
-      title: Text('${warning.hazard.severity}-Severity ${warning.hazard.category}'),
-      subtitle: Text('${warning.distanceMeters.round()}m from destination\nOfficial status: Verified'),
-      onTap: () { Navigator.pop(dialogContext); Navigator.push(context, MaterialPageRoute(builder: (_) => HazardDetailPage(hazardId: warning.hazard.id))); },
-    )).toList())),
-    actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Continue With Plan'))],
-  ));
+Future<void> _showItinerarySafetyWarning(
+  BuildContext context,
+  List<ItineraryHazardWarning> warnings,
+) async {
+  final ordered = [...warnings]
+    ..sort((a, b) {
+      final severity = b.severityRank.compareTo(a.severityRank);
+      return severity != 0
+          ? severity
+          : a.distanceMeters.compareTo(b.distanceMeters);
+    });
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: ExplorerColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * .72,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.border,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Active hazards near this stop',
+                style: TextStyle(
+                  color: ExplorerColors.navy,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Verified community reports within 500 metres.',
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: ordered.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (_, index) {
+                    final warning = ordered[index];
+                    final tone = _severityTone(warning.hazard.severity);
+                    return ExplorerCard(
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                HazardDetailPage(hazardId: warning.hazard.id),
+                          ),
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: tone.$1),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${warning.hazard.severity}-severity ${warning.hazard.category}',
+                                  style: const TextStyle(
+                                    color: ExplorerColors.navy,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${warning.distanceLabel} • Official status: Verified',
+                                  style: const TextStyle(
+                                    color: ExplorerColors.muted,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
+
+class _ItineraryHazardBanner extends StatelessWidget {
+  const _ItineraryHazardBanner({required this.warnings, required this.onTap});
+
+  final List<ItineraryHazardWarning> warnings;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = warnings.first;
+    final tone = _severityTone(primary.hazard.severity);
+    final headline = warnings.length == 1
+        ? '${primary.hazard.severity}-severity hazard nearby'
+        : '${warnings.length} active hazards nearby';
+    return Material(
+      color: tone.$2,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: tone.$1, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: TextStyle(
+                        color: tone.$1,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${primary.hazard.category} • ${primary.distanceLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+(Color, Color) _severityTone(String severity) => switch (severity) {
+  'High' => (ExplorerColors.danger, ExplorerColors.dangerSoft),
+  'Medium' => (ExplorerColors.goldDark, ExplorerColors.warningSoft),
+  _ => (ExplorerColors.success, ExplorerColors.successSoft),
+};

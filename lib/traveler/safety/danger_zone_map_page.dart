@@ -24,6 +24,8 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
   bool _loadingLocation = true;
   String? _locationError;
   bool _tileLoadFailed = false;
+  bool _mapReady = false;
+  int _tileRevision = 0;
 
   @override
   void initState() {
@@ -40,14 +42,23 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
         _loadingLocation = false;
         _locationError = null;
       });
-      _mapController.move(_userPosition!, 14);
+      if (_mapReady) _mapController.move(_userPosition!, 14);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loadingLocation = false;
-        _locationError = error.toString().replaceFirst('Exception: ', '');
+        _locationError = friendlySafetyActionError(
+          error,
+          fallback: 'Location is unavailable. You can still browse the map.',
+        );
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
 
   void _onTileError(fm.TileImage tile, Object error, StackTrace? stackTrace) {
@@ -60,7 +71,7 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
   @override
   Widget build(BuildContext context) {
     final hazardMarkers = _mapService.buildHazardMarkers(
-      reports: widget.reports,
+      reports: HazardMapService.activeReports(widget.reports),
       onTap: (report) => widget.onReportSelected?.call(report),
     );
     final dangerZoneCircles = _mapService.buildDangerZoneCircles(
@@ -69,13 +80,11 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
     final userMarker = _mapService.buildUserMarker(_userPosition);
     final markers = [...hazardMarkers, ?userMarker];
 
+    final active = HazardMapService.activeReports(widget.reports);
     final center =
         _userPosition ??
-        (widget.reports.isNotEmpty
-            ? latlng.LatLng(
-                widget.reports.first.latitude,
-                widget.reports.first.longitude,
-              )
+        (active.isNotEmpty
+            ? latlng.LatLng(active.first.latitude, active.first.longitude)
             : HazardMapService.defaultCenter);
 
     return SizedBox(
@@ -89,6 +98,12 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
                 mapController: _mapController,
                 options: fm.MapOptions(
                   initialCenter: center,
+                  onMapReady: () {
+                    _mapReady = true;
+                    if (_userPosition != null) {
+                      _mapController.move(_userPosition!, 14);
+                    }
+                  },
                   initialZoom: HazardMapService.defaultZoom,
                   interactionOptions: const fm.InteractionOptions(
                     flags: fm.InteractiveFlag.all & ~fm.InteractiveFlag.rotate,
@@ -96,13 +111,35 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
                 ),
                 children: [
                   fm.TileLayer(
+                    key: ValueKey(_tileRevision),
                     urlTemplate: HazardMapService.osmTileUrl,
                     userAgentPackageName: 'com.myheritage.explorer',
                     errorTileCallback: _onTileError,
                   ),
                   fm.CircleLayer(circles: dangerZoneCircles),
                   fm.MarkerLayer(markers: markers),
+                  const fm.SimpleAttributionWidget(
+                    source: Text('© OpenStreetMap contributors'),
+                  ),
                 ],
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 54,
+            right: 12,
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              child: IconButton(
+                tooltip: 'Recenter on my location',
+                onPressed: _loadingLocation
+                    ? null
+                    : () {
+                        setState(() => _loadingLocation = true);
+                        _loadUserPosition();
+                      },
+                icon: const Icon(Icons.my_location),
               ),
             ),
           ),
@@ -115,7 +152,7 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
                 text: 'Finding your location...',
               ),
             ),
-          if (widget.reports.isNotEmpty)
+          if (active.isNotEmpty && !_loadingLocation && _locationError == null)
             const Positioned(top: 10, right: 10, child: _DangerZoneLegend()),
           if (!_loadingLocation && _locationError != null)
             Positioned(
@@ -136,19 +173,23 @@ class _DangerZoneMapPageState extends State<DangerZoneMapPage> {
               ),
             ),
           if (_tileLoadFailed)
-            const Positioned(
-              bottom: 10,
+            Positioned(
+              bottom: 26,
               left: 10,
               right: 10,
               child: _MapMessage(
                 icon: Icons.cloud_off_outlined,
-                text:
-                    'Some map tiles could not be loaded. Check your connection.',
+                text: 'Map tiles could not load.',
+                actionLabel: 'Retry',
+                onAction: () => setState(() {
+                  _tileLoadFailed = false;
+                  _tileRevision++;
+                }),
               ),
             )
-          else if (widget.reports.isEmpty)
+          else if (active.isEmpty)
             const Positioned(
-              bottom: 10,
+              bottom: 26,
               left: 10,
               right: 10,
               child: _MapMessage(

@@ -11,6 +11,7 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final _reportService = HazardReportService();
+  late final _reportsStream = _reportService.watchAllReports();
 
   @override
   void initState() {
@@ -27,12 +28,15 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<HazardReport>>(
-      stream: _reportService.watchAllReports(),
+      stream: _reportsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return ExplorerEmptyState(
             title: 'Unable to load hazard reports',
-            subtitle: '${snapshot.error}',
+            subtitle: friendlySafetyError(
+              snapshot.error,
+              subject: 'hazard reports',
+            ),
             icon: Icons.cloud_off_outlined,
           );
         }
@@ -45,6 +49,9 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
             .length;
         final resolved = reports
             .where((r) => r.status == HazardReportStatus.resolved)
+            .length;
+        final rejected = reports
+            .where((r) => r.status == HazardReportStatus.rejected)
             .length;
 
         return Column(
@@ -60,32 +67,11 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
                         'Review pending hazard reports and manage verified danger zones.',
                   ),
                   const SizedBox(height: 22),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ExplorerMetricCard(
-                          label: 'Pending Review',
-                          value: '$pending',
-                          icon: Icons.pending_actions_outlined,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: ExplorerMetricCard(
-                          label: 'Verified Hazards',
-                          value: '$verified',
-                          icon: Icons.warning_amber_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: ExplorerMetricCard(
-                          label: 'Resolved Reports',
-                          value: '$resolved',
-                          icon: Icons.task_alt_outlined,
-                        ),
-                      ),
-                    ],
+                  _AdminHazardMetricGrid(
+                    pending: pending,
+                    verified: verified,
+                    resolved: resolved,
+                    rejected: rejected,
                   ),
                   const SizedBox(height: 18),
                   TabBar(
@@ -93,8 +79,8 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
                     labelColor: ExplorerColors.navy,
                     indicatorColor: ExplorerColors.gold,
                     tabs: const [
-                      Tab(text: 'Pending Hazard Reports'),
-                      Tab(text: 'Verified Hazard Reports'),
+                      Tab(text: 'Pending Reports'),
+                      Tab(text: 'Verified Hazards'),
                     ],
                   ),
                 ],
@@ -109,6 +95,63 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
                 ],
               ),
             ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AdminHazardMetricGrid extends StatelessWidget {
+  const _AdminHazardMetricGrid({
+    required this.pending,
+    required this.verified,
+    required this.resolved,
+    required this.rejected,
+  });
+
+  final int pending;
+  final int verified;
+  final int resolved;
+  final int rejected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 760
+            ? 4
+            : constraints.maxWidth >= 480
+            ? 2
+            : 2;
+        final width = (constraints.maxWidth - (columns - 1) * 14) / columns;
+        final cards = [
+          ExplorerMetricCard(
+            label: 'Pending Review',
+            value: '$pending',
+            icon: Icons.pending_actions_outlined,
+          ),
+          ExplorerMetricCard(
+            label: 'Verified Hazards',
+            value: '$verified',
+            icon: Icons.warning_amber_rounded,
+          ),
+          ExplorerMetricCard(
+            label: 'Resolved Reports',
+            value: '$resolved',
+            icon: Icons.task_alt_outlined,
+          ),
+          ExplorerMetricCard(
+            label: 'Rejected Reports',
+            value: '$rejected',
+            icon: Icons.cancel_outlined,
+          ),
+        ];
+        return Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: [
+            for (final card in cards) SizedBox(width: width, child: card),
           ],
         );
       },

@@ -10,7 +10,9 @@ class AdminVerifiedReportsTab extends StatefulWidget {
 
 class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
   final _reportService = HazardReportService();
+  late var _reportsStream = _reportService.watchVerifiedUnresolvedReports();
   final _voteService = HazardVoteService();
+  final Map<String, Stream<List<HazardVote>>> _voteStreams = {};
   final _confidenceService = const ConfidenceAnalysisService();
 
   void _openReport(HazardReport report) {
@@ -25,17 +27,23 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<HazardReport>>(
-      stream: _reportService.watchVerifiedUnresolvedReports(),
+      stream: _reportsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return ExplorerEmptyState(
+          return SafetyErrorState(
             title: 'Unable to load verified hazards',
-            subtitle: '${snapshot.error}',
-            icon: Icons.cloud_off_outlined,
+            message: friendlySafetyError(
+              snapshot.error,
+              subject: 'verified hazards',
+            ),
+            onRetry: () => setState(
+              () => _reportsStream = _reportService
+                  .watchVerifiedUnresolvedReports(),
+            ),
           );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const SafetyLoadingState(label: 'Loading verified hazards…');
         }
 
         final reports = snapshot.data!;
@@ -57,8 +65,26 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
           itemBuilder: (context, index) {
             final report = reports[index];
             return StreamBuilder<List<HazardVote>>(
-              stream: _voteService.watchVotes(report.id),
+              stream: _voteStreams.putIfAbsent(
+                report.id,
+                () => _voteService.watchVotes(report.id),
+              ),
               builder: (context, voteSnapshot) {
+                if (voteSnapshot.hasError) {
+                  return ExplorerCard(
+                    child: SafetyErrorState(
+                      title: report.category,
+                      message: 'Community evidence could not be loaded.',
+                      onRetry: () =>
+                          setState(() => _voteStreams.remove(report.id)),
+                    ),
+                  );
+                }
+                if (!voteSnapshot.hasData) {
+                  return const SafetyLoadingState(
+                    label: 'Loading community evidence…',
+                  );
+                }
                 final analysis = _confidenceService.analyze(
                   voteSnapshot.data ?? const [],
                 );
@@ -69,12 +95,19 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      Flex(
+                        direction: MediaQuery.sizeOf(context).width < 700
+                            ? Axis.vertical
+                            : Axis.horizontal,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _AdminHazardImage(report: report),
                           const SizedBox(width: 14),
-                          Expanded(
+                          Flexible(
+                            fit: FlexFit.loose,
+                            flex: MediaQuery.sizeOf(context).width < 700
+                                ? 0
+                                : 1,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -117,9 +150,7 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
                                     ),
                                     _HazardInfo(
                                       icon: Icons.place_outlined,
-                                      text:
-                                          '${report.latitude.toStringAsFixed(5)}, '
-                                          '${report.longitude.toStringAsFixed(5)}',
+                                      text: 'GPS location captured',
                                     ),
                                     _HazardInfo(
                                       icon: Icons.how_to_vote_outlined,
@@ -140,7 +171,37 @@ class _AdminVerifiedReportsTabState extends State<AdminVerifiedReportsTab> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      _ConfidenceAnalysisCard(analysis: analysis),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: ExplorerColors.navySoft,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Wrap(
+                          spacing: 18,
+                          runSpacing: 6,
+                          children: [
+                            _HazardInfo(
+                              icon: Icons.location_on_outlined,
+                              text:
+                                  '${analysis.gpsValidatedCount} GPS validated',
+                            ),
+                            _HazardInfo(
+                              icon: Icons.analytics_outlined,
+                              text:
+                                  '${analysis.confidencePercent.toStringAsFixed(1)}% resolution support',
+                            ),
+                            _HazardInfo(
+                              icon: Icons.fact_check_outlined,
+                              text: analysis.displayLevel,
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 );

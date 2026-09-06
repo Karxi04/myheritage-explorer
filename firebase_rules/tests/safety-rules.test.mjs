@@ -1,0 +1,229 @@
+import { readFile } from 'node:fs/promises';
+import { before, after, beforeEach, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import {
+  doc, setDoc, getDoc, getDocs, collection, collectionGroup, query, where,
+  updateDoc, writeBatch, serverTimestamp, Timestamp, Bytes, runTransaction,
+} from 'firebase/firestore';
+
+let env;
+const sha = 'a'.repeat(64), hash = '0123456789abcdef';
+const validation = {
+  isValid: true, duplicateDetected: false, evidenceSource: 'CAMERA',
+  semanticValidationAvailable: false, validationLevel: 'GOOD',
+  qualityScore: .8, overallEvidenceScore: .8, sha256Fingerprint: sha,
+  perceptualHash: hash, warnings: [],
+};
+const dbFor = uid => env.authenticatedContext(uid).firestore();
+const reportRef = (db, id = 'report') => doc(db, 'hazard_reports', id);
+const voteRef = (db, uid, id = 'report') => doc(db, 'hazard_reports', id, 'votes', uid);
+
+function report(uid, id = 'report') {
+  return {
+    hazardId: id, userId: uid, category: 'Flooding', severity: 'High',
+    description: 'Water across walkway', imageUrl: '', hasPhotoEvidence: true,
+    evidenceStorage: 'firestore', evidenceValidationResult: validation,
+    evidenceSha256: sha, evidencePerceptualHash: hash, evidenceSource: 'CAMERA',
+    latitude: 5.4141, longitude: 100.3288, status: 'Pending Review',
+    statusHistory: [{status: 'Pending Review', changedBy: uid, changedAt: Timestamp.now()}],
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  };
+}
+function photo(uid, id = 'report') {
+  return {
+    hazardId: id, userId: uid, imageBytes: Bytes.fromUint8Array(new Uint8Array([255,216,255,1])),
+    byteLength: 4, contentType: 'image/jpeg', sourceSha256: sha, perceptualHash: hash,
+    validationLevel: 'GOOD', evidenceSource: 'CAMERA', createdAt: serverTimestamp(),
+  };
+}
+function vote(uid, distance = 70, withPhoto = false) {
+  return {
+    userId: uid, voteType: 'HAZARD_RESOLVED', createdAt: serverTimestamp(),
+    distanceFromHazardMeters: distance,
+    proximityBand: distance <= 100 ? 'STRONG' : distance <= 300 ? 'NORMAL' : 'WEAK',
+    isGpsValidated: true, photoUrl: '', hasPhotoEvidence: withPhoto,
+    evidenceStorage: withPhoto ? 'firestore' : 'none',
+    ...(withPhoto ? {
+      evidenceValidationResult: {...validation, sceneMatchScore: .7},
+      evidenceSha256: sha, evidencePerceptualHash: hash, evidenceSource: 'CAMERA', sceneMatchScore: .7,
+    } : {}),
+  };
+}
+async function create(db, uid = 'owner', id = 'report', overrides = {}, includePhoto = true) {
+  const batch = writeBatch(db);
+  batch.set(reportRef(db,id), {...report(uid,id), ...overrides});
+  if (includePhoto) batch.set(doc(db,'hazard_reports',id,'evidence','photo'), photo(uid,id));
+  return batch.commit();
+}
+async function seedVerified(id = 'report') {
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(reportRef(context.firestore(),id), {...report('owner',id), status:'Verified'});
+  });
+}
+async function decide(db, status, id = 'report') {
+  const batch = writeBatch(db);
+  batch.update(reportRef(db,id), {
+    status, reviewedBy: 'admin', reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(db,'notifications',id+'-'+status), {
+    notificationId:id+'-'+status, userId:'owner', type:'hazard_status', hazardId:id,
+    title:'Hazard report updated', message:status, isRead:false, createdAt:serverTimestamp(),
+  });
+  return batch.commit();
+}
+
+before(async () => {
+  env = await initializeTestEnvironment({
+    projectId: 'demo-myheritage-safety',
+    firestore: {host:'127.0.0.1', port:8088,
+      rules: await readFile(new URL('../safety_module.firestore.rules', import.meta.url),'utf8')},
+  });
+});
+after(async () => { await env?.cleanup(); });
+beforeEach(async () => {
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    for (const uid of ['owner','other','third']) {
+      await setDoc(doc(db,'travelers',uid),{role:'traveler',status:'active'});
+    }
+    await setDoc(doc(db,'travelers','disabled'),{role:'traveler',status:'disabled'});
+    await setDoc(doc(db,'admins','admin'),{role:'admin',status:'active'});
+  });
+});
+
+test('complete report → verify → confirmation → resolve workflow and owner notifications', async () => {
+  const owner=dbFor('owner'), other=dbFor('other'), admin=dbFor('admin');
+  await assertSucceeds(create(owner));
+  assert.equal((await getDoc(reportRef(owner))).data().status,'Pending Review');
+  assert.equal((await getDocs(query(collection(other,'hazard_reports'),where('status','==','Verified')))).size,0);
+  await assertSucceeds(decide(admin,'Verified'));
+  assert.equal((await getDocs(query(collection(other,'hazard_reports'),where('status','==','Verified')))).size,1);
+  const batch=writeBatch(other);
+  batch.set(voteRef(other,'other'),vote('other',70,true));
+  batch.set(doc(other,'hazard_reports','report','votes','other','evidence','photo'),{...photo('other'),sceneMatchScore:.7});
+  await assertSucceeds(batch.commit());
+  assert.equal((await getDocs(collection(admin,'hazard_reports','report','votes'))).size,1);
+  await assertSucceeds(decide(admin,'Resolved'));
+  assert.equal((await getDocs(query(collection(other,'hazard_reports'),where('status','==','Verified')))).size,0);
+  const notifications=await getDocs(query(collection(owner,'notifications'),where('userId','==','owner')));
+  assert.equal(notifications.size,2);
+  await assertSucceeds(updateDoc(doc(owner,'notifications','report-Resolved'),{isRead:true}));
+  await assertFails(setDoc(voteRef(dbFor('third'),'third'),vote('third')));
+});
+
+test('reject removes pending report from active map and notifies owner', async () => {
+  await create(dbFor('owner'));
+  await assertSucceeds(decide(dbFor('admin'),'Rejected'));
+  assert.equal((await getDoc(reportRef(dbFor('owner')))).data().status,'Rejected');
+  await assertFails(decide(dbFor('admin'),'Verified'));
+});
+
+test('tourist cannot change official status or impersonate administrator', async () => {
+  await create(dbFor('owner'));
+  await assertFails(decide(dbFor('owner'),'Verified'));
+  await assertFails(updateDoc(reportRef(dbFor('admin')), {
+    status:'Verified',reviewedBy:'owner',reviewedAt:serverTimestamp(),updatedAt:serverTimestamp(),
+  }));
+});
+
+test('unauthenticated, disabled and wrong-owner report submissions fail', async () => {
+  await assertFails(create(env.unauthenticatedContext().firestore()));
+  await assertFails(create(dbFor('disabled'),'disabled'));
+  await assertFails(create(dbFor('other'),'owner'));
+});
+
+test('report and required photo must be atomic; invalid description/coordinates/status fail', async () => {
+  const db=dbFor('owner');
+  await assertFails(create(db,'owner','missing',{},false));
+  for (const [id,overrides] of Object.entries({
+    empty:{description:''},long:{description:'x'.repeat(501)},badlat:{latitude:91},
+    badlon:{longitude:-181},published:{status:'Verified'},extra:{reviewedBy:'admin'},
+  })) await assertFails(create(db,'owner',id,overrides));
+  assert.equal((await getDocs(query(collection(db,'hazard_reports'),where('userId','==','owner')))).size,0);
+});
+
+test('atomic report photo mismatch rolls back both documents', async () => {
+  const db=dbFor('owner'),batch=writeBatch(db);
+  batch.set(reportRef(db),report('owner'));
+  batch.set(doc(db,'hazard_reports','report','evidence','photo'),{...photo('owner'),sourceSha256:'b'.repeat(64)});
+  await assertFails(batch.commit());
+  await env.withSecurityRulesDisabled(async c => assert.equal((await getDoc(reportRef(c.firestore()))).exists(),false));
+});
+
+test('GPS proximity boundaries accepted and outside or negative distance denied', async () => {
+  for (const [i,distance] of [70,100,250,300,450,500,500.01,800,-1].entries()) {
+    const id='r'+i, db=dbFor('other');
+    await seedVerified(id);
+    const action=setDoc(voteRef(db,'other',id),vote('other',distance));
+    if (distance>=0 && distance<=500) await assertSucceeds(action); else await assertFails(action);
+  }
+});
+
+test('incorrect proximity band, identity, timestamp, extra fields and photo claims denied', async () => {
+  await seedVerified();
+  const db=dbFor('other');
+  for (const overrides of [
+    {proximityBand:'WEAK'},{userId:'owner'},{createdAt:Timestamp.fromMillis(0)},
+    {reviewedBy:'admin'},{sceneMatchScore:1},{hasPhotoEvidence:true},
+  ]) await assertFails(setDoc(voteRef(db,'other'),{...vote('other'),...overrides}));
+});
+
+test('one confirmation per user survives concurrent transaction attempts', async () => {
+  await seedVerified();
+  const db=dbFor('other');
+  const submit=()=>runTransaction(db,async tx=>{
+    const hazard=await tx.get(reportRef(db));
+    const existing=await tx.get(voteRef(db,'other'));
+    if (hazard.data().status!=='Verified'||existing.exists()) throw new Error('closed or duplicate');
+    tx.set(voteRef(db,'other'),vote('other'));
+  });
+  const outcomes=await Promise.allSettled([submit(),submit()]);
+  assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal((await getDocs(collection(dbFor('admin'),'hazard_reports','report','votes'))).size,1);
+  await assertFails(updateDoc(voteRef(db,'other'),{voteType:'HAZARD_EXISTS'}));
+});
+
+test('pending/rejected/resolved reports cannot receive confirmations', async () => {
+  for(const status of ['Pending Review','Rejected','Resolved']) {
+    await env.withSecurityRulesDisabled(c=>setDoc(reportRef(c.firestore()),{...report('owner'),status}));
+    await assertFails(setDoc(voteRef(dbFor('other'),'other'),vote('other')));
+  }
+});
+
+test('orphan vote photo and oversize photo are denied', async () => {
+  await seedVerified();
+  const db=dbFor('other');
+  await assertFails(setDoc(doc(db,'hazard_reports','report','votes','other','evidence','photo'),photo('other')));
+  const batch=writeBatch(db);
+  batch.set(voteRef(db,'other'),vote('other',70,true));
+  batch.set(doc(db,'hazard_reports','report','votes','other','evidence','photo'),{
+    ...photo('other'),imageBytes:Bytes.fromUint8Array(new Uint8Array(400*1024+1)),byteLength:400*1024+1,
+  });
+  await assertFails(batch.commit());
+});
+
+test('own history collection-group lookup works; other users history is denied', async () => {
+  await seedVerified();
+  const db=dbFor('other');
+  await setDoc(voteRef(db,'other'),vote('other'));
+  await assertSucceeds(getDocs(query(collectionGroup(db,'votes'),where('userId','==','other'))));
+  await assertFails(getDocs(query(collectionGroup(db,'votes'),where('userId','==','owner'))));
+});
+
+test('pending report private to owner/admin and notifications private to recipient', async () => {
+  await create(dbFor('owner'));
+  await assertFails(getDoc(reportRef(dbFor('other'))));
+  await assertSucceeds(getDoc(reportRef(dbFor('admin'))));
+  await decide(dbFor('admin'),'Verified');
+  await assertFails(getDoc(doc(dbFor('other'),'notifications','report-Verified')));
+});
+
+test('duplicate or invalid evidence validation is denied', async () => {
+  for (const [i,changes] of [{duplicateDetected:true},{isValid:false},{qualityScore:2},{semanticValidationAvailable:true}].entries()) {
+    await assertFails(create(dbFor('owner'),'owner','bad'+i,{
+      evidenceValidationResult:{...validation,...changes},
+    }));
+  }
+});

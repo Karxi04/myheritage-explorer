@@ -1,7 +1,16 @@
 part of '../admin_pages.dart';
 
 class AdminHazardManagementPage extends StatefulWidget {
-  const AdminHazardManagementPage({super.key, required this.hazardId});
+  const AdminHazardManagementPage({
+    super.key,
+    required this.hazardId,
+    this.reportService,
+    this.voteService,
+    this.reporterLoader,
+  });
+  final HazardReportService? reportService;
+  final HazardVoteService? voteService;
+  final Future<Map<String, dynamic>?> Function(String)? reporterLoader;
 
   final String hazardId;
 
@@ -11,12 +20,34 @@ class AdminHazardManagementPage extends StatefulWidget {
 }
 
 class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
-  final _reportService = HazardReportService();
-  final _voteService = HazardVoteService();
+  late final _reportService = widget.reportService ?? HazardReportService();
+  late final _voteService = widget.voteService ?? HazardVoteService();
   final _confidenceService = const ConfidenceAnalysisService();
   bool _busy = false;
+  bool _confirming = false;
+  late Stream<HazardReport?> _reportStream;
+  late Stream<List<HazardVote>> _voteStream;
+  final Map<String, Future<Map<String, dynamic>?>> _reporters = {};
+  Timer? _clock;
+  @override
+  void initState() {
+    super.initState();
+    _reportStream = _reportService.watchReport(widget.hazardId);
+    _voteStream = _voteService.watchVotes(widget.hazardId);
+    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
 
   Future<void> _changeStatus(HazardReport report, String status) async {
+    if (_busy || _confirming) return;
+    _confirming = true;
     final action = switch (status) {
       HazardReportStatus.verified => 'Verify',
       HazardReportStatus.rejected => 'Reject',
@@ -50,6 +81,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
         ],
       ),
     );
+    _confirming = false;
     if (confirmed != true || !mounted || _busy) return;
 
     final adminId = AppServices.auth.currentUser?.uid;
@@ -72,11 +104,16 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
         'Report updated to $status and the owner was notified.',
       );
       Navigator.pop(context);
-    } catch (error) {
+    } catch (error, stack) {
+      debugPrint('Admin hazard decision failed: $error\n$stack');
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          friendlySafetyActionError(
+            error,
+            fallback:
+                'This report may already have been processed. Refresh it and try again.',
+          ),
           error: true,
         );
       }
@@ -86,7 +123,16 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   }
 
   Future<Map<String, dynamic>?> _reporter(String userId) async {
-    return (await AppServices.travelerRef(userId).get()).data();
+    if (widget.reporterLoader != null) {
+      return _reporters.putIfAbsent(
+        userId,
+        () => widget.reporterLoader!(userId),
+      );
+    }
+    return _reporters.putIfAbsent(
+      userId,
+      () async => (await AppServices.travelerRef(userId).get()).data(),
+    );
   }
 
   @override
@@ -95,17 +141,24 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(title: const Text('Manage Hazard Report')),
       body: StreamBuilder<HazardReport?>(
-        stream: _reportService.watchReport(widget.hazardId),
+        stream: _reportStream,
         builder: (context, reportSnapshot) {
           if (reportSnapshot.hasError) {
-            return ExplorerEmptyState(
+            return SafetyErrorState(
               title: 'Unable to load hazard report',
-              subtitle: '${reportSnapshot.error}',
-              icon: Icons.cloud_off_outlined,
+              message: friendlySafetyError(
+                reportSnapshot.error,
+                subject: 'this hazard report',
+              ),
+              onRetry: () => setState(
+                () =>
+                    _reportStream = _reportService.watchReport(widget.hazardId),
+              ),
             );
           }
-          if (!reportSnapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+          if (reportSnapshot.connectionState == ConnectionState.waiting &&
+              !reportSnapshot.hasData) {
+            return const SafetyLoadingState(label: 'Loading hazard report…');
           }
           final report = reportSnapshot.data;
           if (report == null) {
@@ -117,101 +170,133 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
           }
 
           return StreamBuilder<List<HazardVote>>(
-            stream: _voteService.watchVotes(report.id),
+            stream: _voteStream,
             builder: (context, voteSnapshot) {
               if (voteSnapshot.hasError) {
-                return ExplorerEmptyState(
+                return SafetyErrorState(
                   title: 'Unable to load community votes',
-                  subtitle: '${voteSnapshot.error}',
-                  icon: Icons.cloud_off_outlined,
+                  message: friendlySafetyError(
+                    voteSnapshot.error,
+                    subject: 'community evidence',
+                  ),
+                  onRetry: () => setState(
+                    () =>
+                        _voteStream = _voteService.watchVotes(widget.hazardId),
+                  ),
                 );
               }
               final analysis = _confidenceService.analyze(
                 voteSnapshot.data ?? const [],
               );
 
-              return ListView(
-                padding: const EdgeInsets.all(24),
+              return Column(
                 children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1050),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildHeading(report),
-                          const SizedBox(height: 16),
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final narrow = constraints.maxWidth < 760;
-                              final evidence = _buildEvidence(report);
-                              final details = _buildDetails(report);
-                              if (narrow) {
-                                return Column(
-                                  children: [
-                                    evidence,
-                                    const SizedBox(height: 14),
-                                    details,
-                                  ],
-                                );
-                              }
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: evidence),
-                                  const SizedBox(width: 16),
-                                  Expanded(child: details),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          FutureBuilder<Map<String, dynamic>?>(
-                            future: _reporter(report.userId),
-                            builder: (context, snapshot) {
-                              final reporter = snapshot.data;
-                              return ExplorerCard(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const ExplorerSectionTitle('Reporter'),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      '${reporter?['displayName'] ?? 'Tourist'}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${reporter?['email'] ?? report.userId}',
-                                      style: const TextStyle(
-                                        color: ExplorerColors.muted,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
+                  // Inline Community recommendation banner (verified hazards only)
+                  if (report.status == HazardReportStatus.verified &&
+                      analysis.hasSufficientRecentEvidence)
+                    _RecommendationBanner(analysis: analysis),
+
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.all(24),
+                      children: [
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1050),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildHeading(report),
+                                const SizedBox(height: 16),
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final narrow = constraints.maxWidth < 760;
+                                    final evidence = _buildEvidence(report);
+                                    final details = _buildDetails(report);
+                                    if (narrow) {
+                                      return Column(
+                                        children: [
+                                          evidence,
+                                          const SizedBox(height: 14),
+                                          details,
+                                        ],
+                                      );
+                                    }
+                                    return Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(child: evidence),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: details),
+                                      ],
+                                    );
+                                  },
                                 ),
-                              );
-                            },
+                                const SizedBox(height: 16),
+                                FutureBuilder<Map<String, dynamic>?>(
+                                  future: _reporter(report.userId),
+                                  builder: (context, snapshot) {
+                                    final reporter = snapshot.data;
+                                    return ExplorerCard(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const ExplorerSectionTitle(
+                                            'Reporter',
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            '${reporter?['displayName'] ?? 'Tourist'}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${reporter?['email'] ?? 'Contact unavailable'}',
+                                            style: const TextStyle(
+                                              color: ExplorerColors.muted,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                                if (report.status ==
+                                    HazardReportStatus.verified) ...[
+                                  const SizedBox(height: 16),
+                                  _ConfidenceAnalysisCard(analysis: analysis),
+                                  if ((voteSnapshot.data ??
+                                          const <HazardVote>[])
+                                      .any(
+                                        (vote) => vote.hasPhotoEvidence,
+                                      )) ...[
+                                    const SizedBox(height: 16),
+                                    _VotePhotoEvidenceCard(
+                                      hazardId: report.id,
+                                      votes: voteSnapshot.data ?? const [],
+                                    ),
+                                  ],
+                                ],
+                                // Spacer so content clears the sticky bar.
+                                const SizedBox(height: 20),
+                              ],
+                            ),
                           ),
-                          if (report.status == HazardReportStatus.verified) ...[
-                            const SizedBox(height: 16),
-                            _ConfidenceAnalysisCard(analysis: analysis),
-                            if ((voteSnapshot.data ?? const <HazardVote>[]).any(
-                              (vote) => vote.hasPhotoEvidence,
-                            )) ...[
-                              const SizedBox(height: 16),
-                              _VotePhotoEvidenceCard(
-                                hazardId: report.id,
-                                votes: voteSnapshot.data ?? const [],
-                              ),
-                            ],
-                          ],
-                          const SizedBox(height: 18),
-                          _buildActions(report),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                  ),
+
+                  // Sticky bottom action bar
+                  _StickyActionBar(
+                    report: report,
+                    busy: _busy,
+                    onChangeStatus: _changeStatus,
+                    onClose: () => Navigator.pop(context),
                   ),
                 ],
               );
@@ -223,9 +308,11 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   }
 
   Widget _buildHeading(HazardReport report) {
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 10,
       children: [
-        Expanded(
+        SizedBox(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -239,7 +326,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Hazard ID: ${report.id}',
+                '${report.severity} severity • ${report.createdAt == null ? 'Recently submitted' : DateFormat.yMMMd().add_jm().format(report.createdAt!)}',
                 style: const TextStyle(
                   color: ExplorerColors.muted,
                   fontSize: 11,
@@ -276,6 +363,55 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
               placeholderBuilder: (_) => _AdminHazardPlaceholder.image(),
             ),
           ),
+          if (report.evidenceValidation != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ExplorerStatusBadge(
+                  label: report.evidenceValidation!.validationLevel,
+                  tone:
+                      report.evidenceValidation!.validationLevel ==
+                          EvidenceValidationLevel.lowQuality
+                      ? ExplorerStatusTone.warning
+                      : ExplorerStatusTone.success,
+                  icon: Icons.fact_check_outlined,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${report.evidenceValidation!.evidenceSource.toLowerCase()} evidence • quality checked',
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'Evidence Details',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+              ),
+              children: [
+                _AdminDetailRow(
+                  label: 'Resolution',
+                  value:
+                      '${report.evidenceValidation!.width} × ${report.evidenceValidation!.height}',
+                ),
+                _AdminDetailRow(
+                  label: 'Visibility',
+                  value: report.evidenceValidation!.exposureStatus,
+                ),
+                if (report.evidenceValidation!.warnings.isNotEmpty)
+                  _AdminDetailRow(
+                    label: 'Notes',
+                    value: report.evidenceValidation!.warnings.join(' '),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -297,10 +433,10 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                 : DateFormat.yMMMd().add_jm().format(report.createdAt!),
           ),
           _AdminDetailRow(
-            label: 'GPS location',
+            label: 'Location',
             value:
-                '${report.latitude.toStringAsFixed(6)}, '
-                '${report.longitude.toStringAsFixed(6)}',
+                'GPS captured near ${report.latitude.toStringAsFixed(4)}, '
+                '${report.longitude.toStringAsFixed(4)}',
           ),
           const Divider(height: 24),
           const Text(
@@ -316,58 +452,166 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
       ),
     );
   }
+}
 
-  Widget _buildActions(HazardReport report) {
+// ---------------------------------------------------------------------------
+// Community recommendation banner
+// ---------------------------------------------------------------------------
+
+class _RecommendationBanner extends StatelessWidget {
+  const _RecommendationBanner({required this.analysis});
+  final ConfidenceAnalysisResult analysis;
+
+  Color get _color => switch (analysis.level) {
+    ConfidenceLevel.veryHigh || ConfidenceLevel.high => ExplorerColors.success,
+    ConfidenceLevel.medium => ExplorerColors.goldDark,
+    _ => ExplorerColors.muted,
+  };
+
+  Color get _bgColor => switch (analysis.level) {
+    ConfidenceLevel.veryHigh ||
+    ConfidenceLevel.high => ExplorerColors.successSoft,
+    ConfidenceLevel.medium => ExplorerColors.warningSoft,
+    _ => ExplorerColors.subtle,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      color: _bgColor,
+      child: Row(
+        children: [
+          Icon(Icons.psychology_outlined, color: _color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Resolution confidence: ${analysis.displayLevel}',
+                  style: TextStyle(
+                    color: _color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  'Resolution support: ${analysis.confidencePercent.toStringAsFixed(1)}% '
+                  '(${analysis.validVoteCount} valid votes)',
+                  style: TextStyle(color: _color, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sticky action bar
+// ---------------------------------------------------------------------------
+
+class _StickyActionBar extends StatelessWidget {
+  const _StickyActionBar({
+    required this.report,
+    required this.busy,
+    required this.onChangeStatus,
+    required this.onClose,
+  });
+
+  final HazardReport report;
+  final bool busy;
+  final Future<void> Function(HazardReport, String) onChangeStatus;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 8,
+      shadowColor: Colors.black12,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: ExplorerColors.border)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1050),
+              child: _buildButtons(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildButtons(BuildContext context) {
     if (report.status == HazardReportStatus.pendingReview) {
       return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          OutlinedButton.icon(
-            onPressed: _busy
-                ? null
-                : () => _changeStatus(report, HazardReportStatus.rejected),
-            icon: const Icon(Icons.close),
-            label: const Text('Reject'),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => onChangeStatus(report, HazardReportStatus.rejected),
+              icon: const Icon(Icons.close, size: 18),
+              label: const Text('Reject'),
+            ),
           ),
           const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: _busy
-                ? null
-                : () => _changeStatus(report, HazardReportStatus.verified),
-            icon: const Icon(Icons.verified_outlined),
-            label: Text(_busy ? 'Updating...' : 'Verify'),
+          Expanded(
+            flex: 2,
+            child: FilledButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => onChangeStatus(report, HazardReportStatus.verified),
+              icon: const Icon(Icons.verified_outlined, size: 18),
+              label: Text(busy ? 'Updating...' : 'Verify & Publish'),
+            ),
           ),
         ],
       );
     }
     if (report.status == HazardReportStatus.verified) {
       return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          OutlinedButton(
-            onPressed: _busy ? null : () => Navigator.pop(context),
-            child: const Text('Leave as Verified'),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: busy ? null : onClose,
+              child: const Text('Keep Verified'),
+            ),
           ),
           const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: _busy
-                ? null
-                : () => _changeStatus(report, HazardReportStatus.resolved),
-            icon: const Icon(Icons.task_alt),
-            label: Text(_busy ? 'Updating...' : 'Mark as Resolved'),
+          Expanded(
+            flex: 2,
+            child: FilledButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => onChangeStatus(report, HazardReportStatus.resolved),
+              icon: const Icon(Icons.task_alt, size: 18),
+              label: Text(busy ? 'Updating...' : 'Mark Resolved'),
+            ),
           ),
         ],
       );
     }
-    return Align(
-      alignment: Alignment.centerRight,
-      child: OutlinedButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Close'),
-      ),
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(onPressed: onClose, child: const Text('Close')),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared detail row
+// ---------------------------------------------------------------------------
 
 class _AdminDetailRow extends StatelessWidget {
   const _AdminDetailRow({required this.label, required this.value});

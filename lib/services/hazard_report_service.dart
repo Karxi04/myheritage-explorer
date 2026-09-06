@@ -4,7 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as image_lib;
 
 import '../core/services.dart';
+import '../core/safety_config.dart';
+import '../models/evidence_validation_result.dart';
 import '../models/hazard_report.dart';
+import 'evidence_image_validation_service.dart';
 
 class HazardReportService {
   HazardReportService({FirebaseFirestore? firestore, FirebaseAuth? auth})
@@ -18,6 +21,7 @@ class HazardReportService {
   static const evidenceCollectionName = 'evidence';
   static const evidenceDocumentName = 'photo';
   static const maxEvidenceBytes = 400 * 1024;
+  static const _validationService = EvidenceImageValidationService();
 
   CollectionReference<Map<String, dynamic>> get _collection =>
       _db.collection(collectionName);
@@ -81,6 +85,46 @@ class HazardReportService {
         });
   }
 
+  Future<EvidenceValidationResult> validateEvidence({
+    required Uint8List imageBytes,
+    required String evidenceSource,
+  }) async {
+    final uid = _uid;
+    if (uid == null) throw FirebaseAuthException(code: 'unauthenticated');
+    final fingerprints = await loadEvidenceFingerprintsForUser(uid);
+    return _validationService.validate(
+      bytes: imageBytes,
+      evidenceSource: evidenceSource,
+      existingSha256Fingerprints: fingerprints.sha256,
+      existingPerceptualHashes: fingerprints.perceptual,
+    );
+  }
+
+  Future<EvidenceFingerprints> loadEvidenceFingerprintsForUser(
+    String userId,
+  ) async {
+    // A cache-only result could miss earlier evidence and approve a duplicate.
+    final reports = await _collection
+        .where('userId', isEqualTo: userId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    final priorVotes = await _db
+        .collectionGroup('votes')
+        .where('userId', isEqualTo: userId)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    final sha = <String>{};
+    final perceptual = <String>{};
+    for (final report in [...reports.docs, ...priorVotes.docs]) {
+      final data = report.data();
+      final exact = '${data['evidenceSha256'] ?? ''}'.trim();
+      final similar = '${data['evidencePerceptualHash'] ?? ''}'.trim();
+      if (exact.isNotEmpty) sha.add(exact);
+      if (similar.isNotEmpty) perceptual.add(similar);
+    }
+    return EvidenceFingerprints(sha256: sha, perceptual: perceptual);
+  }
+
   Future<String> createReport({
     required String category,
     required String severity,
@@ -88,14 +132,42 @@ class HazardReportService {
     required double latitude,
     required double longitude,
     Uint8List? imageBytes,
+    String evidenceSource = EvidenceSource.camera,
+    EvidenceValidationResult? evidenceValidation,
   }) async {
     final uid = _uid;
     if (uid == null) {
       throw Exception('Please sign in as a tourist first.');
     }
 
+    if (description.trim().isEmpty ||
+        description.trim().length > 500 ||
+        category.trim().isEmpty ||
+        !['Low', 'Medium', 'High'].contains(severity)) {
+      throw ArgumentError(
+        'Enter a category, severity and description of up to 500 characters.',
+      );
+    }
+    if (!SafetyConfig.validCoordinates(latitude, longitude)) {
+      throw ArgumentError('A valid report location is required.');
+    }
     if (imageBytes == null || imageBytes.isEmpty) {
       throw Exception('Photo evidence is required.');
+    }
+
+    final validation =
+        evidenceValidation ??
+        await validateEvidence(
+          imageBytes: imageBytes,
+          evidenceSource: evidenceSource,
+        );
+    if (!validation.isValid) {
+      throw Exception(validation.touristMessage);
+    }
+    if (validation.duplicateDetected) {
+      throw Exception(
+        'This image appears to have been used previously. Please provide a current photo.',
+      );
     }
 
     final compressedBytes = await compute(compressHazardEvidence, imageBytes);
@@ -125,6 +197,7 @@ class HazardReportService {
         latitude: latitude,
         longitude: longitude,
         hasPhotoEvidence: true,
+        evidenceValidation: validation,
       ),
     );
     batch.set(evidenceRef, {
@@ -133,6 +206,10 @@ class HazardReportService {
       'imageBytes': Blob(compressedBytes),
       'contentType': 'image/jpeg',
       'byteLength': compressedBytes.lengthInBytes,
+      'sourceSha256': validation.sha256Fingerprint,
+      'perceptualHash': validation.perceptualHash,
+      'validationLevel': validation.validationLevel,
+      'evidenceSource': validation.evidenceSource,
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
@@ -146,6 +223,9 @@ class HazardReportService {
     required String adminId,
     required String note,
   }) async {
+    if (_uid == null || _uid != adminId) {
+      throw FirebaseAuthException(code: 'unauthenticated');
+    }
     if (!HazardReportStatus.all.contains(status)) {
       throw ArgumentError.value(status, 'status', 'Unsupported status.');
     }
@@ -160,7 +240,8 @@ class HazardReportService {
       }
 
       final current = HazardReport.fromDoc(currentSnapshot);
-      if (!_isAllowedTransition(current.status, status)) {
+      if (current.status != report.status ||
+          !_isAllowedTransition(current.status, status)) {
         throw Exception(
           'This report can no longer change from ${current.status} to $status.',
         );
@@ -223,6 +304,13 @@ class HazardReportService {
       );
     return reports;
   }
+}
+
+class EvidenceFingerprints {
+  const EvidenceFingerprints({required this.sha256, required this.perceptual});
+
+  final Set<String> sha256;
+  final Set<String> perceptual;
 }
 
 Uint8List compressHazardEvidence(Uint8List sourceBytes) {

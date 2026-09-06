@@ -9,6 +9,7 @@ class AdminPendingReportsTab extends StatefulWidget {
 
 class _AdminPendingReportsTabState extends State<AdminPendingReportsTab> {
   final _reportService = HazardReportService();
+  late final _reportsStream = _reportService.watchPendingReports();
   final Map<String, String> _reporterNames = {};
 
   Future<String> _reporterName(String userId) async {
@@ -31,17 +32,20 @@ class _AdminPendingReportsTabState extends State<AdminPendingReportsTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<HazardReport>>(
-      stream: _reportService.watchPendingReports(),
+      stream: _reportsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return ExplorerEmptyState(
             title: 'Unable to load pending reports',
-            subtitle: '${snapshot.error}',
+            subtitle: friendlySafetyError(
+              snapshot.error,
+              subject: 'pending hazard reports',
+            ),
             icon: Icons.cloud_off_outlined,
           );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const SafetyLoadingState(label: 'Loading pending reports…');
         }
 
         final reports = snapshot.data!;
@@ -65,13 +69,18 @@ class _AdminPendingReportsTabState extends State<AdminPendingReportsTab> {
             return ExplorerCard(
               onTap: () => _openReport(report),
               padding: const EdgeInsets.all(14),
-              borderColor: const Color(0xFFF2D390),
-              child: Row(
+              borderColor: ExplorerColors.border,
+              child: Flex(
+                direction: MediaQuery.sizeOf(context).width < 700
+                    ? Axis.vertical
+                    : Axis.horizontal,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _AdminHazardImage(report: report),
                   const SizedBox(width: 14),
-                  Expanded(
+                  Flexible(
+                    fit: FlexFit.loose,
+                    flex: MediaQuery.sizeOf(context).width < 700 ? 0 : 1,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -104,9 +113,7 @@ class _AdminPendingReportsTabState extends State<AdminPendingReportsTab> {
                             ),
                             _HazardInfo(
                               icon: Icons.place_outlined,
-                              text:
-                                  '${report.latitude.toStringAsFixed(5)}, '
-                                  '${report.longitude.toStringAsFixed(5)}',
+                              text: 'GPS location captured',
                             ),
                             FutureBuilder<String>(
                               future: _reporterName(report.userId),

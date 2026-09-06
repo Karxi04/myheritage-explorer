@@ -1,48 +1,65 @@
 part of '../traveler_pages.dart';
 
-class HazardDetailPage extends StatelessWidget {
+class HazardDetailPage extends StatefulWidget {
   const HazardDetailPage({
     super.key,
     required this.hazardId,
     this.showStatusHistory = false,
+    this.reportService,
   });
 
   final String hazardId;
   final bool showStatusHistory;
+  final HazardReportService? reportService;
+
+  @override
+  State<HazardDetailPage> createState() => _HazardDetailPageState();
+
+  static ExplorerStatusTone _statusTone(String status) =>
+      _HazardDetailPageState._statusTone(status);
+}
+
+class _HazardDetailPageState extends State<HazardDetailPage> {
+  late final reportService = widget.reportService ?? HazardReportService();
+  late Stream<HazardReport?> _stream;
+  @override
+  void initState() {
+    super.initState();
+    _stream = reportService.watchReport(widget.hazardId);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final reportService = HazardReportService();
     final uid = AppServices.auth.currentUser?.uid;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
+      appBar: AppBar(title: const Text('Hazard Details')),
       body: SafeArea(
         child: StreamBuilder<HazardReport?>(
-          stream: reportService.watchReport(hazardId),
+          stream: _stream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return ExplorerEmptyState(
+              return SafetyErrorState(
                 title: 'Unable to load hazard report',
-                subtitle: '${snapshot.error}',
-                icon: Icons.cloud_off_outlined,
+                message: friendlySafetyError(
+                  snapshot.error,
+                  subject: 'this hazard report',
+                ),
+                onRetry: () => setState(
+                  () => _stream = reportService.watchReport(widget.hazardId),
+                ),
               );
             }
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const SafetyLoadingState(label: 'Loading hazard details…');
             }
 
             final report = snapshot.data;
             if (report == null) {
               return Column(
                 children: [
-                  ExplorerPageHeader(
-                    title: 'Hazard Report Details',
-                    leading: IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
-                  ),
                   const Expanded(
                     child: ExplorerEmptyState(
                       title: 'Report not found',
@@ -55,22 +72,38 @@ class HazardDetailPage extends StatelessWidget {
             }
 
             final isOwner = uid != null && report.userId == uid;
-            final displayHistory = showStatusHistory || isOwner;
+            final displayHistory = widget.showStatusHistory || isOwner;
 
             return Column(
               children: [
-                ExplorerPageHeader(
-                  title: 'Hazard Report Details',
-                  subtitle: 'View-only hazard information.',
-                  leading: IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                ),
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                     children: [
+                      if (report.hasPhoto)
+                        ExplorerCard(
+                          padding: EdgeInsets.zero,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: HazardEvidenceImage(
+                              report: report,
+                              width: double.infinity,
+                              height: 220,
+                              fit: BoxFit.cover,
+                              placeholderBuilder: (_) => Container(
+                                height: 180,
+                                color: ExplorerColors.subtle,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    color: ExplorerColors.muted,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (report.hasPhoto) const SizedBox(height: 12),
                       ExplorerCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,30 +152,6 @@ class HazardDetailPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (report.hasPhoto)
-                        ExplorerCard(
-                          padding: EdgeInsets.zero,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: HazardEvidenceImage(
-                              report: report,
-                              width: double.infinity,
-                              height: 200,
-                              fit: BoxFit.cover,
-                              placeholderBuilder: (_) => Container(
-                                height: 160,
-                                color: ExplorerColors.subtle,
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.broken_image_outlined,
-                                    color: ExplorerColors.muted,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (report.hasPhoto) const SizedBox(height: 12),
                       ExplorerCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -169,57 +178,73 @@ class HazardDetailPage extends StatelessWidget {
                           children: [
                             const ExplorerSectionTitle('Location'),
                             const SizedBox(height: 10),
-                            SizedBox(
-                              height: 160,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: fm.FlutterMap(
-                                  options: fm.MapOptions(
-                                    initialCenter: latlng.LatLng(
-                                      report.latitude,
-                                      report.longitude,
+                            if (report.hasValidLocation)
+                              SizedBox(
+                                height: 160,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: fm.FlutterMap(
+                                    options: fm.MapOptions(
+                                      initialCenter: latlng.LatLng(
+                                        report.latitude,
+                                        report.longitude,
+                                      ),
+                                      initialZoom: 15,
+                                      interactionOptions:
+                                          const fm.InteractionOptions(
+                                            flags: fm.InteractiveFlag.none,
+                                          ),
                                     ),
-                                    initialZoom: 15,
-                                    interactionOptions:
-                                        const fm.InteractionOptions(
-                                          flags: fm.InteractiveFlag.none,
+                                    children: [
+                                      fm.TileLayer(
+                                        urlTemplate:
+                                            HazardMapService.osmTileUrl,
+                                        userAgentPackageName:
+                                            'com.myheritage.explorer',
+                                      ),
+                                      const fm.SimpleAttributionWidget(
+                                        source: Text(
+                                          '© OpenStreetMap contributors',
                                         ),
+                                      ),
+                                      fm.MarkerLayer(
+                                        markers: [
+                                          fm.Marker(
+                                            point: latlng.LatLng(
+                                              report.latitude,
+                                              report.longitude,
+                                            ),
+                                            width: 36,
+                                            height: 36,
+                                            child: const Icon(
+                                              Icons.location_on,
+                                              color: ExplorerColors.danger,
+                                              size: 34,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                  children: [
-                                    fm.TileLayer(
-                                      urlTemplate: HazardMapService.osmTileUrl,
-                                      userAgentPackageName:
-                                          'com.myheritage.explorer',
-                                    ),
-                                    fm.MarkerLayer(
-                                      markers: [
-                                        fm.Marker(
-                                          point: latlng.LatLng(
-                                            report.latitude,
-                                            report.longitude,
-                                          ),
-                                          width: 36,
-                                          height: 36,
-                                          child: const Icon(
-                                            Icons.location_on,
-                                            color: ExplorerColors.danger,
-                                            size: 34,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
                                 ),
                               ),
-                            ),
                             const SizedBox(height: 8),
-                            Text(
-                              '${report.latitude.toStringAsFixed(5)}, '
-                              '${report.longitude.toStringAsFixed(5)}',
-                              style: const TextStyle(
-                                color: ExplorerColors.muted,
-                                fontSize: 10,
-                              ),
+                            const Row(
+                              children: [
+                                Icon(
+                                  Icons.location_on_outlined,
+                                  size: 14,
+                                  color: ExplorerColors.muted,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'Approximate report location',
+                                  style: TextStyle(
+                                    color: ExplorerColors.muted,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -331,13 +356,14 @@ class _StatusHistorySection extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
                           children: [
                             ExplorerStatusBadge(
                               label: item.status.toUpperCase(),
                               tone: HazardDetailPage._statusTone(item.status),
                             ),
-                            const Spacer(),
                             if (item.changedAt != null)
                               Text(
                                 DateFormat.yMMMd().add_jm().format(

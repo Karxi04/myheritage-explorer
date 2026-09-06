@@ -14,10 +14,15 @@ class HazardMapService {
 
   static const osmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
+  static List<HazardReport> activeReports(List<HazardReport> reports) => {
+    for (final report in reports)
+      if (report.isVerified && report.hasValidLocation) report.id: report,
+  }.values.toList();
+
   List<CircleMarker> buildDangerZoneCircles({
     required List<HazardReport> reports,
   }) {
-    return reports.map((report) {
+    return activeReports(reports).map((report) {
       final color = severityColor(report.severity);
       return CircleMarker(
         point: LatLng(report.latitude, report.longitude),
@@ -34,7 +39,7 @@ class HazardMapService {
     required List<HazardReport> reports,
     required void Function(HazardReport report) onTap,
   }) {
-    return reports.map((report) {
+    return activeReports(reports).map((report) {
       return Marker(
         point: LatLng(report.latitude, report.longitude),
         width: 52,

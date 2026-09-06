@@ -12,6 +12,22 @@ class MobileNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  ValueChanged<String>? onHazardOpened;
+  String? pendingHazardPayload;
+
+  void _handleTap(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null ||
+        (!payload.startsWith('hazard:') && !payload.startsWith('review:'))) {
+      return;
+    }
+    if (onHazardOpened == null) {
+      pendingHazardPayload = payload;
+    } else {
+      onHazardOpened!(payload);
+    }
+  }
+
   bool _permissionRequested = false;
   int _nextId = DateTime.now().millisecondsSinceEpoch.remainder(1 << 30);
 
@@ -31,8 +47,20 @@ class MobileNotificationService {
         requestSoundPermission: false,
       ),
     );
-    await _plugin.initialize(settings: settings);
-    _initialized = true;
+    try {
+      await _plugin.initialize(
+        settings: settings,
+        onDidReceiveNotificationResponse: _handleTap,
+      );
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp == true &&
+          launch?.notificationResponse != null) {
+        _handleTap(launch!.notificationResponse!);
+      }
+      _initialized = true;
+    } catch (error, stack) {
+      debugPrint('Safety notifications unavailable: $error\n$stack');
+    }
   }
 
   Future<void> requestPermissions() async {
@@ -122,7 +150,7 @@ class MobileNotificationService {
       title: 'Danger zone nearby',
       body: body,
       notificationDetails: NotificationDetails(android: android, iOS: darwin),
-      payload: 'hazard:${report.id}',
+      payload: 'review:${report.id}',
     );
   }
 

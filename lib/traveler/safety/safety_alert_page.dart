@@ -5,65 +5,176 @@ class SafetyAlertPage extends StatefulWidget {
     super.key,
     required this.hazardId,
     required this.distanceMeters,
+    this.reportService,
+    this.voteService,
+    this.locationService,
   });
 
   final String hazardId;
   final double distanceMeters;
+  final HazardReportService? reportService;
+  final HazardVoteService? voteService;
+  final LocationService? locationService;
 
   @override
   State<SafetyAlertPage> createState() => _SafetyAlertPageState();
 }
 
 class _SafetyAlertPageState extends State<SafetyAlertPage> {
-  final _reportService = HazardReportService();
-  final _voteService = HazardVoteService();
+  late final _reportService = widget.reportService ?? HazardReportService();
+  late final _voteService = widget.voteService ?? HazardVoteService();
   final _confidenceService = const ConfidenceAnalysisService();
-  final _locationService = const LocationService();
+  late final _locationService =
+      widget.locationService ?? const LocationService();
   bool voting = false;
   bool _locating = false;
   double? _validatedDistance;
   Uint8List? _photoBytes;
+  EvidenceValidationResult? _photoValidation;
+  String? _photoCheckError;
+  bool _validatingPhoto = false;
   String? _locatedHazardId;
+  bool _pickingPhoto = false;
+  String _evidenceSource = EvidenceSource.camera;
+  Timer? _analysisTimer;
+  late Stream<HazardReport?> _reportStream;
+  late Stream<List<HazardVote>> _voteStream;
 
-  String get _proximityBand {
-    final distance = _validatedDistance ?? double.infinity;
-    if (distance <= SafetyConfig.strongProximityMeters) return 'STRONG';
-    if (distance <= SafetyConfig.normalProximityMeters) return 'NORMAL';
-    if (distance <= SafetyConfig.maxHazardConfirmationDistanceMeters) return 'WEAK';
-    return 'OUTSIDE';
+  @override
+  void initState() {
+    super.initState();
+    _reportStream = _reportService.watchReport(widget.hazardId);
+    _voteStream = _voteService.watchVotes(widget.hazardId);
+    _analysisTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
+
+  @override
+  void dispose() {
+    _analysisTimer?.cancel();
+    super.dispose();
+  }
+
+  String get _proximityBand =>
+      SafetyConfig.proximityBand(_validatedDistance ?? double.infinity);
 
   Future<void> _validateLocation(HazardReport report) async {
     if (_locating) return;
-    setState(() => _locating = true);
+    if (!mounted) return;
+    setState(() {
+      _locating = true;
+      _validatedDistance = null;
+    });
     try {
       final position = await _locationService.getCurrentPosition();
       final distance = _locationService.distanceBetween(
-        startLatitude: position.latitude, startLongitude: position.longitude,
-        endLatitude: report.latitude, endLongitude: report.longitude,
+        startLatitude: position.latitude,
+        startLongitude: position.longitude,
+        endLatitude: report.latitude,
+        endLongitude: report.longitude,
       );
       if (mounted) setState(() => _validatedDistance = distance);
-    } catch (error) {
-      if (mounted) showMessage(context, error.toString().replaceFirst('Exception: ', ''), error: true);
+    } catch (_) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Your location could not be validated. Check location access and try again.',
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
   }
 
-  Future<void> _pickPhoto() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 72, maxWidth: 1600);
-    if (image == null) return;
-    final bytes = await image.readAsBytes();
-    if (mounted) setState(() => _photoBytes = bytes);
+  /// Camera-only photo capture for vote evidence.
+  Future<void> _takePhoto([ImageSource source = ImageSource.camera]) async {
+    if (_validatingPhoto || voting || _pickingPhoto) return;
+    setState(() => _pickingPhoto = true);
+    try {
+      final image = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 90,
+        maxWidth: 2000,
+        maxHeight: 2000,
+      );
+      if (image == null) return;
+      final bytes = await image.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _photoBytes = bytes;
+        _evidenceSource = source == ImageSource.camera
+            ? EvidenceSource.camera
+            : EvidenceSource.gallery;
+      });
+      await _checkPhoto();
+    } catch (error, stack) {
+      debugPrint('Vote photo capture failed: $error\n$stack');
+      if (mounted) {
+        showMessage(
+          context,
+          'Could not open or read the camera photo. Check camera access and try again.',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingPhoto = false);
+    }
+  }
+
+  Future<void> _checkPhoto() async {
+    final bytes = _photoBytes;
+    if (bytes == null || _validatingPhoto || voting) return;
+    setState(() {
+      _photoValidation = null;
+      _photoCheckError = null;
+      _validatingPhoto = true;
+    });
+    try {
+      final validation = await _voteService.validateEvidence(
+        imageBytes: bytes,
+        evidenceSource: _evidenceSource,
+      );
+      if (mounted) setState(() => _photoValidation = validation);
+    } catch (error, stack) {
+      debugPrint('Vote evidence check failed: $error\n$stack');
+      if (mounted) {
+        setState(() => _photoCheckError = friendlyEvidenceCheckError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _validatingPhoto = false);
+    }
+  }
+
+  void _removePhoto() {
+    if (_validatingPhoto || voting) return;
+    setState(() {
+      _photoBytes = null;
+      _photoValidation = null;
+      _photoCheckError = null;
+      _validatingPhoto = false;
+    });
   }
 
   String _formatDistance(double meters) {
+    if (!meters.isFinite) return 'Distance unavailable';
     if (meters < 1000) return '${meters.round()} m away';
     return '${(meters / 1000).toStringAsFixed(1)} km away';
   }
 
   Future<void> _submitVote(String voteType) async {
-    if (voting) return;
+    if (voting || _locating || _pickingPhoto || _validatingPhoto) return;
+    if (_photoBytes != null && _photoValidation?.canSubmit != true) {
+      showMessage(
+        context,
+        _photoCheckError ??
+            _photoValidation?.touristMessage ??
+            'Wait for the evidence quality check to finish.',
+        error: true,
+      );
+      return;
+    }
     setState(() => voting = true);
     try {
       final uid = AppServices.auth.currentUser?.uid;
@@ -78,7 +189,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Confirm vote'),
+          title: const Text('Confirm current condition'),
           content: Text(
             voteType == HazardVoteType.hazardExists
                 ? 'Confirm that this hazard still exists?'
@@ -91,28 +202,47 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Submit vote'),
+              child: const Text('Submit confirmation'),
             ),
           ],
         ),
       );
       if (confirmed != true || !mounted) return;
 
+      final currentReport = await _reportService.getReport(widget.hazardId);
+      if (currentReport == null || !currentReport.isVerified) {
+        if (mounted) {
+          showMessage(
+            context,
+            'This hazard is no longer active. Refresh to see its latest status.',
+          );
+        }
+        return;
+      }
+      await _validateLocation(currentReport);
+      if (!mounted || _proximityBand == 'OUTSIDE') return;
       await _voteService.submitVote(
         hazardId: widget.hazardId,
         voteType: voteType,
         distanceFromHazardMeters: _validatedDistance!,
         proximityBand: _proximityBand,
         photoBytes: _photoBytes,
+        evidenceSource: _evidenceSource,
+        evidenceValidation: _photoValidation,
       );
       if (mounted) {
-        showMessage(context, 'Your vote was recorded. Thank you!');
+        showMessage(context, 'Your confirmation was recorded. Thank you!');
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Hazard confirmation failed: $e\n$stack');
       if (mounted) {
         showMessage(
           context,
-          e.toString().replaceFirst('Exception: ', ''),
+          friendlySafetyActionError(
+            e,
+            fallback:
+                'Your confirmation could not be submitted. Refresh the report and try again.',
+          ),
           error: true,
         );
       }
@@ -125,19 +255,30 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ExplorerColors.background,
+      appBar: AppBar(title: const Text('Review Safety Alert')),
       body: SafeArea(
         child: StreamBuilder<HazardReport?>(
-          stream: _reportService.watchReport(widget.hazardId),
+          stream: _reportStream,
           builder: (context, reportSnapshot) {
             if (reportSnapshot.hasError) {
-              return ExplorerEmptyState(
+              return SafetyErrorState(
                 title: 'Unable to load safety alert',
-                subtitle: '${reportSnapshot.error}',
-                icon: Icons.cloud_off_outlined,
+                message: friendlySafetyError(
+                  reportSnapshot.error,
+                  subject: 'this safety alert',
+                ),
+                onRetry: () => setState(
+                  () => _reportStream = _reportService.watchReport(
+                    widget.hazardId,
+                  ),
+                ),
               );
             }
-            if (!reportSnapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
+            if (reportSnapshot.connectionState == ConnectionState.waiting &&
+                !reportSnapshot.hasData) {
+              return const SafetyLoadingState(
+                label: 'Preparing the safety alert…',
+              );
             }
             final report = reportSnapshot.data;
             if (report == null) {
@@ -149,55 +290,67 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
             }
             if (_locatedHazardId != report.id) {
               _locatedHazardId = report.id;
-              WidgetsBinding.instance.addPostFrameCallback((_) => _validateLocation(report));
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => _validateLocation(report),
+              );
             }
 
             return StreamBuilder<List<HazardVote>>(
-              stream: _voteService.watchVotes(widget.hazardId),
+              stream: _voteStream,
               builder: (context, voteSnapshot) {
                 if (voteSnapshot.hasError) {
-                  return ExplorerEmptyState(
+                  return SafetyErrorState(
                     title: 'Unable to load community votes',
-                    subtitle: '${voteSnapshot.error}',
-                    icon: Icons.cloud_off_outlined,
+                    message: friendlySafetyError(
+                      voteSnapshot.error,
+                      subject: 'community confirmations',
+                    ),
+                    onRetry: () => setState(
+                      () => _voteStream = _voteService.watchVotes(
+                        widget.hazardId,
+                      ),
+                    ),
                   );
                 }
                 final votes = voteSnapshot.data ?? const [];
                 final analysis = _confidenceService.analyze(votes);
+                final priority = const SafetyAlertPriorityService().calculate(
+                  severity: report.severity,
+                  distanceMeters:
+                      (_validatedDistance ?? widget.distanceMeters).isFinite
+                      ? (_validatedDistance ?? widget.distanceMeters)
+                      : SafetyConfig.detectionRadiusMeters,
+                  existsConfirmationScore: analysis.totalRecentVotes == 0
+                      ? null
+                      : analysis.recentExistsConfirmationScore,
+                );
+                final tone = _priorityTone(priority.priorityLevel);
                 final uid = AppServices.auth.currentUser?.uid;
                 final userHasVoted =
                     uid != null && votes.any((vote) => vote.userId == uid);
 
                 return Column(
                   children: [
-                    ExplorerPageHeader(
-                      title: 'Review Safety Alert',
-                      subtitle:
-                          'Share community feedback without changing official status.',
-                      leading: IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                    ),
                     Expanded(
                       child: ListView(
                         padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                         children: [
+                          // Distance alert banner
                           ExplorerCard(
-                            backgroundColor: ExplorerColors.dangerSoft,
-                            borderColor: ExplorerColors.danger,
+                            backgroundColor: tone.$2,
+                            borderColor: tone.$1,
                             child: Row(
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.warning_amber_rounded,
-                                  color: ExplorerColors.danger,
+                                  color: tone.$1,
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    'You are approximately '
-                                    '${_formatDistance(_validatedDistance ?? widget.distanceMeters)} '
-                                    'from this verified hazard.',
+                                    report.isVerified
+                                        ? '${priority.priorityLevel} priority • ${_formatDistance(_validatedDistance ?? widget.distanceMeters)}'
+                                        : 'This report is ${report.status}. Confirmations are closed.',
                                     style: const TextStyle(
                                       color: ExplorerColors.navy,
                                       fontSize: 12,
@@ -232,12 +385,15 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                             ),
                           ],
                           const SizedBox(height: 12),
+                          // Community status card
                           ExplorerCard(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const ExplorerSectionTitle(
-                                  'Community Vote Results',
+                                  'Community Status',
+                                  subtitle:
+                                      'Location-validated updates from nearby travellers.',
                                 ),
                                 const SizedBox(height: 12),
                                 Row(
@@ -265,8 +421,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                                 Text(
                                   '${analysis.totalRecentVotes} votes in the last '
                                   '${SafetyConfig.recentVoteWindow.inMinutes} minutes. '
-                                  'Recent resolution confidence: '
-                                  '${analysis.confidencePercent.toStringAsFixed(1)}%.',
+                                  'Official status changes remain an administrator decision.',
                                   style: const TextStyle(
                                     color: ExplorerColors.muted,
                                     fontSize: 10,
@@ -277,31 +432,42 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                           ),
                           if (report.status == HazardReportStatus.verified) ...[
                             const SizedBox(height: 12),
+                            EvidencePickerCard(
+                              imageBytes: _photoBytes,
+                              validation: _photoValidation,
+                              validating: _validatingPhoto,
+                              checkError: _photoCheckError,
+                              onRetry: _checkPhoto,
+                              onCamera: _takePhoto,
+                              onGallery: () => _takePhoto(ImageSource.gallery),
+                              enabled: !voting && !_pickingPhoto,
+                              onRemove: _removePhoto,
+                            ),
+                            const SizedBox(height: 12),
                             ExplorerCard(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const ExplorerSectionTitle(
-                                    'Cast Your Vote',
+                                    'Your Confirmation',
                                     subtitle:
                                         'Your vote does not change the official hazard status.',
                                   ),
                                   const SizedBox(height: 12),
-                                  Text(_locating
-                                      ? 'Validating your GPS location...'
-                                      : _validatedDistance == null
-                                          ? 'GPS validation is required before voting.'
-                                          : 'GPS proximity: $_proximityBand'),
-                                  const SizedBox(height: 10),
-                                  OutlinedButton.icon(
-                                    onPressed: voting ? null : _pickPhoto,
-                                    icon: const Icon(Icons.add_a_photo_outlined),
-                                    label: Text(_photoBytes == null ? 'Add Current Photo - Optional' : 'Current Photo Added'),
+                                  _ProximityStatusBadge(
+                                    locating: _locating,
+                                    validatedDistance: _validatedDistance,
+                                    proximityBand: _proximityBand,
                                   ),
-                                  const SizedBox(height: 10),
-                                  if ((_validatedDistance ?? double.infinity) > SafetyConfig.maxHazardConfirmationDistanceMeters)
-                                    const Text('You need to be closer to this hazard to provide a location-validated status confirmation.', style: TextStyle(color: ExplorerColors.danger, fontWeight: FontWeight.w700)),
-                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: voting || _locating
+                                        ? null
+                                        : () => _validateLocation(report),
+                                    icon: const Icon(Icons.my_location),
+                                    label: const Text('Refresh location'),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (voting) const LinearProgressIndicator(),
                                   if (userHasVoted) ...[
                                     const ExplorerStatusBadge(
                                       label: 'VOTE ALREADY SUBMITTED',
@@ -309,36 +475,60 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                                     ),
                                     const SizedBox(height: 10),
                                   ],
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: voting || userHasVoted || _validatedDistance == null || _validatedDistance! > SafetyConfig.maxHazardConfirmationDistanceMeters
-                                              ? null
-                                              : () => _submitVote(
-                                                  HazardVoteType.hazardExists,
-                                                ),
-                                          icon: const Icon(
-                                            Icons.thumb_up_outlined,
-                                          ),
-                                          label: const Text('Still Exists'),
-                                        ),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed:
+                                          voting ||
+                                              _locating ||
+                                              _pickingPhoto ||
+                                              userHasVoted ||
+                                              _validatingPhoto ||
+                                              (_photoBytes != null &&
+                                                  _photoValidation?.canSubmit !=
+                                                      true) ||
+                                              _validatedDistance == null ||
+                                              _validatedDistance! >
+                                                  SafetyConfig
+                                                      .maxHazardConfirmationDistanceMeters
+                                          ? null
+                                          : () => _submitVote(
+                                              HazardVoteType.hazardExists,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.warning_amber_rounded,
                                       ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: FilledButton.icon(
-                                          onPressed: voting || userHasVoted || _validatedDistance == null || _validatedDistance! > SafetyConfig.maxHazardConfirmationDistanceMeters
-                                              ? null
-                                              : () => _submitVote(
-                                                  HazardVoteType.hazardResolved,
-                                                ),
-                                          icon: const Icon(
-                                            Icons.check_circle_outline,
-                                          ),
-                                          label: const Text('Resolved'),
-                                        ),
+                                      label: const Text('Hazard Still Exists'),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: FilledButton.icon(
+                                      onPressed:
+                                          voting ||
+                                              _locating ||
+                                              _pickingPhoto ||
+                                              userHasVoted ||
+                                              _validatingPhoto ||
+                                              (_photoBytes != null &&
+                                                  _photoValidation?.canSubmit !=
+                                                      true) ||
+                                              _validatedDistance == null ||
+                                              _validatedDistance! >
+                                                  SafetyConfig
+                                                      .maxHazardConfirmationDistanceMeters
+                                          ? null
+                                          : () => _submitVote(
+                                              HazardVoteType.hazardResolved,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.check_circle_outline,
                                       ),
-                                    ],
+                                      label: const Text(
+                                        'Hazard Appears Resolved',
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -357,6 +547,80 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+
+class _ProximityStatusBadge extends StatelessWidget {
+  const _ProximityStatusBadge({
+    required this.locating,
+    required this.validatedDistance,
+    required this.proximityBand,
+  });
+
+  final bool locating;
+  final double? validatedDistance;
+  final String proximityBand;
+
+  @override
+  Widget build(BuildContext context) {
+    final tooFar =
+        (validatedDistance ?? double.infinity) >
+        SafetyConfig.maxHazardConfirmationDistanceMeters;
+    final color = locating
+        ? ExplorerColors.navy
+        : tooFar
+        ? ExplorerColors.danger
+        : ExplorerColors.success;
+    final bg = locating
+        ? ExplorerColors.navySoft
+        : tooFar
+        ? ExplorerColors.dangerSoft
+        : ExplorerColors.successSoft;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          if (locating)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Icon(
+              tooFar ? Icons.location_off_outlined : Icons.my_location_rounded,
+              color: color,
+              size: 18,
+            ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              locating
+                  ? 'Validating your GPS location...'
+                  : validatedDistance == null
+                  ? 'GPS validation is required before voting.'
+                  : tooFar
+                  ? 'Move closer to this hazard to submit a location-verified vote.'
+                  : "You're close enough to provide a location-verified update.",
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _HazardSummaryCard extends StatelessWidget {
   const _HazardSummaryCard({required this.report});
@@ -397,9 +661,13 @@ class _HazardSummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Severity: ${report.severity}',
-            style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
+          ExplorerStatusBadge(
+            label: '${report.severity.toUpperCase()} SEVERITY',
+            tone: report.severity == 'High'
+                ? ExplorerStatusTone.danger
+                : report.severity == 'Medium'
+                ? ExplorerStatusTone.warning
+                : ExplorerStatusTone.success,
           ),
         ],
       ),
@@ -413,6 +681,8 @@ class _HazardSummaryCard extends StatelessWidget {
     _ => ExplorerStatusTone.warning,
   };
 }
+
+// ---------------------------------------------------------------------------
 
 class _VoteStat extends StatelessWidget {
   const _VoteStat({

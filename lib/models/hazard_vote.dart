@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/helpers.dart';
+import 'evidence_validation_result.dart';
 
 abstract final class HazardVoteType {
   static const hazardExists = 'HAZARD_EXISTS';
@@ -19,6 +20,8 @@ class HazardVote {
     this.photoUrl,
     required this.hasPhotoEvidence,
     this.evidenceStorage = 'none',
+    this.evidenceValidation,
+    this.sceneMatchScore,
   });
 
   final String id;
@@ -31,6 +34,19 @@ class HazardVote {
   final String? photoUrl;
   final bool hasPhotoEvidence;
   final String evidenceStorage;
+  final EvidenceValidationResult? evidenceValidation;
+
+  /// Perceptual-hash similarity score [0,1] comparing this vote's evidence
+  /// photo against the original hazard creation photo.
+  final double? sceneMatchScore;
+
+  bool get hasReliablePhotoEvidence =>
+      hasPhotoEvidence && evidenceValidation?.earnsEvidenceBonus == true;
+
+  /// True when the vote photo strongly matches the original hazard scene.
+  bool get hasSceneMatchedEvidence =>
+      hasReliablePhotoEvidence &&
+      (sceneMatchScore ?? evidenceValidation?.sceneMatchScore ?? 0) >= 0.7;
 
   factory HazardVote.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
@@ -46,7 +62,16 @@ class HazardVote {
       isGpsValidated: data['isGpsValidated'] == true,
       photoUrl: data['photoUrl'] as String?,
       hasPhotoEvidence: data['hasPhotoEvidence'] == true,
-      evidenceStorage: '${data['evidenceStorage'] ?? (data['hasPhotoEvidence'] == true ? 'legacy' : 'none')}',
+      evidenceStorage:
+          '${data['evidenceStorage'] ?? (data['hasPhotoEvidence'] == true ? 'legacy' : 'none')}',
+      evidenceValidation: data['evidenceValidationResult'] is Map
+          ? EvidenceValidationResult.fromMap(
+              Map<String, dynamic>.from(
+                data['evidenceValidationResult'] as Map,
+              ),
+            )
+          : null,
+      sceneMatchScore: (data['sceneMatchScore'] as num?)?.toDouble(),
     );
   }
 
@@ -58,6 +83,8 @@ class HazardVote {
     String? photoUrl,
     bool hasPhotoEvidence = false,
     String evidenceStorage = 'none',
+    EvidenceValidationResult? evidenceValidation,
+    double? sceneMatchScore,
   }) {
     return {
       'userId': userId,
@@ -69,6 +96,13 @@ class HazardVote {
       'photoUrl': photoUrl ?? '',
       'hasPhotoEvidence': hasPhotoEvidence,
       'evidenceStorage': evidenceStorage,
+      if (evidenceValidation != null) ...{
+        'evidenceValidationResult': evidenceValidation.toMap(),
+        'evidenceSha256': evidenceValidation.sha256Fingerprint,
+        'evidencePerceptualHash': evidenceValidation.perceptualHash,
+        'evidenceSource': evidenceValidation.evidenceSource,
+      },
+      'sceneMatchScore': ?sceneMatchScore,
     };
   }
 

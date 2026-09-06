@@ -27,11 +27,49 @@ service cloud.firestore {
       return value in ['HAZARD_EXISTS', 'HAZARD_RESOLVED'];
     }
 
+    function validOptionalSceneMatch(data) {
+      return !('sceneMatchScore' in data)
+        || (data.sceneMatchScore is number
+          && data.sceneMatchScore >= 0
+          && data.sceneMatchScore <= 1);
+    }
+
+    function validEvidenceValidation(value) {
+      return value is map
+        && validOptionalSceneMatch(value)
+        && value.isValid == true
+        && value.duplicateDetected == false
+        && value.evidenceSource in ['CAMERA', 'GALLERY']
+        && value.semanticValidationAvailable == false
+        && value.validationLevel in [
+          'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+        ]
+        && value.qualityScore is number
+        && value.qualityScore >= 0
+        && value.qualityScore <= 1
+        && value.overallEvidenceScore is number
+        && value.overallEvidenceScore >= 0
+        && value.overallEvidenceScore <= 1
+        && value.sha256Fingerprint is string
+        && value.sha256Fingerprint.matches('^[0-9a-f]{64}$')
+        && value.perceptualHash is string
+        && value.perceptualHash.matches('^[0-9a-fA-F]{16}$')
+        && value.warnings is list;
+    }
+
     function canReadHazard(hazardId) {
       let hazard = get(/databases/$(database)/documents/hazard_reports/$(hazardId));
       return isAdmin()
         || (signedIn() && hazard.data.userId == request.auth.uid)
         || (signedIn() && hazard.data.status == 'Verified');
+    }
+
+    // Required for collectionGroup('votes').where('userId', isEqualTo: uid).
+    // A nested hazard match alone cannot authorize a collection-group query.
+    // Only the caller's own vote metadata can be listed. No write access or
+    // access to evidence subdocuments is granted by this rule.
+    match /{path=**}/votes/{voteId} {
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /hazard_reports/{hazardId} {
@@ -40,20 +78,45 @@ service cloud.firestore {
         || (signedIn() && resource.data.status == 'Verified');
 
       allow create: if isActiveTraveler()
+        && request.resource.data.keys().hasOnly([
+          'hazardId', 'userId', 'category', 'severity', 'description', 'imageUrl',
+          'hasPhotoEvidence', 'evidenceStorage', 'evidenceValidationResult',
+          'evidenceSha256', 'evidencePerceptualHash', 'evidenceSource',
+          'latitude', 'longitude', 'status', 'statusHistory', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.hazardId == hazardId
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.status == 'Pending Review'
-        && request.resource.data.category is string
+        && request.resource.data.category in ['Unsafe walkway', 'Poor lighting', 'Road obstruction', 'Flooding', 'Suspicious activity', 'Other']
         && request.resource.data.severity in ['Low', 'Medium', 'High']
         && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 500
         && request.resource.data.imageUrl is string
         && request.resource.data.hasPhotoEvidence == true
         && request.resource.data.evidenceStorage == 'firestore'
+        && validEvidenceValidation(
+          request.resource.data.evidenceValidationResult
+        )
+        && request.resource.data.evidenceSha256 is string
+        && request.resource.data.evidencePerceptualHash is string
+        && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
         && request.resource.data.latitude is number
-        && request.resource.data.longitude is number;
+        && request.resource.data.longitude is number
+        && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+        && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
+        && request.resource.data.evidenceSha256 == request.resource.data.evidenceValidationResult.sha256Fingerprint
+        && request.resource.data.evidencePerceptualHash == request.resource.data.evidenceValidationResult.perceptualHash
+        && request.resource.data.evidenceSource == request.resource.data.evidenceValidationResult.evidenceSource
+        && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256;
 
       allow update: if isAdmin()
         && validStatus(request.resource.data.status)
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'reviewedBy', 'reviewedAt', 'updatedAt', 'statusHistory'
         ])
@@ -73,7 +136,8 @@ service cloud.firestore {
           && isActiveTraveler()
           && request.resource.data.keys().hasOnly([
             'hazardId', 'userId', 'imageBytes', 'contentType',
-            'byteLength', 'createdAt'
+            'byteLength', 'sourceSha256', 'perceptualHash',
+            'validationLevel', 'evidenceSource', 'createdAt'
           ])
           && request.resource.data.hazardId == hazardId
           && request.resource.data.userId == request.auth.uid
@@ -82,30 +146,68 @@ service cloud.firestore {
           && request.resource.data.byteLength
             == request.resource.data.imageBytes.size()
           && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.sourceSha256 is string
+          && request.resource.data.perceptualHash is string
+          && request.resource.data.validationLevel in [
+            'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+          ]
+          && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
           && request.resource.data.createdAt == request.time
           && getAfter(
             /databases/$(database)/documents/hazard_reports/$(hazardId)
           ).data.userId == request.auth.uid
           && getAfter(
             /databases/$(database)/documents/hazard_reports/$(hazardId)
-          ).data.hasPhotoEvidence == true;
+          ).data.hasPhotoEvidence == true
+          && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.evidenceSha256 == request.resource.data.sourceSha256
+          && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.evidencePerceptualHash == request.resource.data.perceptualHash;
 
         allow update, delete: if false;
       }
 
       match /votes/{userId} {
-        allow read: if canReadHazard(hazardId);
+        allow read: if (signedIn() && resource.data.userId == request.auth.uid)
+          || canReadHazard(hazardId);
         allow create: if isActiveTraveler()
+          && request.resource.data.keys().hasOnly([
+            'userId', 'voteType', 'createdAt', 'distanceFromHazardMeters',
+            'proximityBand', 'isGpsValidated', 'photoUrl', 'hasPhotoEvidence',
+            'evidenceStorage', 'evidenceValidationResult', 'evidenceSha256',
+            'evidencePerceptualHash', 'evidenceSource', 'sceneMatchScore'
+          ])
+          && request.resource.data.createdAt == request.time
           && userId == request.auth.uid
           && request.resource.data.userId == request.auth.uid
           && validVote(request.resource.data.voteType)
+          && validOptionalSceneMatch(request.resource.data)
           && request.resource.data.distanceFromHazardMeters is number
           && request.resource.data.distanceFromHazardMeters >= 0
           && request.resource.data.distanceFromHazardMeters <= 500
-          && request.resource.data.proximityBand in ['STRONG', 'NORMAL', 'WEAK']
+          && request.resource.data.proximityBand == (
+            request.resource.data.distanceFromHazardMeters <= 100 ? 'STRONG' :
+            request.resource.data.distanceFromHazardMeters <= 300 ? 'NORMAL' : 'WEAK')
           && request.resource.data.isGpsValidated == true
           && request.resource.data.hasPhotoEvidence is bool
           && request.resource.data.photoUrl is string
+          && (
+            (request.resource.data.hasPhotoEvidence == false
+              && request.resource.data.evidenceStorage == 'none'
+              && !('evidenceValidationResult' in request.resource.data)
+              && !('sceneMatchScore' in request.resource.data))
+            || (
+              request.resource.data.evidenceStorage == 'firestore'
+              && validEvidenceValidation(
+                request.resource.data.evidenceValidationResult
+              )
+              && request.resource.data.evidenceSha256 is string
+              && request.resource.data.evidencePerceptualHash is string
+              && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
+              && request.resource.data.evidenceSha256 == request.resource.data.evidenceValidationResult.sha256Fingerprint
+              && request.resource.data.evidencePerceptualHash == request.resource.data.evidenceValidationResult.perceptualHash
+              && request.resource.data.evidenceSource == request.resource.data.evidenceValidationResult.evidenceSource
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256
+            )
+          )
           && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified';
         allow update, delete: if false;
 
@@ -116,8 +218,10 @@ service cloud.firestore {
             && userId == request.auth.uid
             && request.resource.data.keys().hasOnly([
               'hazardId', 'userId', 'imageBytes', 'contentType',
-              'byteLength', 'createdAt'
+              'byteLength', 'sourceSha256', 'perceptualHash',
+              'validationLevel', 'evidenceSource', 'sceneMatchScore', 'createdAt'
             ])
+            && validOptionalSceneMatch(request.resource.data)
             && request.resource.data.hazardId == hazardId
             && request.resource.data.userId == request.auth.uid
             && request.resource.data.imageBytes is bytes
@@ -125,10 +229,19 @@ service cloud.firestore {
             && request.resource.data.byteLength
               == request.resource.data.imageBytes.size()
             && request.resource.data.contentType == 'image/jpeg'
+            && request.resource.data.sourceSha256 is string
+            && request.resource.data.perceptualHash is string
+            && request.resource.data.validationLevel in [
+              'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+            ]
+            && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
             && request.resource.data.createdAt == request.time
             && get(
               /databases/$(database)/documents/hazard_reports/$(hazardId)
-            ).data.status == 'Verified';
+            ).data.status == 'Verified'
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.hasPhotoEvidence == true
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.evidenceSha256 == request.resource.data.sourceSha256
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.evidencePerceptualHash == request.resource.data.perceptualHash;
           allow update, delete: if false;
         }
       }
@@ -141,7 +254,9 @@ service cloud.firestore {
         && request.resource.data.notificationId == notificationId
         && request.resource.data.type == 'hazard_status'
         && request.resource.data.hazardId is string
-        && request.resource.data.isRead == false;
+        && request.resource.data.isRead == false
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/hazard_reports/$(request.resource.data.hazardId)).data.userId == request.resource.data.userId;
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
