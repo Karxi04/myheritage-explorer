@@ -329,7 +329,7 @@ class _AdminTopBar extends StatelessWidget {
           PopupMenuButton<String>(
             tooltip: 'Account menu',
             onSelected: (value) {
-              if (value == 'logout') AppServices.auth.signOut();
+              if (value == 'logout') AppServices.signOut();
             },
             itemBuilder: (_) => const [
               PopupMenuItem(

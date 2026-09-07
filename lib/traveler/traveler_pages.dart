@@ -31,6 +31,7 @@ import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
 import '../core/services.dart';
+import '../core/pin_service.dart';
 
 // AI is isolated in this service.
 import '../core/ai_chat_service.dart';

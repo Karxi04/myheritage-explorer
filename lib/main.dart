@@ -13,12 +13,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'auth/auth_gate.dart';
+import 'auth/auth_pages.dart';
 import 'core/app_theme.dart';
+import 'core/helpers.dart';
 import 'core/notification_service.dart';
+import 'core/services.dart';
 import 'firebase_options.dart';
 import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
 
+const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
+const _deepLinkEventChannel = EventChannel(
+  'myheritage_explorer/deep_link_events',
+);
 final GlobalKey<NavigatorState> navigatorKey =
 GlobalKey<NavigatorState>();
 
@@ -236,7 +243,18 @@ class _AppEntryState extends State<_AppEntry> {
   }
 
   void _handleIncomingDeepLink(Object? value) {
-    final target = _targetFromRawLink(value);
+    final raw = '${value ?? ''}'.trim();
+    if (raw.isEmpty) return;
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return;
+
+    // Handle Firebase Auth Action Links (e.g. recoverEmail)
+    if (uri.path.contains('/__/auth/action') || uri.queryParameters.containsKey('oobCode')) {
+      AppServices.handleAuthActionLink(uri);
+      return;
+    }
+
+    final target = _sharedLinkTargetFromUri(uri);
     if (target == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final navigator = appNavigatorKey.currentState;

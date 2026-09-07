@@ -87,6 +87,7 @@ class AppTheme {
         filled: true,
         fillColor: ExplorerColors.surface,
         contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        errorMaxLines: 3,
         labelStyle: TextStyle(
           color: ExplorerColors.muted,
           fontSize: 13,

@@ -6,6 +6,7 @@ import '../admin/admin_shell.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
+import '../core/pin_service.dart';
 import '../traveler/traveler_shell.dart';
 import '../vendor/vendor_shell.dart';
 import 'auth_pages.dart';

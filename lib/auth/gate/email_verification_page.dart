@@ -116,7 +116,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
               title: const Text('Email Verification'),
               actions: [
                 TextButton(
-                  onPressed: AppServices.auth.signOut,
+                  onPressed: AppServices.signOut,
                   child: const Text('Sign out'),
                 ),
               ],
@@ -194,7 +194,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                   ),
                   const SizedBox(height: 4),
                   TextButton.icon(
-                    onPressed: AppServices.auth.signOut,
+                    onPressed: AppServices.signOut,
                     icon: const Icon(Icons.logout, size: 17),
                     label: const Text('Use another account'),
                   ),

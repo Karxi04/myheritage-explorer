@@ -39,33 +39,38 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
 
     setState(() => busy = true);
     try {
+      final user = AppServices.auth.currentUser!;
+      final oldEmail = user.email!;
+
       // 1. Re-authenticate (Required for email updates)
       await AppServices.reauthenticate(password.text);
 
-      // 2. Send verification to new email
-      // This triggers the "Email address change" template flow
-      await AppServices.auth.currentUser!.verifyBeforeUpdateEmail(emailValue);
+      // Get account to know which profile to update
+      final account = await AppServices.currentAccountProfile();
+      if (account == null) throw Exception('Your profile could not be found.');
+
+      // 2. Update Firestore flag to track the pending change
+      await AppServices.profileRefForRole(user.uid, account.role).update({
+        'emailChangePending': true,
+        'pendingEmail': emailValue,
+        'oldEmail': oldEmail,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. Send verification to new email
+      await user.verifyBeforeUpdateEmail(emailValue);
+
+      // 4. Force logout as requested
+      await AppServices.signOut();
 
       if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('Verification Sent'),
-            content: Text(
-              'A verification link has been sent to $emailValue. '
-              'The email address for your account will update once you click the link in that email.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Close dialog
-                  Navigator.pop(context); // Go back to profile
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          ),
+        showGlobalNotice(
+          title: 'Verification Sent',
+          message: 'A verification link has been sent to $emailValue. You have been signed out for security. Please verify the link in your inbox before signing in again with your new email.',
+          buttonText: 'Got it',
+          onConfirm: () {
+            Navigator.popUntil(context, (route) => route.isFirst);
+          },
         );
       }
     } on FirebaseAuthException catch (e) {
