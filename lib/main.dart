@@ -19,62 +19,66 @@ import 'firebase_options.dart';
 import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
 
-final appNavigatorKey = GlobalKey<NavigatorState>();
-const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
-const _deepLinkEventChannel = EventChannel(
-  'myheritage_explorer/deep_link_events',
-);
+final GlobalKey<NavigatorState> navigatorKey =
+GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options:
+    DefaultFirebaseOptions.currentPlatform,
   );
 
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.debug,
-      appleProvider: AppleProvider.debug,
+      androidProvider:
+      AndroidProvider.debug,
+      appleProvider:
+      AppleProvider.debug,
     );
 
-    // ============================================================
-    // REGISTER PHONE FOR PUSH NOTIFICATIONS
-    // ============================================================
-    await PushNotificationService.initialize();
-  }
+    await PushNotificationService.initialize(
+      onNotificationTap:
+          (
+          Map<String, dynamic> data,
+          ) {
+        WidgetsBinding.instance
+            .addPostFrameCallback(
+              (_) {
+            final navigator =
+                navigatorKey.currentState;
 
-  // System notification listener setup
-  SystemNotificationService.instance.onNotificationPayload =
-      _handleNotificationPayload;
-  SystemNotificationService.instance.init();
+            if (navigator == null) {
+              return;
+            }
 
-  runApp(const MyHeritageApp());
-}
-
-void _handleNotificationPayload(String? payload) {
-  final itineraryId = _itineraryIdFromNotificationPayload(payload);
-  if (itineraryId.isEmpty) return;
-
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final navigator = appNavigatorKey.currentState;
-    if (navigator == null) return;
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
-      ),
+            navigator.push(
+              MaterialPageRoute(
+                builder:
+                    (_) =>
+                const NotificationsPage(),
+              ),
+            );
+          },
+        );
+      },
     );
-  });
-}
-
-String _itineraryIdFromNotificationPayload(String? payload) {
-  final value = (payload ?? '').trim();
-  if (value.isEmpty) return '';
-  if (value.startsWith('itinerary:')) {
-    return value.substring('itinerary:'.length).trim();
   }
-  if (value.contains(':')) return '';
-  return value;
+
+  runApp(
+    const MyHeritageApp(),
+  );
+
+  if (!kIsWeb) {
+    WidgetsBinding.instance
+        .addPostFrameCallback(
+          (_) async {
+        await PushNotificationService
+            .handlePendingInitialNotification();
+      },
+    );
+  }
 }
 
 class MyHeritageApp extends StatelessWidget {
@@ -85,11 +89,20 @@ class MyHeritageApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: appNavigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'MyHeritage Explorer',
-      theme: AppTheme.light,
-      home: const _AppEntry(),
+      navigatorKey:
+      navigatorKey,
+
+      debugShowCheckedModeBanner:
+      false,
+
+      title:
+      'MyHeritage Explorer',
+
+      theme:
+      AppTheme.light,
+
+      home:
+      const _AppEntry(),
     );
   }
 }
@@ -100,7 +113,9 @@ class _AppEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shareId =
-    Uri.base.queryParameters['share']?.trim();
+    Uri.base
+        .queryParameters['share']
+        ?.trim();
 
     final encodedItinerary =
     Uri.base
@@ -110,7 +125,8 @@ class _AppEntry extends StatelessWidget {
     if (shareId != null &&
         shareId.isNotEmpty) {
       return SharedItineraryPage(
-        shareId: shareId,
+        shareId:
+        shareId,
       );
 class _SharedLinkTarget {
   const _SharedLinkTarget({this.shareId, this.encodedItinerary})
