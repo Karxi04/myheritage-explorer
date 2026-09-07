@@ -322,6 +322,18 @@ class NotificationsPage extends StatelessWidget {
         );
         return;
 
+      case 'itinerary':
+        final itineraryId = '${data['referenceId'] ?? ''}'.trim();
+        if (itineraryId.isNotEmpty && context.mounted) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
+            ),
+          );
+        }
+        return;
+
       default:
       // Generic notifications are simply marked as read.
         return;
@@ -331,32 +343,13 @@ class NotificationsPage extends StatelessWidget {
   IconData _notificationIcon(String type) {
     return switch (type) {
       'group_message' => Icons.forum_outlined,
-      'private_message' || 'private_chat' =>
-      Icons.chat_bubble_outline,
+      'private_message' || 'private_chat' => Icons.chat_bubble_outline,
       'private_location_request' ||
-      'private_location_shared' =>
-      Icons.location_on_outlined,
+      'private_location_shared' => Icons.location_on_outlined,
       'sos' => Icons.sos_rounded,
       'companion_group' => Icons.groups_outlined,
       _ => Icons.notifications_none,
     };
-  }
-
-  Future<void> _handleNotificationTap(
-    BuildContext context,
-    DocumentReference<Map<String, dynamic>> reference,
-    Map<String, dynamic> data,
-  ) async {
-    await reference.update({'read': true});
-    final isItinerary = '${data['type'] ?? ''}' == 'itinerary';
-    final itineraryId = '${data['referenceId'] ?? ''}'.trim();
-    if (!isItinerary || itineraryId.isEmpty || !context.mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
-      ),
-    );
   }
 
   @override
@@ -456,8 +449,6 @@ class NotificationsPage extends StatelessWidget {
                         onTap: () => _handleNotificationTap(
                           context,
                           document,
-                          doc.reference,
-                          data,
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,

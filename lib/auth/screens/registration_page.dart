@@ -63,21 +63,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
   bool obscurePassword = true;
   bool obscureConfirm = true;
 
-  // Security Questions State
-  bool _showSecurityQuestions = false;
-  final securityQuestions = [
-    'What was the name of your first pet?',
-    'In what city were you born?',
-    'What was your mother\'s maiden name?',
-    'What was the make of your first car?',
-    'What was the name of your elementary school?',
-    'What is your favorite book?',
-  ];
-  String? q1;
-  String? q2;
-  final a1 = TextEditingController();
-  final a2 = TextEditingController();
-
   String? requiredText(String? value) =>
       value == null || value.trim().isEmpty ? 'Required' : null;
 
@@ -100,7 +85,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
   Future<void> submit() async {
     if (!formKey.currentState!.validate()) return;
-    if (!widget.isGoogle && fields['password']!.text != fields['confirm']!.text) {
+    if (fields['password']!.text != fields['confirm']!.text) {
       showMessage(context, 'Passwords do not match.', error: true);
       return;
     }
@@ -137,45 +122,28 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return;
     }
     
-    // Switch to security questions step
-    setState(() => _showSecurityQuestions = true);
+    await _finalizeRegistration();
   }
 
   Future<void> _finalizeRegistration() async {
-    final answer1 = a1.text.trim();
-    final answer2 = a2.text.trim();
-
-    if (q1 == null || q2 == null || answer1.isEmpty || answer2.isEmpty) {
-      showMessage(context, 'Please answer both security questions.', error: true);
-      return;
-    }
-    if (q1 == q2) {
-      showMessage(context, 'Please select two different questions.', error: true);
-      return;
-    }
-    if (answer1.length < 5 || answer2.length < 5) {
-      showMessage(context, 'Each answer must be at least 5 characters long.', error: true);
-      return;
-    }
-
-    final questionsData = [
-      {'question': q1!, 'answer': answer1.toLowerCase()},
-      {'question': q2!, 'answer': answer2.toLowerCase()},
-    ];
-
     setState(() => busy = true);
+    final emailAddr = fields['email']!.text.trim();
     try {
       if (widget.isGoogle) {
+        if (fields['password']!.text.isNotEmpty) {
+          await AppServices.auth.currentUser?.updatePassword(fields['password']!.text);
+        }
+        if (AppServices.auth.currentUser?.emailVerified == false) {
+          await AppServices.auth.currentUser?.sendEmailVerification();
+        }
         if (widget.role == 'traveler') {
           await AppServices.createTravelerProfileForCurrentUser(
             fullName: cleanName(fields['name']!.text),
             interests: interests.toList(),
             budgetPreference: budget,
             travelPace: pace,
-            securityQuestions: questionsData,
           );
         } else {
-          // Google sign-in for vendor (not requested but handled for safety)
           Uint8List? bytes;
           String? extension;
           if (verification != null) {
@@ -203,18 +171,16 @@ class _RegistrationPageState extends State<RegistrationPage> {
             verificationExtension: extension,
             businessImageBytes: coverBytes,
             businessImageExtension: coverExtension,
-            securityQuestions: questionsData,
           );
         }
       } else if (widget.role == 'traveler') {
         await AppServices.registerTraveler(
-          email: fields['email']!.text.trim(),
+          email: emailAddr,
           password: fields['password']!.text,
           fullName: cleanName(fields['name']!.text),
           interests: interests.toList(),
           budgetPreference: budget,
           travelPace: pace,
-          securityQuestions: questionsData,
         );
       } else {
         Uint8List? bytes;
@@ -234,7 +200,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
         final days = selectedDays.toList().join(', ');
 
         await AppServices.registerVendor(
-          email: fields['email']!.text.trim(),
+          email: emailAddr,
           password: fields['password']!.text,
           businessName: cleanName(fields['business']!.text),
           ownerName: cleanName(fields['owner']!.text),
@@ -249,19 +215,39 @@ class _RegistrationPageState extends State<RegistrationPage> {
           verificationExtension: extension,
           businessImageBytes: coverBytes,
           businessImageExtension: coverExtension,
-          securityQuestions: questionsData,
         );
       }
+
+      await AppServices.signOut();
+
       if (mounted) {
-        Navigator.popUntil(context, (route) => route.isFirst);
+        showGlobalNotice(
+          title: 'Registration Successful',
+          message: 'A verification email has been sent to $emailAddr. '
+              'Please check your inbox and click the link to verify your email, then log in.',
+          onConfirm: () {
+            if (mounted) {
+              Navigator.popUntil(context, (route) => route.isFirst);
+            }
+          },
+        );
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
         try {
-          await _completeExistingAuthRegistration(questionsData);
+          await _completeExistingAuthRegistration();
+          await AppServices.signOut();
           if (!mounted) return;
-          showMessage(context, 'Account profile completed. You are signed in.');
-          Navigator.popUntil(context, (route) => route.isFirst);
+          showGlobalNotice(
+            title: 'Profile Completed',
+            message: 'Your account profile has been set up. '
+                'Please verify your email link if you haven\'t already, then log in to continue.',
+            onConfirm: () {
+              if (mounted) {
+                Navigator.popUntil(context, (route) => route.isFirst);
+              }
+            },
+          );
           return;
         } on FirebaseAuthException catch (signInError) {
           if (!mounted) return;
@@ -298,11 +284,15 @@ class _RegistrationPageState extends State<RegistrationPage> {
     }
   }
 
-  Future<void> _completeExistingAuthRegistration(List<Map<String, String>> securityQuestions) async {
+  Future<void> _completeExistingAuthRegistration() async {
     final credential = await AppServices.auth.signInWithEmailAndPassword(
       email: fields['email']!.text.trim(),
       password: fields['password']!.text,
     );
+
+    if (credential.user?.emailVerified == false) {
+      await credential.user?.sendEmailVerification();
+    }
 
     final account = await AppServices.currentAccountProfile();
     if (account != null) {
@@ -327,7 +317,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
         interests: interests.toList(),
         budgetPreference: budget,
         travelPace: pace,
-        securityQuestions: securityQuestions,
       );
       return;
     }
@@ -360,7 +349,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
       verificationExtension: extension,
       businessImageBytes: coverBytes,
       businessImageExtension: coverExtension,
-      securityQuestions: securityQuestions,
     );
   }
 
@@ -397,8 +385,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
     for (final controller in fields.values) {
       controller.dispose();
     }
-    a1.dispose();
-    a2.dispose();
     super.dispose();
   }
 
@@ -408,21 +394,13 @@ class _RegistrationPageState extends State<RegistrationPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(traveler ? 'Traveler registration' : 'Vendor registration'),
-        leading: _showSecurityQuestions 
-            ? IconButton(
-                onPressed: () => setState(() => _showSecurityQuestions = false), 
-                icon: const Icon(Icons.arrow_back),
-              ) 
-            : null,
       ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 620),
-            child: _showSecurityQuestions 
-                ? _buildSecurityQuestionsForm() 
-                : _buildRegistrationForm(traveler),
+            child: _buildRegistrationForm(traveler),
           ),
         ),
       ),
@@ -474,52 +452,50 @@ class _RegistrationPageState extends State<RegistrationPage> {
                   hintText: 'example@email.com',
                 ),
               ),
-              if (!widget.isGoogle) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: fields['password'],
-                  validator: validatePasswordInput,
-                  obscureText: obscurePassword,
-                  obscuringCharacter: '*',
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(
-                          () => obscurePassword = !obscurePassword),
-                      icon: Icon(
-                        obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: fields['password'],
+                validator: validatePasswordInput,
+                obscureText: obscurePassword,
+                obscuringCharacter: '*',
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(
+                        () => obscurePassword = !obscurePassword),
+                    icon: Icon(
+                      obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: fields['confirm'],
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Required';
-                    if (v != fields['password']!.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
-                  obscureText: obscureConfirm,
-                  obscuringCharacter: '*',
-                  decoration: InputDecoration(
-                    labelText: 'Confirm password',
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(
-                          () => obscureConfirm = !obscureConfirm),
-                      icon: Icon(
-                        obscureConfirm
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: fields['confirm'],
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Required';
+                  if (v != fields['password']!.text) {
+                    return 'Passwords do not match';
+                  }
+                  return null;
+                },
+                obscureText: obscureConfirm,
+                obscuringCharacter: '*',
+                decoration: InputDecoration(
+                  labelText: 'Confirm password',
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(
+                        () => obscureConfirm = !obscureConfirm),
+                    icon: Icon(
+                      obscureConfirm
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                     ),
                   ),
                 ),
-              ],
+              ),
               const SizedBox(height: 16),
               if (traveler) ...[
                 const Align(
@@ -788,101 +764,11 @@ class _RegistrationPageState extends State<RegistrationPage> {
               ElevatedButton(
                 onPressed: busy ? null : submit,
                 child: Text(
-                  busy ? 'Checking details...' : 'Continue to Security',
+                  busy ? 'Creating account...' : 'Complete Registration',
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSecurityQuestionsForm() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          children: [
-            const Icon(Icons.security, size: 48, color: ExplorerColors.navy),
-            const SizedBox(height: 12),
-            const Text(
-              'Security Questions',
-              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'These questions will help you recover your account if you lose access.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<String>(
-              value: q1,
-              isExpanded: true,
-              itemHeight: null,
-              decoration: const InputDecoration(
-                labelText: 'Question 1',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-              items: securityQuestions
-                  .where((q) => q != q2)
-                  .map((q) => DropdownMenuItem(
-                      value: q,
-                      child: Text(
-                        q,
-                        style: const TextStyle(fontSize: 14),
-                      )))
-                  .toList(),
-              onChanged: (v) => setState(() => q1 = v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: a1,
-              decoration: const InputDecoration(
-                labelText: 'Answer 1',
-                hintText: 'At least 5 characters',
-              ),
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<String>(
-              value: q2,
-              isExpanded: true,
-              itemHeight: null,
-              decoration: const InputDecoration(
-                labelText: 'Question 2',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-              items: securityQuestions
-                  .where((q) => q != q1)
-                  .map((q) => DropdownMenuItem(
-                      value: q,
-                      child: Text(
-                        q,
-                        style: const TextStyle(fontSize: 14),
-                      )))
-                  .toList(),
-              onChanged: (v) => setState(() => q2 = v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: a2,
-              decoration: const InputDecoration(
-                labelText: 'Answer 2',
-                hintText: 'At least 5 characters',
-              ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: busy ? null : _finalizeRegistration,
-              child: Text(busy ? 'Creating account...' : 'Complete Registration'),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: busy ? null : () => setState(() => _showSecurityQuestions = false),
-              child: const Text('Back to details'),
-            ),
-          ],
         ),
       ),
     );

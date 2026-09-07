@@ -64,26 +64,27 @@ class _PinSetupPageState extends State<PinSetupPage> {
     await PinService.setPin(confirmController.text);
     PinService.authorizeSession();
     
-    if (mounted) {
+    if (!mounted) return;
+
+    try {
       final canUseBiometrics = await PinService.canCheckBiometrics();
       
       if (canUseBiometrics) {
-        if (!mounted) return;
         final enableBiometrics = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (context) => AlertDialog(
+          builder: (dialogContext) => AlertDialog(
             title: const Text('Enable Biometric Security?'),
             content: const Text(
               'Would you like to use fingerprint or face recognition for quicker access to your account?'
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context, false),
+                onPressed: () => Navigator.pop(dialogContext, false),
                 child: const Text('No, thanks'),
               ),
               FilledButton(
-                onPressed: () => Navigator.pop(context, true),
+                onPressed: () => Navigator.pop(dialogContext, true),
                 child: const Text('Enable'),
               ),
             ],
@@ -94,24 +95,30 @@ class _PinSetupPageState extends State<PinSetupPage> {
           final authenticated = await PinService.authenticateWithBiometrics();
           if (authenticated) {
             await PinService.setBiometricEnabled(true);
+          } else {
+            await PinService.setBiometricEnabled(false);
           }
+        } else {
+          await PinService.setBiometricEnabled(false);
         }
       }
-
-      if (mounted) {
-        showGlobalNotice(
-          title: 'Security PIN Set',
-          message: 'Your 6-digit security PIN has been saved locally on this device.',
-          onConfirm: () {
-            if (widget.onSetupComplete != null) {
-              widget.onSetupComplete!();
-            } else {
-              Navigator.popUntil(context, (route) => route.isFirst);
-            }
-          },
-        );
-      }
+    } catch (_) {
+      // Safely ignore biometric errors on unsupported devices/emulators
     }
+
+    if (!mounted) return;
+
+    showGlobalNotice(
+      title: 'Security PIN Set',
+      message: 'Your 6-digit security PIN has been saved locally on this device.',
+      onConfirm: () {
+        if (widget.onSetupComplete != null) {
+          widget.onSetupComplete!();
+        } else if (mounted && Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+      },
+    );
   }
 
   @override
