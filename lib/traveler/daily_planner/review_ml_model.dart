@@ -144,6 +144,7 @@ class ReviewModerationPolicy {
 /// review meaning and that probability is compared with the star rating.
 class ReviewMlModel {
   const ReviewMlModel._();
+
   static const String modelVersion = 'tfidf_sentiment_suspicious_v2';
   static const double suspiciousThreshold = 0.62;
   static const double mismatchThreshold = 0.56;
@@ -5266,7 +5267,7 @@ class ReviewMlModel {
     "in bukit": -0.0637095584411,
     "in butterworth": -0.184366438293,
     "in george": 0.0014367815078,
-    "in jelutong": -0.0058888612005,
+    "in jelutong": -0.00588886120049,
     "in tanjung": -0.00365348162379,
     "in teluk": -0.230055606965,
     "included": -0.808850329085,
@@ -5881,7 +5882,10 @@ class ReviewMlModel {
     required int rating,
   }) {
     final sentimentDocument = _normalise(reviewText);
-    final sentimentVector = _tfidf(sentimentDocument, _sentimentIdf);
+    final sentimentVector = _tfidf(
+      sentimentDocument,
+      _sentimentIdf,
+    );
 
     final scores = <String, double>{
       'negative': _linear(
@@ -5902,12 +5906,19 @@ class ReviewMlModel {
     };
     final probabilities = _softmax(scores);
     final sentiment = probabilities.entries
-        .reduce((first, second) => first.value >= second.value ? first : second)
+        .reduce((first, second) =>
+            first.value >= second.value ? first : second)
         .key;
     final sentimentConfidence = probabilities[sentiment] ?? 0;
 
-    final suspiciousDocument = _prepareSuspiciousDocument(reviewText, rating);
-    final suspiciousVector = _tfidf(suspiciousDocument, _suspiciousIdf);
+    final suspiciousDocument = _prepareSuspiciousDocument(
+      reviewText,
+      rating,
+    );
+    final suspiciousVector = _tfidf(
+      suspiciousDocument,
+      _suspiciousIdf,
+    );
     final suspiciousScore = _linear(
       suspiciousVector,
       _suspiciousWeights,
@@ -5919,7 +5930,7 @@ class ReviewMlModel {
     final positiveProbability = probabilities['positive'] ?? 0;
     final ratingMismatch =
         (rating >= 4 && negativeProbability >= mismatchThreshold) ||
-        (rating <= 2 && positiveProbability >= mismatchThreshold);
+            (rating <= 2 && positiveProbability >= mismatchThreshold);
 
     return ReviewMlPrediction(
       sentiment: sentiment,
@@ -5942,7 +5953,10 @@ class ReviewMlModel {
         .trim();
   }
 
-  static String _prepareSuspiciousDocument(String input, int rating) {
+  static String _prepareSuspiciousDocument(
+    String input,
+    int rating,
+  ) {
     final normalised = _normalise(input);
     final words = normalised
         .split(' ')
@@ -5952,8 +5966,8 @@ class ReviewMlModel {
       rating >= 4
           ? 'rating_high'
           : rating <= 2
-          ? 'rating_low'
-          : 'rating_mid',
+              ? 'rating_low'
+              : 'rating_mid',
     ];
 
     if (words.length < 3) {
@@ -5964,7 +5978,8 @@ class ReviewMlModel {
       meta.add('normal_length');
     }
 
-    if (words.isNotEmpty && words.toSet().length <= max(1, words.length ~/ 3)) {
+    if (words.isNotEmpty &&
+        words.toSet().length <= max(1, words.length ~/ 3)) {
       meta.add('low_lexical_variety');
     }
     for (var index = 0; index <= words.length - 3; index++) {
@@ -5980,7 +5995,9 @@ class ReviewMlModel {
         lower.contains('www.')) {
       meta.add('contains_url');
     }
-    final digits = input.runes.where((code) => code >= 48 && code <= 57).length;
+    final digits = input.runes
+        .where((code) => code >= 48 && code <= 57)
+        .length;
     if (digits > max(4, (input.length * 0.20).round())) {
       meta.add('many_digits');
     }
@@ -5988,7 +6005,10 @@ class ReviewMlModel {
     return <String>[...meta, normalised].join(' ').trim();
   }
 
-  static Map<String, double> _tfidf(String document, Map<String, double> idf) {
+  static Map<String, double> _tfidf(
+    String document,
+    Map<String, double> idf,
+  ) {
     final tokens = document
         .split(' ')
         .where((token) => token.isNotEmpty)
@@ -6010,13 +6030,16 @@ class ReviewMlModel {
     final values = <String, double>{};
     var squaredNorm = 0.0;
     for (final entry in counts.entries) {
-      final value = (1 + log(entry.value.toDouble())) * (idf[entry.key] ?? 1);
+      final value = (1 + log(entry.value.toDouble())) *
+          (idf[entry.key] ?? 1);
       values[entry.key] = value;
       squaredNorm += value * value;
     }
 
     final norm = squaredNorm <= 0 ? 1.0 : sqrt(squaredNorm);
-    return values.map((key, value) => MapEntry(key, value / norm));
+    return values.map(
+      (key, value) => MapEntry(key, value / norm),
+    );
   }
 
   static double _linear(
@@ -6031,10 +6054,10 @@ class ReviewMlModel {
     return score;
   }
 
-  static Map<String, double> _softmax(Map<String, double> scores) {
-    final maximum = scores.values.reduce(
-      (first, second) => first >= second ? first : second,
-    );
+  static Map<String, double> _softmax(
+    Map<String, double> scores,
+  ) {
+    final maximum = scores.values.reduce(max);
     final exponentials = scores.map(
       (key, value) => MapEntry(key, exp(value - maximum)),
     );

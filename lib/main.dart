@@ -1,3 +1,11 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import 'auth/auth_gate.dart';
+import 'core/app_theme.dart';
+import 'core/push_notification_service.dart';
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -18,56 +26,115 @@ const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
 const _deepLinkEventChannel = EventChannel(
   'myheritage_explorer/deep_link_events',
 );
+final GlobalKey<NavigatorState> navigatorKey =
+GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  SystemNotificationService.instance.onNotificationPayload =
-      _handleNotificationPayload;
-  SystemNotificationService.instance.init();
-  runApp(const MyHeritageApp());
-}
 
-void _handleNotificationPayload(String? payload) {
-  final itineraryId = _itineraryIdFromNotificationPayload(payload);
-  if (itineraryId.isEmpty) return;
+  await Firebase.initializeApp(
+    options:
+    DefaultFirebaseOptions.currentPlatform,
+  );
 
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final navigator = appNavigatorKey.currentState;
-    if (navigator == null) return;
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ItineraryDetailPage(itineraryId: itineraryId),
-      ),
+  if (!kIsWeb) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider:
+      AndroidProvider.debug,
+      appleProvider:
+      AppleProvider.debug,
     );
-  });
-}
 
-String _itineraryIdFromNotificationPayload(String? payload) {
-  final value = (payload ?? '').trim();
-  if (value.isEmpty) return '';
-  if (value.startsWith('itinerary:')) {
-    return value.substring('itinerary:'.length).trim();
+    await PushNotificationService.initialize(
+      onNotificationTap:
+          (
+          Map<String, dynamic> data,
+          ) {
+        WidgetsBinding.instance
+            .addPostFrameCallback(
+              (_) {
+            final navigator =
+                navigatorKey.currentState;
+
+            if (navigator == null) {
+              return;
+            }
+
+            navigator.push(
+              MaterialPageRoute(
+                builder:
+                    (_) =>
+                const NotificationsPage(),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
-  if (value.contains(':')) return '';
-  return value;
+
+  runApp(
+    const MyHeritageApp(),
+  );
+
+  if (!kIsWeb) {
+    WidgetsBinding.instance
+        .addPostFrameCallback(
+          (_) async {
+        await PushNotificationService
+            .handlePendingInitialNotification();
+      },
+    );
+  }
 }
 
 class MyHeritageApp extends StatelessWidget {
-  const MyHeritageApp({super.key});
+  const MyHeritageApp({
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: appNavigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'MyHeritage Explorer',
-      theme: AppTheme.light,
-      home: const _AppEntry(),
+      navigatorKey:
+      navigatorKey,
+
+      debugShowCheckedModeBanner:
+      false,
+
+      title:
+      'MyHeritage Explorer',
+
+      theme:
+      AppTheme.light,
+
+      home:
+      const _AppEntry(),
     );
   }
 }
 
+class _AppEntry extends StatelessWidget {
+  const _AppEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    final shareId =
+    Uri.base
+        .queryParameters['share']
+        ?.trim();
+
+    final encodedItinerary =
+    Uri.base
+        .queryParameters['itinerary']
+        ?.trim();
+
+    if (shareId != null &&
+        shareId.isNotEmpty) {
+      return SharedItineraryPage(
+        shareId:
+        shareId,
+      );
 class _SharedLinkTarget {
   const _SharedLinkTarget({this.shareId, this.encodedItinerary})
     : assert(shareId != null || encodedItinerary != null);
@@ -145,6 +212,11 @@ class _AppEntryState extends State<_AppEntry> {
     super.dispose();
   }
 
+    if (encodedItinerary != null &&
+        encodedItinerary.isNotEmpty) {
+      return SharedItineraryPage(
+        encodedItinerary:
+        encodedItinerary,
   Future<void> _loadInitialDeepLink() async {
     try {
       final value = await _deepLinkMethodChannel.invokeMethod<String>(

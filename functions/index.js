@@ -805,3 +805,49 @@ exports.generateDailyItinerary = onRequest(
     }
   },
 );
+
+// Companion group membership operations run on the trusted backend so
+// clients do not need permission to read another traveler's private profile.
+const companionMembership = require('./companion_membership');
+exports.addTravelGroupMemberByEmail =
+  companionMembership.addTravelGroupMemberByEmail;
+exports.joinTravelGroup = companionMembership.joinTravelGroup;
+
+
+// ------------------------------------------------------------
+// Companion chat notifications
+// ------------------------------------------------------------
+
+const chatNotifications =
+  require('./chat_notifications');
+
+exports.onGroupMessageCreated =
+  chatNotifications.onGroupMessageCreated;
+
+exports.onPrivateMessageCreated =
+  chatNotifications.onPrivateMessageCreated;
+
+
+// ------------------------------------------------------------
+// Database-grounded AI travel assistant
+// ------------------------------------------------------------
+
+const chatAssistantModule =
+  require('./chat_assistant');
+
+exports.chatAssistant =
+  chatAssistantModule.chatAssistant;
+
+
+ // ------------------------------------------------------------
+ // Push notifications + SOS notifications
+ // ------------------------------------------------------------
+
+ const pushNotifications =
+   require('./push_notifications');
+
+ exports.onSosAlertCreated =
+   pushNotifications.onSosAlertCreated;
+
+ exports.onNotificationCreated =
+   pushNotifications.onNotificationCreated;
