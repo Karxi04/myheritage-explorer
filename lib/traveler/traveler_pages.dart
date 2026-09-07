@@ -33,6 +33,8 @@ import '../core/pin_service.dart';
 // AI is isolated in this service.
 import '../core/ai_chat_service.dart';
 
+import '../core/chatbot_module_service.dart';
+
 import 'daily_planner/models/itinerary_model.dart';
 import 'daily_planner/models/travel_preferences_model.dart';
 import 'daily_planner/services/malaysia_location_service.dart';

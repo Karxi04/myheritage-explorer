@@ -12,6 +12,7 @@ class CompanionPage extends StatefulWidget {
 class _CompanionPageState extends State<CompanionPage> {
   final Set<String> _sendingSosGroupIds = <String>{};
   final Set<String> _respondingInvitationIds = <String>{};
+  final Set<String> _leavingGroupIds = <String>{};
 
 // Live member location
   StreamSubscription<Position>? _liveLocationSubscription;
@@ -1424,354 +1425,1134 @@ class _CompanionPageState extends State<CompanionPage> {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Create Travel Group'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Group Name',
-                hintText: 'e.g. Penang Heritage Walk',
-                prefixIcon: Icon(Icons.groups_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: descriptionController,
-              minLines: 2,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                hintText: 'Short description of the trip',
-                prefixIcon: Icon(Icons.notes_outlined),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.group_add_outlined),
-            label: const Text('Continue'),
-          ),
-        ],
-      ),
-    );
-
-    final groupName = nameController.text.trim();
-    final description = descriptionController.text.trim();
-
-    nameController.dispose();
-    descriptionController.dispose();
-
-    if (confirmed != true) return;
-
-    if (groupName.isEmpty) {
-      if (context.mounted) {
-        showMessage(
-          context,
-          'Please enter a group name.',
-          error: true,
-        );
-      }
-      return;
-    }
-
-    final user = AppServices.auth.currentUser;
-    if (user == null) return;
-
-    if (!context.mounted) return;
-    final locationAccepted = await _confirmLocationSharing(
-      context,
-      title: 'Location Required',
-      message:
-      'Your location is required so you can appear on the Group Map as the group leader. '
-          'The location will be stored only for this travel group.',
-      actionLabel: 'Allow Location & Create',
-    );
-
-    if (!locationAccepted) return;
+    String groupName = '';
+    String description = '';
 
     try {
-      final position = await determinePosition();
-      final displayName = await _currentDisplayName();
-      final code = await _createUniqueGroupCode();
+      // ============================================================
+      // STEP 1: ENTER GROUP DETAILS
+      // ============================================================
 
-      final groupReference = AppServices.db.collection('travel_groups').doc();
-      final locationReference =
-      groupReference.collection('locations').doc(user.uid);
-
-      final batch = AppServices.db.batch();
-
-      batch.set(groupReference, {
-        'name': groupName,
-        'description': description,
-        'code': code,
-        'leaderId': user.uid,
-        'memberIds': [user.uid],
-        'memberNames': {
-          user.uid: displayName,
-        },
-        'status': 'active',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(locationReference, {
-        'userId': user.uid,
-        'displayName': displayName,
-        'role': 'leader',
-        'location': GeoPoint(position.latitude, position.longitude),
-        'approvedViewerIds': [user.uid],
-        'sharingEnabled': true,
-        'sosActive': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-
-      _startLiveLocationSharing();
-
-      if (!context.mounted) return;
-
-      await showDialog<void>(
+      final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Travel Group Created'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.check_circle_outline,
-                color: ExplorerColors.success,
-                size: 52,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text(
+              'Create Travel Group',
+            ),
+
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Group Name',
+                      hintText: 'e.g. Penang Heritage Walk',
+                      prefixIcon: Icon(
+                        Icons.groups_outlined,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  TextField(
+                    controller: descriptionController,
+                    minLines: 2,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      hintText: 'Short description of the trip',
+                      prefixIcon: Icon(
+                        Icons.notes_outlined,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                groupName,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: ExplorerColors.navy,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+            ),
+
+            actions: [
+              TextButton(
+                onPressed: () {
+                  FocusScope.of(dialogContext).unfocus();
+
+                  Navigator.of(dialogContext).pop(false);
+                },
+                child: const Text('Cancel'),
+              ),
+
+              FilledButton.icon(
+                onPressed: () {
+                  final enteredName =
+                  nameController.text.trim();
+
+                  if (enteredName.isEmpty) {
+                    showMessage(
+                      dialogContext,
+                      'Please enter a group name.',
+                      error: true,
+                    );
+
+                    return;
+                  }
+
+                  // Save values BEFORE closing dialog.
+                  groupName = enteredName;
+                  description =
+                      descriptionController.text.trim();
+
+                  FocusScope.of(dialogContext).unfocus();
+
+                  Navigator.of(dialogContext).pop(true);
+                },
+                icon: const Icon(
+                  Icons.group_add_outlined,
                 ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Share this group code with your companions:',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: ExplorerColors.muted),
-              ),
-              const SizedBox(height: 10),
-              SelectableText(
-                code,
-                style: const TextStyle(
-                  color: ExplorerColors.navy,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
+                label: const Text(
+                  'Continue',
                 ),
               ),
             ],
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: code));
-
-                if (dialogContext.mounted) {
-                  showMessage(dialogContext, 'Group code copied.');
-                }
-              },
-              icon: const Icon(Icons.copy_outlined),
-              label: const Text('Copy Code'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Done'),
-            ),
-          ],
-        ),
+          );
+        },
       );
-    } catch (error) {
-      if (context.mounted) {
+
+      if (confirmed != true) {
+        return;
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 2: CHECK USER
+      // ============================================================
+
+      final user =
+          AppServices.auth.currentUser;
+
+      if (user == null) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          'Please sign in before creating a travel group.',
           error: true,
         );
+
+        return;
       }
+
+      // Small delay allows first dialog to finish closing cleanly.
+      await Future<void>.delayed(
+        const Duration(milliseconds: 250),
+      );
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 3: ASK FOR LOCATION SHARING
+      // ============================================================
+
+      final locationAccepted =
+      await _confirmLocationSharing(
+        context,
+        title: 'Location Required',
+        message:
+        'Your location is required so you can appear on the '
+            'Group Map as the group leader. '
+            'The location will be stored only for this travel group.',
+        actionLabel: 'Allow Location & Create',
+      );
+
+      if (!locationAccepted) {
+        return;
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 4: GET LOCATION
+      // ============================================================
+
+      Position position;
+
+      try {
+        position =
+        await determinePosition();
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        final errorText = error
+            .toString()
+            .replaceFirst(
+          'Exception: ',
+          '',
+        );
+
+        showMessage(
+          context,
+          errorText,
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 5: GET DISPLAY NAME
+      // ============================================================
+
+      String displayName;
+
+      try {
+        displayName =
+        await _currentDisplayName();
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        showMessage(
+          context,
+          error
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 6: GENERATE UNIQUE GROUP CODE
+      // ============================================================
+
+      String code;
+
+      try {
+        code =
+        await _createUniqueGroupCode();
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        showMessage(
+          context,
+          error
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 7: CREATE FIRESTORE REFERENCES
+      // ============================================================
+
+      final groupReference =
+      AppServices.db
+          .collection('travel_groups')
+          .doc();
+
+      final locationReference =
+      groupReference
+          .collection('locations')
+          .doc(user.uid);
+
+      // ============================================================
+      // STEP 8: SAVE GROUP + LEADER LOCATION
+      // ============================================================
+
+      final batch =
+      AppServices.db.batch();
+
+      batch.set(
+        groupReference,
+        {
+          'name': groupName,
+          'description': description,
+          'code': code,
+
+          'leaderId': user.uid,
+
+          'memberIds': [
+            user.uid,
+          ],
+
+          'memberNames': {
+            user.uid: displayName,
+          },
+
+          'status': 'active',
+
+          'createdAt':
+          FieldValue.serverTimestamp(),
+
+          'updatedAt':
+          FieldValue.serverTimestamp(),
+        },
+      );
+
+      batch.set(
+        locationReference,
+        {
+          'userId': user.uid,
+
+          'displayName':
+          displayName,
+
+          'role': 'leader',
+
+          'location': GeoPoint(
+            position.latitude,
+            position.longitude,
+          ),
+
+          'approvedViewerIds': [
+            user.uid,
+          ],
+
+          'sharingEnabled': true,
+
+          'sosActive': false,
+
+          'updatedAt':
+          FieldValue.serverTimestamp(),
+        },
+      );
+
+      try {
+        await batch.commit();
+      } on FirebaseException catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        debugPrint(
+          'CREATE GROUP FIREBASE ERROR: '
+              '${error.code} - ${error.message}',
+        );
+
+        showMessage(
+          context,
+          'Unable to create travel group: '
+              '${error.message ?? error.code}',
+          error: true,
+        );
+
+        return;
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        debugPrint(
+          'CREATE GROUP ERROR: $error',
+        );
+
+        showMessage(
+          context,
+          'Unable to create travel group: $error',
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 9: START LIVE LOCATION SHARING
+      // ============================================================
+
+      _startLiveLocationSharing();
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 10: SUCCESS DIALOG
+      // ============================================================
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text(
+              'Travel Group Created',
+            ),
+
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.check_circle_outline,
+                  color:
+                  ExplorerColors.success,
+                  size: 52,
+                ),
+
+                const SizedBox(
+                  height: 12,
+                ),
+
+                Text(
+                  groupName,
+                  textAlign:
+                  TextAlign.center,
+                  style: const TextStyle(
+                    color:
+                    ExplorerColors.navy,
+                    fontSize: 18,
+                    fontWeight:
+                    FontWeight.w800,
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 12,
+                ),
+
+                const Text(
+                  'Share this group code with your companions:',
+                  textAlign:
+                  TextAlign.center,
+                  style: TextStyle(
+                    color:
+                    ExplorerColors.muted,
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 10,
+                ),
+
+                Container(
+                  width:
+                  double.infinity,
+                  padding:
+                  const EdgeInsets.all(
+                    14,
+                  ),
+                  decoration:
+                  BoxDecoration(
+                    color:
+                    ExplorerColors
+                        .navySoft,
+                    borderRadius:
+                    BorderRadius
+                        .circular(
+                      10,
+                    ),
+                  ),
+                  child:
+                  SelectableText(
+                    code,
+                    textAlign:
+                    TextAlign.center,
+                    style:
+                    const TextStyle(
+                      color:
+                      ExplorerColors
+                          .navy,
+                      fontSize:
+                      28,
+                      fontWeight:
+                      FontWeight
+                          .w900,
+                      letterSpacing:
+                      2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            actions: [
+              TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(
+                    ClipboardData(
+                      text: code,
+                    ),
+                  );
+
+                  if (dialogContext
+                      .mounted) {
+                    showMessage(
+                      dialogContext,
+                      'Group code copied.',
+                    );
+                  }
+                },
+                icon: const Icon(
+                  Icons.copy_outlined,
+                ),
+                label: const Text(
+                  'Copy Code',
+                ),
+              ),
+
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(
+                    dialogContext,
+                  ).pop();
+                },
+                child:
+                const Text(
+                  'Done',
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      // ============================================================
+      // IMPORTANT:
+      // Only dispose after the entire create-group flow finishes.
+      // ============================================================
+
+      nameController.dispose();
+      descriptionController.dispose();
     }
   }
 
   Future<void> joinGroup(BuildContext context) async {
     final codeController = TextEditingController();
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Join Travel Group'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter the group code shared by the group leader.',
-              style: TextStyle(color: ExplorerColors.muted),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: codeController,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.done,
-              maxLength: 6,
-              decoration: const InputDecoration(
-                labelText: 'Group Code',
-                hintText: 'ABC123',
-                counterText: '',
-                prefixIcon: Icon(Icons.key_outlined),
-              ),
-              onSubmitted: (_) => Navigator.pop(dialogContext, true),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.login),
-            label: const Text('Continue'),
-          ),
-        ],
-      ),
-    );
-
-    final code = codeController.text.trim().toUpperCase();
-    codeController.dispose();
-
-    if (confirmed != true) return;
-
-    if (code.isEmpty) {
-      if (context.mounted) {
-        showMessage(
-          context,
-          'Please enter a group code.',
-          error: true,
-        );
-      }
-      return;
-    }
-
-    final user = AppServices.auth.currentUser;
-    if (user == null) return;
+    String code = '';
 
     try {
-      final snapshot = await AppServices.db
-          .collection('travel_groups')
-          .where('code', isEqualTo: code)
-          .where('status', isEqualTo: 'active')
-          .limit(1)
-          .get();
+      // ============================================================
+      // STEP 1: ENTER GROUP CODE
+      // ============================================================
 
-      if (snapshot.docs.isEmpty) {
-        throw Exception('Invalid or inactive group code.');
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text(
+              'Join Travel Group',
+            ),
+
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enter the 6-character group code shared by the group leader.',
+                  style: TextStyle(
+                    color: ExplorerColors.muted,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: codeController,
+                  autofocus: true,
+                  textCapitalization:
+                  TextCapitalization.characters,
+                  textInputAction:
+                  TextInputAction.done,
+                  maxLength: 6,
+
+                  style: const TextStyle(
+                    color: ExplorerColors.navy,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 3,
+                  ),
+
+                  textAlign: TextAlign.center,
+
+                  decoration: const InputDecoration(
+                    labelText: 'Group Code',
+                    hintText: 'ABC123',
+                    counterText: '',
+                    prefixIcon: Icon(
+                      Icons.key_outlined,
+                    ),
+                  ),
+
+                  onSubmitted: (_) {
+                    final enteredCode =
+                    codeController.text
+                        .trim()
+                        .toUpperCase();
+
+                    if (enteredCode.isEmpty) {
+                      showMessage(
+                        dialogContext,
+                        'Please enter a group code.',
+                        error: true,
+                      );
+                      return;
+                    }
+
+                    if (enteredCode.length != 6) {
+                      showMessage(
+                        dialogContext,
+                        'Group code must contain 6 characters.',
+                        error: true,
+                      );
+                      return;
+                    }
+
+                    code = enteredCode;
+
+                    FocusScope.of(
+                      dialogContext,
+                    ).unfocus();
+
+                    Navigator.of(
+                      dialogContext,
+                    ).pop(true);
+                  },
+                ),
+              ],
+            ),
+
+            actions: [
+              TextButton(
+                onPressed: () {
+                  FocusScope.of(
+                    dialogContext,
+                  ).unfocus();
+
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(false);
+                },
+                child: const Text(
+                  'Cancel',
+                ),
+              ),
+
+              FilledButton.icon(
+                onPressed: () {
+                  final enteredCode =
+                  codeController.text
+                      .trim()
+                      .toUpperCase();
+
+                  if (enteredCode.isEmpty) {
+                    showMessage(
+                      dialogContext,
+                      'Please enter a group code.',
+                      error: true,
+                    );
+                    return;
+                  }
+
+                  if (enteredCode.length != 6) {
+                    showMessage(
+                      dialogContext,
+                      'Group code must contain 6 characters.',
+                      error: true,
+                    );
+                    return;
+                  }
+
+                  // Save the value BEFORE closing dialog.
+                  code = enteredCode;
+
+                  FocusScope.of(
+                    dialogContext,
+                  ).unfocus();
+
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(true);
+                },
+
+                icon: const Icon(
+                  Icons.login,
+                ),
+
+                label: const Text(
+                  'Continue',
+                ),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmed != true) {
+        return;
       }
 
-      final groupDocument = snapshot.docs.first;
-      final group = groupDocument.data();
+      // Allow the first dialog to finish closing.
+      await Future<void>.delayed(
+        const Duration(
+          milliseconds: 250,
+        ),
+      );
 
-      final groupName = '${group['name'] ?? 'Travel Group'}';
-      final leaderId = '${group['leaderId'] ?? ''}';
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 2: CHECK CURRENT USER
+      // ============================================================
+
+      final user =
+          AppServices.auth.currentUser;
+
+      if (user == null) {
+        showMessage(
+          context,
+          'Please sign in before joining a travel group.',
+          error: true,
+        );
+        return;
+      }
+
+      // ============================================================
+      // STEP 3: FIND GROUP
+      //
+      // Search using code only, then check status locally.
+      // This also avoids unnecessary Firestore index problems.
+      // ============================================================
+
+      QuerySnapshot<Map<String, dynamic>>
+      groupSnapshot;
+
+      try {
+        groupSnapshot =
+        await AppServices.db
+            .collection(
+          'travel_groups',
+        )
+            .where(
+          'code',
+          isEqualTo: code,
+        )
+            .limit(5)
+            .get();
+      } on FirebaseException catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        debugPrint(
+          'JOIN GROUP QUERY ERROR: '
+              '${error.code} - ${error.message}',
+        );
+
+        showMessage(
+          context,
+          'Unable to find travel group: '
+              '${error.message ?? error.code}',
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // FIND ACTIVE GROUP
+      // ============================================================
+
+      final activeGroups =
+      groupSnapshot.docs.where(
+            (document) {
+          final data =
+          document.data();
+
+          return '${data['status'] ?? ''}'
+              .toLowerCase() ==
+              'active';
+        },
+      ).toList();
+
+      if (activeGroups.isEmpty) {
+        showMessage(
+          context,
+          'Invalid or inactive group code.',
+          error: true,
+        );
+
+        return;
+      }
+
+      final groupDocument =
+          activeGroups.first;
+
+      final group =
+      groupDocument.data();
+
+      final groupId =
+          groupDocument.id;
+
+      final groupName =
+          '${group['name'] ?? 'Travel Group'}';
+
+      final leaderId =
+      '${group['leaderId'] ?? ''}'
+          .trim();
 
       if (leaderId.isEmpty) {
-        throw Exception('This group has no valid group leader.');
+        showMessage(
+          context,
+          'This travel group does not have a valid group leader.',
+          error: true,
+        );
+
+        return;
       }
 
-      if (!context.mounted) return;
-      final locationAccepted = await _confirmLocationSharing(
+      // ============================================================
+      // STEP 4: CHECK EXISTING MEMBERSHIP
+      // ============================================================
+
+      final memberIds =
+      List<String>.from(
+        group['memberIds'] ??
+            const <String>[],
+      );
+
+      final alreadyMember =
+      memberIds.contains(
+        user.uid,
+      );
+
+      // ============================================================
+      // STEP 5: LOCATION CONSENT
+      // ============================================================
+
+      if (!context.mounted) {
+        return;
+      }
+
+      final locationAccepted =
+      await _confirmLocationSharing(
         context,
-        title: 'Join $groupName?',
-        message:
-        'Location sharing is required before joining this travel group. '
-            'Your current and updated location will be shared with the group leader '
-            'while the Companion feature is active.',
-        actionLabel: 'Join & Share Location',
+
+        title: alreadyMember
+            ? 'Refresh Location Sharing?'
+            : 'Join $groupName?',
+
+        message: alreadyMember
+            ? 'You are already a member of $groupName. '
+            'Your location sharing will be refreshed so that '
+            'you can continue using the Group Map and Companion features.'
+            : 'Location sharing is required before joining this travel group. '
+            'Your current and updated location will be shared with '
+            'the group leader while the Companion feature is active.',
+
+        actionLabel: alreadyMember
+            ? 'Refresh Location'
+            : 'Join & Share Location',
       );
 
-      if (!locationAccepted) return;
+      if (!locationAccepted) {
+        return;
+      }
 
-      final position = await determinePosition();
-      final displayName = await _currentDisplayName();
+      if (!context.mounted) {
+        return;
+      }
 
-      final memberIds = List<String>.from(
-        group['memberIds'] ?? const <String>[],
-      );
+      // ============================================================
+      // STEP 6: GET CURRENT LOCATION
+      // ============================================================
+
+      Position position;
+
+      try {
+        position =
+        await determinePosition();
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        final errorText =
+        error
+            .toString()
+            .replaceFirst(
+          'Exception: ',
+          '',
+        );
+
+        showMessage(
+          context,
+          errorText,
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 7: GET DISPLAY NAME
+      // ============================================================
+
+      String displayName;
+
+      try {
+        displayName =
+        await _currentDisplayName();
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        showMessage(
+          context,
+          error
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 8: LOCATION REFERENCE
+      // ============================================================
 
       final locationReference =
-      groupDocument.reference.collection('locations').doc(user.uid);
+      groupDocument.reference
+          .collection(
+        'locations',
+      )
+          .doc(
+        user.uid,
+      );
 
-      final batch = AppServices.db.batch();
+      // ============================================================
+      // STEP 9: ADD MEMBER + LOCATION ATOMICALLY
+      // ============================================================
 
-      batch.update(groupDocument.reference, {
-        'memberIds': FieldValue.arrayUnion([user.uid]),
-        'memberNames.${user.uid}': displayName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final batch =
+      AppServices.db.batch();
+
+      // ------------------------------------------------------------
+      // Group membership
+      // ------------------------------------------------------------
+
+      batch.update(
+        groupDocument.reference,
+        {
+          'memberIds':
+          FieldValue.arrayUnion(
+            [
+              user.uid,
+            ],
+          ),
+
+          'memberNames.${user.uid}':
+          displayName,
+
+          'updatedAt':
+          FieldValue.serverTimestamp(),
+        },
+      );
+
+      // ------------------------------------------------------------
+      // Member location
+      // ------------------------------------------------------------
+
+      final locationData =
+      <String, dynamic>{
+        'userId':
+        user.uid,
+
+        'displayName':
+        displayName,
+
+        'role':
+        leaderId == user.uid
+            ? 'leader'
+            : 'member',
+
+        'location':
+        GeoPoint(
+          position.latitude,
+          position.longitude,
+        ),
+
+        'approvedViewerIds':
+        leaderId == user.uid
+            ? [
+          user.uid,
+        ]
+            : [
+          user.uid,
+          leaderId,
+        ],
+
+        'sharingEnabled':
+        true,
+
+        'updatedAt':
+        FieldValue.serverTimestamp(),
+      };
+
+      // Do not accidentally clear an existing SOS state when
+      // an existing member refreshes their location.
+      if (!alreadyMember) {
+        locationData['sosActive'] =
+        false;
+      }
 
       batch.set(
         locationReference,
-        {
-          'userId': user.uid,
-          'displayName': displayName,
-          'role': leaderId == user.uid ? 'leader' : 'member',
-          'location': GeoPoint(position.latitude, position.longitude),
-          'approvedViewerIds':
-          leaderId == user.uid ? [user.uid] : [user.uid, leaderId],
-          'sharingEnabled': true,
-          'sosActive': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+        locationData,
+        SetOptions(
+          merge: true,
+        ),
       );
 
-      await batch.commit();
+      try {
+        await batch.commit();
+      } on FirebaseException catch (error) {
+        if (!context.mounted) {
+          return;
+        }
 
-      _startLiveLocationSharing();
+        debugPrint(
+          'JOIN GROUP FIREBASE ERROR: '
+              '${error.code} - ${error.message}',
+        );
 
-      if (context.mounted) {
-        if (memberIds.contains(user.uid)) {
-          showMessage(
-            context,
-            'Your location sharing was refreshed for $groupName.',
+        showMessage(
+          context,
+          'Unable to join travel group: '
+              '${error.message ?? error.code}',
+          error: true,
+        );
+
+        return;
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+
+        debugPrint(
+          'JOIN GROUP ERROR: $error',
+        );
+
+        showMessage(
+          context,
+          'Unable to join travel group: $error',
+          error: true,
+        );
+
+        return;
+      }
+
+      // ============================================================
+      // STEP 10: NOTIFY LEADER
+      //
+      // Only send when this is a NEW member.
+      // ==============================================================
+
+      if (!alreadyMember &&
+          leaderId != user.uid) {
+        try {
+          await AppServices.notify(
+            userId:
+            leaderId,
+
+            title:
+            'New travel group member',
+
+            message:
+            '$displayName joined $groupName using the group code.',
+
+            type:
+            'companion_group',
+
+            referenceId:
+            groupId,
+
+            groupId:
+            groupId,
           );
-        } else {
-          showMessage(
-            context,
-            'Joined $groupName successfully.',
+        } catch (error) {
+          // Joining should still succeed if notification fails.
+          debugPrint(
+            'Unable to notify group leader: $error',
           );
         }
       }
-    } catch (error) {
-      if (context.mounted) {
+
+      // ============================================================
+      // STEP 11: START LIVE LOCATION
+      // ============================================================
+
+      _startLiveLocationSharing();
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // STEP 12: SUCCESS
+      // ============================================================
+
+      if (alreadyMember) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
-          error: true,
+          'You are already a member of $groupName. '
+              'Your location sharing has been refreshed.',
+        );
+      } else {
+        showMessage(
+          context,
+          'Joined $groupName successfully.',
         );
       }
+    } finally {
+      // ============================================================
+      // IMPORTANT:
+      // Do not dispose immediately after Navigator.pop().
+      // Give Flutter time to finish removing the dialog.
+      // ============================================================
+
+      await Future<void>.delayed(
+        const Duration(
+          milliseconds: 300,
+        ),
+      );
+
+      codeController.dispose();
     }
   }
 
@@ -2009,6 +2790,442 @@ class _CompanionPageState extends State<CompanionPage> {
       return '${data['displayName'] ?? uid}';
     } catch (_) {
       return uid;
+    }
+  }
+
+  Future<void> _quitGroup(
+      BuildContext context,
+      String groupId,
+      Map<String, dynamic> group,
+      ) async {
+    final user = AppServices.auth.currentUser;
+
+    if (user == null) {
+      showMessage(
+        context,
+        'Please sign in first.',
+        error: true,
+      );
+      return;
+    }
+
+    final uid = user.uid;
+
+    if (_leavingGroupIds.contains(groupId)) {
+      return;
+    }
+
+    final leaderId =
+    '${group['leaderId'] ?? ''}'.trim();
+
+    final groupName =
+        '${group['name'] ?? 'Travel Group'}';
+
+    // ============================================================
+    // LEADER CANNOT QUIT USING MEMBER FUNCTION
+    // ============================================================
+
+    if (leaderId == uid) {
+      showMessage(
+        context,
+        'The group leader cannot quit the group. '
+            'Transfer leadership or end the group instead.',
+        error: true,
+      );
+      return;
+    }
+
+    // ============================================================
+    // CONFIRMATION
+    // ============================================================
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: Container(
+            width: 54,
+            height: 54,
+            decoration: const BoxDecoration(
+              color: ExplorerColors.dangerSoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.exit_to_app_rounded,
+              color: ExplorerColors.danger,
+              size: 28,
+            ),
+          ),
+
+          title: const Text(
+            'Quit Travel Group?',
+          ),
+
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Are you sure you want to leave $groupName?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: ExplorerColors.text,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: ExplorerColors.subtle,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _QuitGroupInfoRow(
+                      icon: Icons.map_outlined,
+                      text:
+                      'Your shared location will be removed from the Group Map.',
+                    ),
+                    SizedBox(height: 8),
+                    _QuitGroupInfoRow(
+                      icon: Icons.forum_outlined,
+                      text:
+                      'You will no longer access this group through Companion.',
+                    ),
+                    SizedBox(height: 8),
+                    _QuitGroupInfoRow(
+                      icon: Icons.sos_outlined,
+                      text:
+                      'Any active SOS alert you sent for this group will be cancelled.',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  false,
+                );
+              },
+              child: const Text(
+                'Cancel',
+              ),
+            ),
+
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  true,
+                );
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                ExplorerColors.danger,
+              ),
+              icon: const Icon(
+                Icons.logout_rounded,
+              ),
+              label: const Text(
+                'Quit Group',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      _leavingGroupIds.add(groupId);
+    });
+
+    try {
+      // ============================================================
+      // LOAD LATEST GROUP
+      // ============================================================
+
+      final groupReference =
+      AppServices.db
+          .collection('travel_groups')
+          .doc(groupId);
+
+      final latestGroupSnapshot =
+      await groupReference.get();
+
+      if (!latestGroupSnapshot.exists) {
+        throw Exception(
+          'This travel group no longer exists.',
+        );
+      }
+
+      final latestGroup =
+          latestGroupSnapshot.data() ??
+              const <String, dynamic>{};
+
+      final latestLeaderId =
+      '${latestGroup['leaderId'] ?? ''}'
+          .trim();
+
+      if (latestLeaderId == uid) {
+        throw Exception(
+          'The group leader cannot quit the group.',
+        );
+      }
+
+      final memberIds =
+      List<String>.from(
+        latestGroup['memberIds'] ??
+            const <String>[],
+      );
+
+      if (!memberIds.contains(uid)) {
+        if (context.mounted) {
+          showMessage(
+            context,
+            'You are no longer a member of $groupName.',
+          );
+        }
+        return;
+      }
+
+      // ============================================================
+      // FIND CURRENT USER ACTIVE SOS ALERTS
+      // ============================================================
+
+      final sosSnapshot =
+      await AppServices.db
+          .collection('sos_alerts')
+          .where(
+        'groupId',
+        isEqualTo: groupId,
+      )
+          .get();
+
+      final myActiveSosAlerts =
+      sosSnapshot.docs.where(
+            (document) {
+          final data =
+          document.data();
+
+          return '${data['senderId'] ?? ''}' ==
+              uid &&
+              data['status'] == 'active';
+        },
+      ).toList();
+
+      // ============================================================
+      // FIRESTORE BATCH
+      // ============================================================
+
+      final batch =
+      AppServices.db.batch();
+
+      // ------------------------------------------------------------
+      // Remove user from group membership
+      // ------------------------------------------------------------
+
+      batch.update(
+        groupReference,
+        {
+          'memberIds':
+          FieldValue.arrayRemove(
+            [uid],
+          ),
+
+          'memberNames.$uid':
+          FieldValue.delete(),
+
+          'updatedAt':
+          FieldValue.serverTimestamp(),
+        },
+      );
+
+      // ------------------------------------------------------------
+      // Delete live location from this group
+      // ------------------------------------------------------------
+
+      final locationReference =
+      groupReference
+          .collection('locations')
+          .doc(uid);
+
+      batch.delete(
+        locationReference,
+      );
+
+      // ------------------------------------------------------------
+      // Cancel active SOS alerts from this user
+      // ------------------------------------------------------------
+
+      for (final sosDocument
+      in myActiveSosAlerts) {
+        batch.update(
+          sosDocument.reference,
+          {
+            'status': 'cancelled',
+            'cancelReason':
+            'member_left_group',
+            'cancelledAt':
+            FieldValue.serverTimestamp(),
+            'updatedAt':
+            FieldValue.serverTimestamp(),
+          },
+        );
+      }
+
+      await batch.commit();
+
+      // ============================================================
+      // REMOVE LOCAL SOS SENDING STATE
+      // ============================================================
+
+      _sendingSosGroupIds.remove(
+        groupId,
+      );
+
+      // ============================================================
+      // NOTIFY GROUP LEADER
+      // ============================================================
+
+      if (latestLeaderId.isNotEmpty &&
+          latestLeaderId != uid) {
+        try {
+          final displayName =
+          await _currentDisplayName();
+
+          await AppServices.notify(
+            userId: latestLeaderId,
+
+            title:
+            'Member left travel group',
+
+            message:
+            '$displayName left $groupName.',
+
+            type:
+            'companion_group',
+
+            referenceId:
+            groupId,
+
+            groupId:
+            groupId,
+          );
+        } catch (error) {
+          // Leaving group should not fail just because
+          // notification delivery failed.
+          debugPrint(
+            'Unable to notify leader after leaving group: $error',
+          );
+        }
+      }
+
+      // ============================================================
+      // STOP LIVE GPS IF USER HAS NO OTHER GROUPS
+      // ============================================================
+
+      try {
+        final remainingGroups =
+        await AppServices.db
+            .collection(
+          'travel_groups',
+        )
+            .where(
+          'memberIds',
+          arrayContains: uid,
+        )
+            .limit(1)
+            .get();
+
+        if (remainingGroups.docs.isEmpty) {
+          await _liveLocationSubscription
+              ?.cancel();
+
+          _liveLocationSubscription =
+          null;
+
+          _liveSharingStarted =
+          false;
+
+          debugPrint(
+            'Live companion location stopped because user has no remaining groups.',
+          );
+        }
+      } catch (error) {
+        debugPrint(
+          'Unable to check remaining groups: $error',
+        );
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      // ============================================================
+      // SUCCESS
+      // ============================================================
+
+      showMessage(
+        context,
+        'You left $groupName successfully.',
+      );
+    } on FirebaseException catch (error) {
+      debugPrint(
+        'QUIT GROUP FIREBASE ERROR: '
+            '${error.code} - ${error.message}',
+      );
+
+      if (context.mounted) {
+        showMessage(
+          context,
+          'Unable to quit group: '
+              '${error.message ?? error.code}',
+          error: true,
+        );
+      }
+    } catch (error) {
+      debugPrint(
+        'QUIT GROUP ERROR: $error',
+      );
+
+      if (context.mounted) {
+        showMessage(
+          context,
+          error
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _leavingGroupIds.remove(
+            groupId,
+          );
+        });
+      }
     }
   }
 
@@ -2689,7 +3906,7 @@ class _CompanionPageState extends State<CompanionPage> {
                       group,
                     ),
                     icon: const Icon(Icons.forum_outlined),
-                    label: const Text('Group Chat'),
+                    label: const Text('Chat'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2812,6 +4029,73 @@ class _CompanionPageState extends State<CompanionPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 9),
+
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed:
+                _leavingGroupIds.contains(
+                  groupId,
+                )
+                    ? null
+                    : () => _quitGroup(
+                  context,
+                  groupId,
+                  group,
+                ),
+
+                style:
+                OutlinedButton.styleFrom(
+                  foregroundColor:
+                  ExplorerColors.danger,
+
+                  backgroundColor:
+                  Colors.white,
+
+                  side: const BorderSide(
+                    color:
+                    ExplorerColors.danger,
+                  ),
+
+                  shape:
+                  RoundedRectangleBorder(
+                    borderRadius:
+                    BorderRadius.circular(
+                      10,
+                    ),
+                  ),
+                ),
+
+                icon:
+                _leavingGroupIds.contains(
+                  groupId,
+                )
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child:
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color:
+                    ExplorerColors.danger,
+                  ),
+                )
+                    : const Icon(
+                  Icons.logout_rounded,
+                  size: 18,
+                ),
+
+                label: Text(
+                  _leavingGroupIds.contains(
+                    groupId,
+                  )
+                      ? 'Leaving Group...'
+                      : 'Quit Group',
+                ),
+              ),
+            ),
           ],
         ],
       ),
@@ -2863,6 +4147,42 @@ class _CompanionPageState extends State<CompanionPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _QuitGroupInfoRow extends StatelessWidget {
+  const _QuitGroupInfoRow({
+    required this.icon,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment:
+      CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: ExplorerColors.muted,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: ExplorerColors.muted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

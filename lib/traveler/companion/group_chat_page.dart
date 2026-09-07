@@ -18,157 +18,204 @@ class _GroupChatPageState extends State<GroupChatPage> {
   final _input = TextEditingController();
   final _scrollController = ScrollController();
 
-  CollectionReference<Map<String, dynamic>> get _messagesRef =>
-      AppServices.db.collection('travel_groups').doc(widget.groupId).collection('messages');
+  CollectionReference<Map<String, dynamic>> get _messagesRef => AppServices.db
+      .collection('travel_groups')
+      .doc(widget.groupId)
+      .collection('messages');
 
   Future<void> _send() async {
     final text = _input.text.trim();
 
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      return;
+    }
 
     final user = AppServices.auth.currentUser;
 
-    if (user == null) return;
+    if (user == null) {
+      if (mounted) {
+        showMessage(context, 'Please sign in first.', error: true);
+      }
+
+      return;
+    }
 
     final senderId = user.uid;
 
-    // Get proper traveler display name.
-    final travelerSnapshot =
-    await AppServices.travelerRef(senderId).get();
-
-    final travelerData =
-        travelerSnapshot.data() ??
-            const <String, dynamic>{};
-
-    final senderName =
-    '${travelerData['displayName'] ??
-        user.displayName ??
-        user.email?.split('@').first ??
-        'Member'}'
-        .trim();
-
-    _input.clear();
-
     try {
       // ============================================================
-      // 1. SAVE GROUP MESSAGE
+      // 1. LOAD SENDER NAME
       // ============================================================
 
-      final messageRef =
-      await _messagesRef.add({
-        'text': text,
-        'senderId': senderId,
-        'senderName': senderName,
-        'timestamp':
-        FieldValue.serverTimestamp(),
-      });
+      String senderName = user.displayName?.trim() ?? '';
+
+      try {
+        final travelerSnapshot = await AppServices.travelerRef(senderId).get();
+
+        final travelerData =
+            travelerSnapshot.data() ?? const <String, dynamic>{};
+
+        final firestoreName = '${travelerData['displayName'] ?? ''}'.trim();
+
+        if (firestoreName.isNotEmpty) {
+          senderName = firestoreName;
+        }
+      } catch (error) {
+        debugPrint('Unable to load sender profile: $error');
+      }
+
+      if (senderName.isEmpty) {
+        senderName = user.email?.split('@').first ?? 'Member';
+      }
 
       // ============================================================
-      // 2. GET CURRENT GROUP MEMBERS
+      // 2. VERIFY GROUP EXISTS + USER IS MEMBER
       // ============================================================
 
-      final groupSnapshot =
-      await AppServices.db
+      final groupReference = AppServices.db
           .collection('travel_groups')
-          .doc(widget.groupId)
-          .get();
+          .doc(widget.groupId);
 
-      final group =
-          groupSnapshot.data() ??
-              const <String, dynamic>{};
+      final groupSnapshot = await groupReference.get();
 
-      final memberIds =
-      List<String>.from(
-        group['memberIds'] ??
-            const <String>[],
+      if (!groupSnapshot.exists) {
+        throw Exception('This travel group no longer exists.');
+      }
+
+      final group = groupSnapshot.data() ?? const <String, dynamic>{};
+
+      final memberIds = List<String>.from(
+        group['memberIds'] ?? const <String>[],
       );
 
-      final groupName =
-      '${group['name'] ??
-          widget.groupName}'
-          .trim();
+      if (!memberIds.contains(senderId)) {
+        throw Exception('You are no longer a member of this travel group.');
+      }
+
+      final groupName = '${group['name'] ?? widget.groupName}'.trim();
 
       // ============================================================
-      // 3. CREATE IN-APP NOTIFICATION FOR EVERY OTHER MEMBER
+      // 3. SAVE MESSAGE
+      // ============================================================
+
+      final messageRef = await _messagesRef.add({
+        'text': text,
+
+        'senderId': senderId,
+
+        'senderName': senderName,
+
+        'timestamp': FieldValue.serverTimestamp(),
+
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Only clear AFTER message save succeeds.
+      _input.clear();
+
+      debugPrint('GROUP CHAT MESSAGE SAVED: ${messageRef.id}');
+
+      // ============================================================
+      // 4. SEND NOTIFICATIONS
       //
-      // Spark-compatible:
-      // no Firebase Cloud Function required.
+      // Notification failure must NOT make chat sending look failed.
       // ============================================================
 
-      final notificationBatch =
-      AppServices.db.batch();
+      try {
+        final notificationBatch = AppServices.db.batch();
 
-      var notificationCount = 0;
+        var notificationCount = 0;
 
-      for (final memberId in memberIds) {
-        if (memberId.isEmpty ||
-            memberId == senderId) {
-          continue;
-        }
+        for (final memberId in memberIds) {
+          if (memberId.isEmpty || memberId == senderId) {
+            continue;
+          }
 
-        final notificationRef =
-        AppServices.db
-            .collection('notifications')
-            .doc();
+          final notificationRef = AppServices.db
+              .collection('notifications')
+              .doc();
 
-        notificationBatch.set(
-          notificationRef,
-          {
+          notificationBatch.set(notificationRef, {
             'userId': memberId,
 
-            'title':
-            'New message in $groupName',
+            'title': 'New message in $groupName',
 
-            'message':
-            '$senderName: $text',
+            'message': '$senderName: $text',
 
             'type': 'group_message',
 
-            'referenceId':
-            widget.groupId,
+            'referenceId': widget.groupId,
 
-            'groupId':
-            widget.groupId,
+            'groupId': widget.groupId,
 
-            'groupName':
-            groupName,
+            'groupName': groupName,
 
-            'messageId':
-            messageRef.id,
+            'messageId': messageRef.id,
 
-            'senderId':
-            senderId,
+            'senderId': senderId,
 
-            'senderName':
-            senderName,
+            'senderName': senderName,
 
             'read': false,
 
-            'pushStatus':
-            'pending',
+            'pushStatus': 'pending',
 
-            'pushAttempts':
-            0,
+            'pushAttempts': 0,
 
-            'createdAt':
-            FieldValue.serverTimestamp(),
-          },
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          notificationCount++;
+        }
+
+        if (notificationCount > 0) {
+          await notificationBatch.commit();
+        }
+
+        debugPrint(
+          'GROUP CHAT NOTIFICATIONS CREATED: '
+          '$notificationCount',
         );
-
-        notificationCount++;
+      } catch (notificationError) {
+        // Message already exists.
+        // Do not claim message sending failed.
+        debugPrint(
+          'GROUP CHAT NOTIFICATION ERROR: '
+          '$notificationError',
+        );
       }
 
-      if (notificationCount > 0) {
-        await notificationBatch.commit();
+      if (!mounted) {
+        return;
       }
 
       _scrollToBottom();
-    } catch (error) {
-      if (!mounted) return;
+    } on FirebaseException catch (error) {
+      debugPrint(
+        'GROUP CHAT FIREBASE ERROR: '
+        '${error.code} - ${error.message}',
+      );
+
+      if (!mounted) {
+        return;
+      }
 
       showMessage(
         context,
-        'Unable to send message: $error',
+        'Unable to send message: '
+        '${error.message ?? error.code}',
+        error: true,
+      );
+    } catch (error) {
+      debugPrint('GROUP CHAT ERROR: $error');
+
+      if (!mounted) {
+        return;
+      }
+
+      showMessage(
+        context,
+        error.toString().replaceFirst('Exception: ', ''),
         error: true,
       );
     }
@@ -214,7 +261,10 @@ class _GroupChatPageState extends State<GroupChatPage> {
         ),
         actions: [
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db.collection('travel_groups').doc(widget.groupId).snapshots(),
+            stream: AppServices.db
+                .collection('travel_groups')
+                .doc(widget.groupId)
+                .snapshots(),
             builder: (context, snapshot) {
               final group = snapshot.data?.data();
               final isLeader = group?['leaderId'] == uid;
@@ -225,10 +275,16 @@ class _GroupChatPageState extends State<GroupChatPage> {
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => SosPanicPage(groupId: widget.groupId, group: group ?? {}),
+                    builder: (_) => SosPanicPage(
+                      groupId: widget.groupId,
+                      group: group ?? {},
+                    ),
                   ),
                 ),
-                icon: const Icon(Icons.sos_rounded, color: ExplorerColors.danger),
+                icon: const Icon(
+                  Icons.sos_rounded,
+                  color: ExplorerColors.danger,
+                ),
               );
             },
           ),
@@ -241,11 +297,103 @@ class _GroupChatPageState extends State<GroupChatPage> {
 
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _messagesRef.orderBy('timestamp', descending: false).snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              // Do NOT order in Firestore.
+              // Listen to the whole messages collection directly.
+              stream: _messagesRef.snapshots(includeMetadataChanges: true),
 
-                final docs = snapshot.data!.docs;
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  debugPrint('GROUP CHAT STREAM ERROR: ${snapshot.error}');
+
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: ExplorerColors.danger,
+                            size: 42,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Unable to load group messages',
+                            style: TextStyle(
+                              color: ExplorerColors.navy,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${snapshot.error}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: ExplorerColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final docs = [...snapshot.data!.docs];
+
+                // ============================================================
+                // SORT LOCALLY
+                // ============================================================
+
+                docs.sort((a, b) {
+                  final aTime = asDate(a.data()['timestamp']);
+
+                  final bTime = asDate(b.data()['timestamp']);
+
+                  if (aTime == null && bTime == null) {
+                    return 0;
+                  }
+
+                  if (aTime == null) {
+                    return 1;
+                  }
+
+                  if (bTime == null) {
+                    return -1;
+                  }
+
+                  return aTime.compareTo(bTime);
+                });
+
+                debugPrint('================================');
+
+                debugPrint('GROUP CHAT UPDATE');
+
+                debugPrint('GROUP: ${widget.groupId}');
+
+                debugPrint('CURRENT UID: $uid');
+
+                debugPrint('MESSAGES: ${docs.length}');
+
+                debugPrint(
+                  'FROM CACHE: '
+                  '${snapshot.data!.metadata.isFromCache}',
+                );
+
+                for (final document in docs) {
+                  debugPrint(
+                    '${document.id} => '
+                    '${document.data()['text']}',
+                  );
+                }
+
+                debugPrint('================================');
+
                 if (docs.isEmpty) {
                   return const Center(
                     child: Text(
@@ -256,21 +404,29 @@ class _GroupChatPageState extends State<GroupChatPage> {
                   );
                 }
 
-                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _scrollToBottom(),
+                );
 
                 return ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 16,
+                  ),
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index].data();
+
                     final isMe = data['senderId'] == uid;
+
                     return _buildMessageBubble(data, isMe);
                   },
                 );
               },
             ),
           ),
+
           _buildInputArea(),
         ],
       ),
@@ -282,14 +438,20 @@ class _GroupChatPageState extends State<GroupChatPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           if (!isMe)
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 4),
               child: Text(
                 '${data['senderName']}',
-                style: const TextStyle(color: ExplorerColors.muted, fontSize: 10, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           Container(
@@ -307,13 +469,22 @@ class _GroupChatPageState extends State<GroupChatPage> {
             ),
             child: Text(
               '${data['text']}',
-              style: TextStyle(color: isMe ? Colors.white : ExplorerColors.text, fontSize: 13),
+              style: TextStyle(
+                color: isMe ? Colors.white : ExplorerColors.text,
+                fontSize: 13,
+              ),
             ),
           ),
           if (time != null)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
-              child: Text(DateFormat.jm().format(time), style: const TextStyle(color: ExplorerColors.muted, fontSize: 9)),
+              child: Text(
+                DateFormat.jm().format(time),
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 9,
+                ),
+              ),
             ),
         ],
       ),
@@ -335,12 +506,18 @@ class _GroupChatPageState extends State<GroupChatPage> {
               child: TextField(
                 controller: _input,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(hintText: 'Type a message...', isDense: true),
+                decoration: const InputDecoration(
+                  hintText: 'Type a message...',
+                  isDense: true,
+                ),
                 onSubmitted: (_) => _send(),
               ),
             ),
             const SizedBox(width: 8),
-            IconButton.filled(onPressed: _send, icon: const Icon(Icons.send_rounded)),
+            IconButton.filled(
+              onPressed: _send,
+              icon: const Icon(Icons.send_rounded),
+            ),
           ],
         ),
       ),
@@ -364,7 +541,8 @@ class _LocationRequestBanner extends StatelessWidget {
           .where('status', isEqualTo: 'pending')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
+          return const SizedBox.shrink();
 
         final doc = snapshot.data!.docs.first;
         final data = doc.data();
@@ -375,17 +553,28 @@ class _LocationRequestBanner extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: [
-              const Icon(Icons.location_searching, color: ExplorerColors.goldDark, size: 20),
+              const Icon(
+                Icons.location_searching,
+                color: ExplorerColors.goldDark,
+                size: 20,
+              ),
               const SizedBox(width: 12),
               const Expanded(
                 child: Text(
                   'Group Leader requested your location.',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: ExplorerColors.goldDark),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: ExplorerColors.goldDark,
+                  ),
                 ),
               ),
               TextButton(
                 onPressed: () => doc.reference.update({'status': 'rejected'}),
-                child: const Text('Reject', style: TextStyle(color: Colors.red, fontSize: 12)),
+                child: const Text(
+                  'Reject',
+                  style: TextStyle(color: Colors.red, fontSize: 12),
+                ),
               ),
               FilledButton(
                 onPressed: () => _approve(doc.reference, uid, context),
@@ -403,17 +592,31 @@ class _LocationRequestBanner extends StatelessWidget {
     );
   }
 
-  Future<void> _approve(DocumentReference ref, String uid, BuildContext context) async {
+  Future<void> _approve(
+    DocumentReference ref,
+    String uid,
+    BuildContext context,
+  ) async {
     try {
       final pos = await determinePosition();
       await AppServices.db.runTransaction((tx) async {
-        tx.update(ref, {'status': 'approved', 'respondedAt': FieldValue.serverTimestamp()});
-        
-        final locRef = AppServices.db.collection('travel_groups').doc(groupId).collection('locations').doc(uid);
+        tx.update(ref, {
+          'status': 'approved',
+          'respondedAt': FieldValue.serverTimestamp(),
+        });
+
+        final locRef = AppServices.db
+            .collection('travel_groups')
+            .doc(groupId)
+            .collection('locations')
+            .doc(uid);
         final locSnap = await tx.get(locRef);
         List<String> viewers = [uid];
-        if (locSnap.exists) viewers = List<String>.from(locSnap.data()?['approvedViewerIds'] ?? [uid]);
-        
+        if (locSnap.exists)
+          viewers = List<String>.from(
+            locSnap.data()?['approvedViewerIds'] ?? [uid],
+          );
+
         final reqData = await ref.get();
         final requesterId = (reqData.data() as Map)['requesterId'];
         if (!viewers.contains(requesterId)) viewers.add(requesterId);
@@ -426,7 +629,8 @@ class _LocationRequestBanner extends StatelessWidget {
       });
       if (context.mounted) showMessage(context, 'Location shared with leader.');
     } catch (e) {
-      if (context.mounted) showMessage(context, 'Approval failed: $e', error: true);
+      if (context.mounted)
+        showMessage(context, 'Approval failed: $e', error: true);
     }
   }
 }

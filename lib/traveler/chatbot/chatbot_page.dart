@@ -118,6 +118,412 @@ class _ChatbotPageState
   // SEND
   // ==============================================================
 
+  Future<bool> _tryHandleModuleAction(
+      String text,
+      ) async {
+    final contextData =
+    await ChatbotModuleService
+        .buildUserContext();
+
+    final analysis =
+    await AiChatService
+        .analyseAppAction(
+      message: text,
+      appContext: contextData,
+    );
+
+    final action =
+        '${analysis['action'] ?? 'general_chat'}';
+
+    switch (action) {
+    // ==========================================================
+    // REWARDS
+    // ==========================================================
+
+      case 'show_reward_points':
+        final rewards =
+        Map<String, dynamic>.from(
+          contextData['rewards'] ?? {},
+        );
+
+        final points =
+            rewards['points'] ?? 0;
+
+        _addAssistantMessage(
+          'You currently have ⭐ $points reward points.',
+        );
+
+        return true;
+
+      case 'show_rewards':
+        final rewards =
+        Map<String, dynamic>.from(
+          contextData['rewards'] ?? {},
+        );
+
+        final vouchers =
+        List<Map<String, dynamic>>.from(
+          rewards['vouchers'] ?? [],
+        );
+
+        if (vouchers.isEmpty) {
+          _addAssistantMessage(
+            'There are no available rewards at the moment.',
+          );
+
+          return true;
+        }
+
+        final text =
+        vouchers.take(5).map(
+              (voucher) {
+            final canClaim =
+                voucher['canClaim'] == true;
+
+            return '• ${voucher['title']} — '
+                '${voucher['pointCost']} pts'
+                '${canClaim ? ' ✅' : ''}';
+          },
+        ).join('\n');
+
+        _addAssistantMessage(
+          'Here are some available rewards:\n\n$text',
+        );
+
+        return true;
+
+      case 'open_rewards':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const RewardsPage(),
+          ),
+        );
+
+        return true;
+
+      case 'open_voucher_wallet':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const VoucherWalletPage(),
+          ),
+        );
+
+        return true;
+
+    // ==========================================================
+    // COMPANION
+    // ==========================================================
+
+      case 'show_groups':
+        final companion =
+        Map<String, dynamic>.from(
+          contextData['companion'] ?? {},
+        );
+
+        final groups =
+        List<Map<String, dynamic>>.from(
+          companion['groups'] ?? [],
+        );
+
+        if (groups.isEmpty) {
+          _addAssistantMessage(
+            'You are not currently in any active travel groups.',
+          );
+
+          return true;
+        }
+
+        final result =
+        groups.map(
+              (group) =>
+          '• ${group['name']} — '
+              '${group['role']}, '
+              '${group['memberCount']} member(s)',
+        ).join('\n');
+
+        _addAssistantMessage(
+          'Your active travel groups:\n\n$result',
+        );
+
+        return true;
+
+      case 'open_companion':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const CompanionPage(),
+          ),
+        );
+
+        return true;
+
+      case 'show_group_members':
+        final companion =
+        Map<String, dynamic>.from(
+          contextData['companion'] ?? {},
+        );
+
+        final groups =
+        List<Map<String, dynamic>>.from(
+          companion['groups'] ?? [],
+        );
+
+        if (groups.isEmpty) {
+          _addAssistantMessage(
+            'You do not have an active travel group.',
+          );
+
+          return true;
+        }
+
+        final group =
+            groups.first;
+
+        final memberNames =
+        Map<String, dynamic>.from(
+          group['memberNames'] ?? {},
+        );
+
+        _addAssistantMessage(
+          'Members of ${group['name']}:\n\n'
+              '${memberNames.values.map((e) => '• $e').join('\n')}',
+        );
+
+        return true;
+
+      case 'open_group_chat':
+        final companion =
+        Map<String, dynamic>.from(
+          contextData['companion'] ?? {},
+        );
+
+        final groups =
+        List<Map<String, dynamic>>.from(
+          companion['groups'] ?? [],
+        );
+
+        if (groups.isEmpty) {
+          _addAssistantMessage(
+            'You are not currently in any travel groups.',
+          );
+
+          return true;
+        }
+
+        final targetName =
+        '${analysis['targetName'] ?? ''}'
+            .trim()
+            .toLowerCase();
+
+        Map<String, dynamic>? selected;
+
+        if (targetName.isNotEmpty) {
+          for (final group in groups) {
+            final name =
+            '${group['name'] ?? ''}'
+                .toLowerCase();
+
+            if (name.contains(targetName) ||
+                targetName.contains(name)) {
+              selected = group;
+              break;
+            }
+          }
+        }
+
+        selected ??=
+        groups.length == 1
+            ? groups.first
+            : null;
+
+        if (selected == null) {
+          _addAssistantMessage(
+            'You are in more than one group. '
+                'Tell me which group chat you want to open.',
+          );
+
+          return true;
+        }
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                GroupChatPage(
+                  groupId:
+                  '${selected!['groupId']}',
+                  groupName:
+                  '${selected['name']}',
+                ),
+          ),
+        );
+
+        return true;
+
+    // ==========================================================
+    // SAFETY
+    // ==========================================================
+
+      case 'show_hazards':
+        final safety =
+        Map<String, dynamic>.from(
+          contextData['safety'] ?? {},
+        );
+
+        final hazards =
+        List<Map<String, dynamic>>.from(
+          safety['hazards'] ?? [],
+        );
+
+        if (hazards.isEmpty) {
+          _addAssistantMessage(
+            'There are currently no verified hazards in the system.',
+          );
+
+          return true;
+        }
+
+        final result =
+        hazards.take(5).map(
+              (hazard) =>
+          '• ${hazard['category']} '
+              '(${hazard['severity']}) — '
+              '${hazard['description']}',
+        ).join('\n');
+
+        _addAssistantMessage(
+          'I found ${hazards.length} verified hazard(s):\n\n$result',
+        );
+
+        return true;
+
+      case 'open_safety':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const SafetyPage(),
+          ),
+        );
+
+        return true;
+
+      case 'report_hazard':
+        _addAssistantMessage(
+          'I’ll open the Safety Report form. '
+              'You must review and submit the report yourself.',
+        );
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const CreateHazardPage(),
+          ),
+        );
+
+        return true;
+
+    // ==========================================================
+    // CULTURAL
+    // ==========================================================
+
+      case 'show_cultural_tasks':
+        final cultural =
+        Map<String, dynamic>.from(
+          contextData['cultural'] ?? {},
+        );
+
+        final tasks =
+        List<Map<String, dynamic>>.from(
+          cultural['tasks'] ?? [],
+        );
+
+        if (tasks.isEmpty) {
+          _addAssistantMessage(
+            'There are currently no active cultural tasks.',
+          );
+
+          return true;
+        }
+
+        final result =
+        tasks.take(5).map(
+              (task) =>
+          '• ${task['title']} — '
+              '${task['rewardPoints']} pts',
+        ).join('\n');
+
+        _addAssistantMessage(
+          'Active cultural tasks:\n\n$result',
+        );
+
+        return true;
+
+      case 'open_cultural_tasks':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const CulturalTasksPage(),
+          ),
+        );
+
+        return true;
+
+    // ==========================================================
+    // NOTIFICATIONS
+    // ==========================================================
+
+      case 'show_notifications':
+        final notifications =
+        Map<String, dynamic>.from(
+          contextData['notifications'] ?? {},
+        );
+
+        final unread =
+            notifications['unread'] ?? 0;
+
+        _addAssistantMessage(
+          unread == 0
+              ? 'You have no unread notifications.'
+              : 'You currently have $unread unread notification(s).',
+        );
+
+        return true;
+
+      case 'open_notifications':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const NotificationsPage(),
+          ),
+        );
+
+        return true;
+
+      case 'open_itineraries':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const MyItinerariesPage(),
+          ),
+        );
+
+        return true;
+    }
+
+    return false;
+  }
+
+
   Future<void> send([
     String? suggestedText,
   ]) async {
@@ -227,7 +633,18 @@ class _ChatbotPageState
       // Normal intelligent conversation
       // ----------------------------------------------------------
 
-      await _answerGeneralQuestion(text);
+      final handled =
+      await _tryHandleModuleAction(
+        text,
+      );
+
+      if (handled) {
+        return;
+      }
+
+      await _answerGeneralQuestion(
+        text,
+      );
     } catch (error) {
       _addAssistantMessage(
         error

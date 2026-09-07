@@ -134,6 +134,90 @@ Do not explain the JSON.
   // INTERNAL MODEL CALL WITH RETRY
   // ============================================================
 
+  static Future<Map<String, dynamic>>
+  analyseAppAction({
+    required String message,
+    required Map<String, dynamic> appContext,
+  }) async {
+    final prompt = '''
+You are the intent router for MyHeritage Explorer.
+
+The chatbot is connected to REAL application modules.
+
+Available modules:
+
+1. daily_planner
+2. companion
+3. safety
+4. rewards
+5. cultural
+6. notifications
+7. profile
+
+Current real application context:
+
+${jsonEncode(appContext)}
+
+Latest user message:
+
+$message
+
+Your job is ONLY to determine what application action the user wants.
+
+Possible actions:
+
+general_chat
+show_reward_points
+show_rewards
+open_rewards
+open_voucher_wallet
+show_groups
+open_companion
+open_group_chat
+show_group_members
+show_hazards
+open_safety
+report_hazard
+show_cultural_tasks
+open_cultural_tasks
+show_notifications
+open_notifications
+show_profile
+open_profile
+show_itineraries
+open_itineraries
+
+For open_group_chat:
+- targetName should contain the requested group name if supplied.
+
+IMPORTANT:
+
+- Never claim an action was completed.
+- You only select an action.
+- Flutter code performs the actual action.
+- SOS must NEVER be automatically triggered.
+- Voucher claims must NEVER be automatically performed.
+- Hazard reports must NEVER be automatically submitted.
+- If unsure, use general_chat.
+
+Return ONLY JSON:
+
+{
+  "action": "general_chat",
+  "module": null,
+  "targetName": null,
+  "confidence": 0.0
+}
+''';
+
+    final raw =
+    await _generateText(prompt);
+
+    return _extractJsonObject(raw);
+  }
+
+
+
   static Future<String> _generateText(
       String prompt,
       ) async {
