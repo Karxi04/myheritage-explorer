@@ -1,7 +1,9 @@
 part of '../traveler_pages.dart';
 
 class VoucherWalletPage extends StatefulWidget {
-  const VoucherWalletPage({super.key});
+  const VoucherWalletPage({super.key, this.focusClaimId});
+
+  final String? focusClaimId;
 
   @override
   State<VoucherWalletPage> createState() => _VoucherWalletPageState();
@@ -218,11 +220,34 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final allDocs = snapshot.data!.docs.toList()
-          ..sort(
-            (a, b) => (asDate(b.data()['claimedAt']) ?? DateTime(2000))
-                .compareTo(asDate(a.data()['claimedAt']) ?? DateTime(2000)),
+        final allDocs = snapshot.data!.docs.toList();
+        var focusedClaimId = widget.focusClaimId?.trim();
+        if (focusedClaimId != null &&
+            focusedClaimId.isNotEmpty &&
+            !allDocs.any((doc) => doc.id == focusedClaimId)) {
+          final legacyMatches =
+              allDocs
+                  .where(
+                    (doc) =>
+                        '${doc.data()['voucherId'] ?? ''}' == focusedClaimId,
+                  )
+                  .toList()
+                ..sort(
+                  (a, b) => (asDate(b.data()['claimedAt']) ?? DateTime(2000))
+                      .compareTo(
+                        asDate(a.data()['claimedAt']) ?? DateTime(2000),
+                      ),
+                );
+          if (legacyMatches.isNotEmpty) focusedClaimId = legacyMatches.first.id;
+        }
+        allDocs..sort((a, b) {
+          final aIsFocused = a.id == focusedClaimId;
+          final bIsFocused = b.id == focusedClaimId;
+          if (aIsFocused != bIsFocused) return aIsFocused ? -1 : 1;
+          return (asDate(b.data()['claimedAt']) ?? DateTime(2000)).compareTo(
+            asDate(a.data()['claimedAt']) ?? DateTime(2000),
           );
+        });
         final docs = allDocs.where((doc) {
           return filter == 'All' || _displayStatus(doc.data()) == filter;
         }).toList();
@@ -332,6 +357,8 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                         context,
                       ).copyWith(dividerColor: Colors.transparent),
                       child: ExpansionTile(
+                        key: PageStorageKey('claimed-voucher-${doc.id}'),
+                        initiallyExpanded: doc.id == focusedClaimId,
                         leading: const CircleAvatar(
                           backgroundColor: ExplorerColors.goldSoft,
                           foregroundColor: ExplorerColors.goldDark,

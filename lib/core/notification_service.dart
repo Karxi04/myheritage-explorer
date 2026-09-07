@@ -179,7 +179,7 @@ class SystemNotificationService {
   Future<void> scheduleRewardExpiryReminder({
     required int id,
     required String voucherTitle,
-    required String voucherId,
+    required String claimId,
     required DateTime reminderTime,
     required int daysRemaining,
   }) async {
@@ -216,7 +216,7 @@ class SystemNotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        payload: voucherId.isEmpty ? 'voucher_wallet' : 'reward:$voucherId',
+        payload: claimId.isEmpty ? 'voucher_wallet' : 'claim:$claimId',
       );
     } catch (e) {
       debugPrint('Schedule reward expiry notification error: $e');

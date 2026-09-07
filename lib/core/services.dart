@@ -598,7 +598,7 @@ class AppServices {
           'voucher_nearby' when referenceId != null => 'reward:$referenceId',
           'voucher_claimed' || 'voucher_redeemed'
               when referenceId != null && referenceId.isNotEmpty =>
-            'reward:$referenceId',
+            'claim:$referenceId',
           'voucher_claimed' || 'voucher_redeemed' => 'voucher_wallet',
           _ => null,
         };
@@ -882,7 +882,7 @@ class AppServices {
       title: 'Voucher added to wallet',
       message: '$claimedTitle is ready to use. Show its QR code at the vendor.',
       type: 'voucher_claimed',
-      referenceId: voucherId,
+      referenceId: claimRef.id,
     );
     await syncVoucherExpiryReminders();
 
@@ -1034,7 +1034,6 @@ class AppServices {
     final claimRef = resolved.claimRef;
     final redemptionRef = db.collection('redemptions').doc();
     String travelerId = '';
-    String redeemedVoucherId = '';
     var voucherTitle = 'Voucher';
 
     await db.runTransaction((transaction) async {
@@ -1072,7 +1071,6 @@ class AppServices {
         throw Exception('The voucher owner could not be identified.');
       }
       voucherTitle = '${claim['title'] ?? 'Voucher'}'.trim();
-      redeemedVoucherId = '${claim['voucherId'] ?? ''}'.trim();
 
       transaction.update(claimRef, {
         'status': 'redeemed',
@@ -1102,7 +1100,7 @@ class AppServices {
       title: 'Redemption successful',
       message: '$voucherTitle was successfully redeemed.',
       type: 'voucher_redeemed',
-      referenceId: redeemedVoucherId,
+      referenceId: claimRef.id,
     );
 
     return claimRef.id;
@@ -1174,7 +1172,6 @@ class AppServices {
 
       final claim = doc.data();
       final expiry = asDate(claim['expiresAt']);
-      final voucherId = '${claim['voucherId'] ?? ''}'.trim();
       if (!enabled || claim['status'] != 'claimed' || expiry == null) continue;
 
       final reminderBase = DateTime(expiry.year, expiry.month, expiry.day, 9);
@@ -1185,7 +1182,7 @@ class AppServices {
         await SystemNotificationService.instance.scheduleRewardExpiryReminder(
           id: days == 3 ? threeDayId : oneDayId,
           voucherTitle: title,
-          voucherId: voucherId,
+          claimId: doc.id,
           reminderTime: reminderTime,
           daysRemaining: days,
         );

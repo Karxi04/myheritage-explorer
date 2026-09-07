@@ -182,8 +182,8 @@ class _RewardsPageState extends State<RewardsPage> {
               context,
               MaterialPageRoute(builder: (_) => const NearbyRewardsPage()),
             ),
-            icon: const Icon(Icons.near_me_outlined),
-            tooltip: 'Nearby rewards',
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'Nearby voucher map',
           ),
           IconButton(
             onPressed: () => Navigator.push(

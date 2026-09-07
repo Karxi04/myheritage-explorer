@@ -221,7 +221,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh nearby rewards',
           ),
-          if (!loading && error == null && nearby.isNotEmpty)
+          if (!loading && error == null && currentPosition != null)
             IconButton(
               onPressed: () => setState(() => showMap = !showMap),
               icon: Icon(
@@ -258,6 +258,8 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
             );
           }
 
+          if (showMap && currentPosition != null) return _buildMap();
+
           if (nearby.isEmpty) {
             return ExplorerEmptyState(
               title: 'No nearby rewards right now',
@@ -271,8 +273,6 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
               ),
             );
           }
-
-          if (showMap && currentPosition != null) return _buildMap();
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
@@ -326,6 +326,15 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => setState(() => showMap = true),
+                        icon: const Icon(Icons.map_outlined),
+                        label: const Text('View Nearby Vendors on Map'),
                       ),
                     ),
                     const SizedBox(height: 18),

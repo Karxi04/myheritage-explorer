@@ -51,6 +51,9 @@ void _openPendingNotificationDestination() {
       _ when value.startsWith('reward:') => VoucherDetailPage(
         voucherId: value.substring('reward:'.length).trim(),
       ),
+      _ when value.startsWith('claim:') => VoucherWalletPage(
+        focusClaimId: value.substring('claim:'.length).trim(),
+      ),
       'voucher_wallet' => const VoucherWalletPage(),
       _ => null,
     };

@@ -4,48 +4,70 @@ Future<void> showVoucherClaimReceipt(
   BuildContext context,
   VoucherClaimReceipt receipt,
 ) async {
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.check_circle, color: ExplorerColors.success),
-          SizedBox(width: 10),
-          Text('Claim successful'),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            receipt.voucherTitle,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  final openVoucher =
+      await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: ExplorerColors.success),
+              SizedBox(width: 10),
+              Text('Claim successful'),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(receipt.vendorName),
-          const Divider(height: 24),
-          Text('Points deducted: ${receipt.pointsSpent}'),
-          Text('Remaining balance: ${receipt.pointsRemaining} points'),
-          if (receipt.expiresAt != null)
-            Text(
-              'Expiry: ${DateFormat.yMMMd().add_jm().format(receipt.expiresAt!)}',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                receipt.voucherTitle,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(receipt.vendorName),
+              const Divider(height: 24),
+              Text('Points deducted: ${receipt.pointsSpent}'),
+              Text('Remaining balance: ${receipt.pointsRemaining} points'),
+              if (receipt.expiresAt != null)
+                Text(
+                  'Expiry: ${DateFormat.yMMMd().add_jm().format(receipt.expiresAt!)}',
+                ),
+              const SizedBox(height: 10),
+              Text(
+                'Claim reference: ${receipt.claimId}',
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Later'),
             ),
-          const SizedBox(height: 10),
-          Text(
-            'Claim reference: ${receipt.claimId}',
-            style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
-          ),
-        ],
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('View in Wallet'),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.qr_code_2),
+              label: const Text('View Voucher'),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      ) ??
+      false;
+
+  if (openVoucher && context.mounted) {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VoucherWalletPage(focusClaimId: receipt.claimId),
+      ),
+    );
+  }
 }
 
 class VoucherDetailPage extends StatelessWidget {
