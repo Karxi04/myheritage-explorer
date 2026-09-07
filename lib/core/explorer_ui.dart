@@ -224,13 +224,35 @@ class ExplorerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Container(
-      margin: margin,
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+      side: borderColor == Colors.transparent
+          ? BorderSide.none
+          : BorderSide(color: borderColor),
+    );
+
+    final cardContent = Padding(
       padding: padding,
+      child: child,
+    );
+
+    final body = Material(
+      color: backgroundColor,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: onTap != null
+          ? InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(radius),
+              child: cardContent,
+            )
+          : cardContent,
+    );
+
+    return Container(
+      margin: margin,
       decoration: BoxDecoration(
-        color: backgroundColor,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0A101828),
@@ -239,16 +261,7 @@ class ExplorerCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
-    );
-    if (onTap == null) return content;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(radius),
-        child: content,
-      ),
+      child: body,
     );
   }
 }
