@@ -175,6 +175,64 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loginWithGoogle(BuildContext context) async {
+    setState(() => busy = true);
+    try {
+      final userCredential = await AppServices.signInWithGoogle();
+      if (!mounted || userCredential == null) return;
+
+      final email = userCredential.user?.email;
+
+      // Check if profile exists for target role
+      var profile = await AppServices.profileForRole(
+        userCredential.user!.uid,
+        widget.role,
+      );
+      if (!mounted) return;
+
+      if (profile == null) {
+        // Check if registered under another role
+        final account = await AppServices.currentAccountProfile();
+        if (account != null) {
+          await AppServices.signOut();
+          throw Exception(
+            'This Google account is registered as ${AppServices.labelForRole(account.role)}. Please sign in on the ${AppServices.labelForRole(account.role)} login screen.',
+          );
+        }
+
+        // New Google user -> Navigate to complete profile for widget.role
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RegistrationPage(
+                role: widget.role,
+                initialName: userCredential.user?.displayName,
+                initialEmail: email,
+                isGoogle: true,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   void dispose() {
     email.dispose();
@@ -381,6 +439,29 @@ class _LoginPageState extends State<LoginPage> {
                           const Icon(Icons.arrow_forward, size: 17),
                         ],
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : () => _loginWithGoogle(context),
+                      icon: Image.network(
+                        'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                        height: 18,
+                        width: 18,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.account_circle_outlined, size: 18),
+                      ),
+                      label: Text(
+                        tourist
+                            ? 'Sign in with Google'
+                            : 'Sign in as Vendor with Google',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: ExplorerColors.text,
+                        side: const BorderSide(color: ExplorerColors.border),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
 import 'admin_pages.dart';
@@ -17,11 +19,16 @@ class _AdminShellState extends State<AdminShell> {
   int index = 0;
   final search = TextEditingController();
 
+  Timer? _inactivityTimer;
+  Timer? _popupCountdownTimer;
+  final ValueNotifier<int> _countdownNotifier = ValueNotifier<int>(10);
+  bool _isDialogShowing = false;
+
   static const _items = <({String label, IconData icon})>[
     (label: 'Dashboard', icon: Icons.grid_view_rounded),
-    (label: 'Admin Management', icon: Icons.admin_panel_settings_outlined),
     (label: 'Tourist Management', icon: Icons.explore_outlined),
     (label: 'Vendor Management', icon: Icons.storefront_outlined),
+    (label: 'User & Vendor Reports', icon: Icons.report_problem_outlined),
     (label: 'Cultural Experiences', icon: Icons.account_balance_outlined),
     (label: 'Review Moderation', icon: Icons.rate_review_outlined),
     (label: 'Location & SOS Records', icon: Icons.sos_outlined),
@@ -30,16 +37,196 @@ class _AdminShellState extends State<AdminShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
+    _startInactivityTimer();
+  }
+
+  @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
+    _inactivityTimer?.cancel();
+    _popupCountdownTimer?.cancel();
+    _countdownNotifier.dispose();
     search.dispose();
     super.dispose();
+  }
+
+  bool _onGlobalKeyEvent(KeyEvent event) {
+    _handleUserActivity();
+    return false;
+  }
+
+  void _handleUserActivity() {
+    if (_isDialogShowing) {
+      _dismissTimeoutDialog();
+    } else {
+      _resetInactivityTimer();
+    }
+  }
+
+  void _startInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(seconds: 30), _onInactivityTimeout);
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(seconds: 30), _onInactivityTimeout);
+  }
+
+  void _onInactivityTimeout() {
+    if (_isDialogShowing || !mounted) return;
+    _showTimeoutDialog();
+  }
+
+  void _showTimeoutDialog() {
+    _isDialogShowing = true;
+    _countdownNotifier.value = 10;
+
+    _popupCountdownTimer?.cancel();
+    _popupCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_countdownNotifier.value <= 1) {
+        timer.cancel();
+        _kickOutUser();
+      } else {
+        _countdownNotifier.value--;
+      }
+    });
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return ValueListenableBuilder<int>(
+          valueListenable: _countdownNotifier,
+          builder: (context, seconds, child) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.timer_outlined,
+                    color: ExplorerColors.gold,
+                    size: 28,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Session Inactivity Warning',
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'You have been immobile for 30 seconds. For security reasons, you will be automatically logged out in:',
+                    style: TextStyle(fontSize: 14, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ExplorerColors.navy.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '$seconds',
+                          style: const TextStyle(
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                            color: ExplorerColors.navy,
+                          ),
+                        ),
+                        const Text(
+                          'seconds remaining',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: ExplorerColors.navy,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    _kickOutUser();
+                  },
+                  child: const Text(
+                    'Sign Out Now',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ExplorerColors.navy,
+                  ),
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    _dismissTimeoutDialog();
+                  },
+                  child: const Text('Stay Logged In'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).then((_) {
+      _isDialogShowing = false;
+      _popupCountdownTimer?.cancel();
+    });
+  }
+
+  void _dismissTimeoutDialog() {
+    if (_isDialogShowing) {
+      _isDialogShowing = false;
+      _popupCountdownTimer?.cancel();
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+    _startInactivityTimer();
+  }
+
+  void _kickOutUser() {
+    _inactivityTimer?.cancel();
+    _popupCountdownTimer?.cancel();
+    if (_isDialogShowing) {
+      _isDialogShowing = false;
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+    AppServices.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
       const AdminDashboardPage(),
-      const AdminManagementPage(),
       const AdminUsersPage(
         roleFilter: 'traveler',
         pageTitle: 'Tourist Management',
@@ -48,6 +235,7 @@ class _AdminShellState extends State<AdminShell> {
         roleFilter: 'vendor',
         pageTitle: 'Vendor Management',
       ),
+      const AdminReportsPage(),
       const AdminCulturalPage(),
       const AdminReviewsPage(),
       const AdminEmergencyPage(),
@@ -55,36 +243,43 @@ class _AdminShellState extends State<AdminShell> {
       const AdminSettingsPage(),
     ];
 
-    return Scaffold(
-      backgroundColor: ExplorerColors.background,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 1050;
-          return Row(
-            children: [
-              _AdminSidebar(
-                compact: compact,
-                selectedIndex: index,
-                profile: widget.profile,
-                onSelected: (value) => setState(() => index = value),
-              ),
-              Expanded(
-                child: Column(
-                  children: [
-                    _AdminTopBar(
-                      controller: search,
-                      profile: widget.profile,
-                      currentLabel: _items[index].label,
-                    ),
-                    Expanded(
-                      child: IndexedStack(index: index, children: pages),
-                    ),
-                  ],
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _handleUserActivity(),
+      onPointerMove: (_) => _handleUserActivity(),
+      onPointerHover: (_) => _handleUserActivity(),
+      onPointerSignal: (_) => _handleUserActivity(),
+      child: Scaffold(
+        backgroundColor: ExplorerColors.background,
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 1050;
+            return Row(
+              children: [
+                _AdminSidebar(
+                  compact: compact,
+                  selectedIndex: index,
+                  profile: widget.profile,
+                  onSelected: (value) => setState(() => index = value),
                 ),
-              ),
-            ],
-          );
-        },
+                Expanded(
+                  child: Column(
+                    children: [
+                      _AdminTopBar(
+                        controller: search,
+                        profile: widget.profile,
+                        currentLabel: _items[index].label,
+                      ),
+                      Expanded(
+                        child: IndexedStack(index: index, children: pages),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

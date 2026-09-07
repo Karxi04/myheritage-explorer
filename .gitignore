@@ -28,7 +28,6 @@ app.*.symbols
 app.*.map.json
 
 # Web
-/lib/generated_plugin_registrant.dart
 
 # Platform ephemeral build files
 /linux/flutter/ephemeral/
