@@ -17,15 +17,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
-import 'package:mobile_scanner/mobile_scanner.dart'
-    hide GeoPoint;
+import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
-
 import 'package:intl/intl.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../auth/auth_pages.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
@@ -35,10 +32,6 @@ import '../core/pin_service.dart';
 
 // AI is isolated in this service.
 import '../core/ai_chat_service.dart';
-
-
-
-part 'home/traveler_home_page.dart';
 
 import 'daily_planner/models/itinerary_model.dart';
 import 'daily_planner/models/travel_preferences_model.dart';
@@ -85,12 +78,6 @@ part 'rewards/rewards_page.dart';
 part 'rewards/nearby_rewards_page.dart';
 part 'rewards/voucher_wallet_page.dart';
 
-part 'weather/weather_reminder_page.dart';
-
-part 'chatbot/chatbot_page.dart';
-
-part 'notifications/notifications_page.dart';
-part 'profile/traveler_profile_page.dart';
 part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';

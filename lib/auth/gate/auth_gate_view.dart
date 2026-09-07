@@ -103,7 +103,18 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
           return EmailVerificationPage(user: widget.user);
         }
 
-        // 3. Security Check (PIN Security)
+        // 3. Security Questions Check
+        // Non-admins must answer security questions before setup PIN / entering portal
+        final secQuestions = profile['securityQuestions'];
+        final hasSecurityQuestions = secQuestions is List && secQuestions.isNotEmpty;
+        if (!hasSecurityQuestions && role != 'admin') {
+          return _SecurityQuestionsSetupGate(
+            uid: widget.user.uid,
+            role: role,
+          );
+        }
+
+        // 4. Security Check (PIN Security)
         // If they haven't authorized this session, we either prompt for PIN or ask to setup
         if (!PinService.isSessionAuthorized) {
           if (_isPinSet == null) {
@@ -458,6 +469,187 @@ class _ProfileLoadErrorPage extends StatelessWidget {
                       ],
                     ),
                   ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SecurityQuestionsSetupGate extends StatefulWidget {
+  const _SecurityQuestionsSetupGate({
+    required this.uid,
+    required this.role,
+  });
+
+  final String uid;
+  final String role;
+
+  @override
+  State<_SecurityQuestionsSetupGate> createState() =>
+      _SecurityQuestionsSetupGateState();
+}
+
+class _SecurityQuestionsSetupGateState
+    extends State<_SecurityQuestionsSetupGate> {
+  final securityQuestions = [
+    'What was the name of your first pet?',
+    'In what city were you born?',
+    'What was your mother\'s maiden name?',
+    'What was the make of your first car?',
+    'What was the name of your elementary school?',
+    'What is your favorite book?',
+  ];
+  String? q1;
+  String? q2;
+  final a1 = TextEditingController();
+  final a2 = TextEditingController();
+  bool busy = false;
+
+  @override
+  void dispose() {
+    a1.dispose();
+    a2.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final answer1 = a1.text.trim();
+    final answer2 = a2.text.trim();
+
+    if (q1 == null || q2 == null || answer1.isEmpty || answer2.isEmpty) {
+      showMessage(context, 'Please answer both security questions.', error: true);
+      return;
+    }
+    if (q1 == q2) {
+      showMessage(context, 'Please select two different questions.', error: true);
+      return;
+    }
+    if (answer1.length < 5 || answer2.length < 5) {
+      showMessage(context, 'Each answer must be at least 5 characters long.', error: true);
+      return;
+    }
+
+    setState(() => busy = true);
+    try {
+      final questionsData = [
+        {'question': q1!, 'answer': answer1.toLowerCase()},
+        {'question': q2!, 'answer': answer2.toLowerCase()},
+      ];
+
+      await AppServices.saveSecurityQuestions(
+        uid: widget.uid,
+        role: widget.role,
+        securityQuestions: questionsData,
+      );
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.security, size: 52, color: ExplorerColors.navy),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Set Up Security Questions',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'These questions will help you recover your account if you ever lose access.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
+                      ),
+                      const SizedBox(height: 24),
+                      DropdownButtonFormField<String>(
+                        value: q1,
+                        isExpanded: true,
+                        itemHeight: null,
+                        decoration: const InputDecoration(
+                          labelText: 'Question 1',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        items: securityQuestions
+                            .where((q) => q != q2)
+                            .map((q) => DropdownMenuItem(
+                                value: q,
+                                child: Text(
+                                  q,
+                                  style: const TextStyle(fontSize: 14),
+                                )))
+                            .toList(),
+                        onChanged: (v) => setState(() => q1 = v),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: a1,
+                        decoration: const InputDecoration(
+                          labelText: 'Answer 1',
+                          hintText: 'At least 5 characters',
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      DropdownButtonFormField<String>(
+                        value: q2,
+                        isExpanded: true,
+                        itemHeight: null,
+                        decoration: const InputDecoration(
+                          labelText: 'Question 2',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        items: securityQuestions
+                            .where((q) => q != q1)
+                            .map((q) => DropdownMenuItem(
+                                value: q,
+                                child: Text(
+                                  q,
+                                  style: const TextStyle(fontSize: 14),
+                                )))
+                            .toList(),
+                        onChanged: (v) => setState(() => q2 = v),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: a2,
+                        decoration: const InputDecoration(
+                          labelText: 'Answer 2',
+                          hintText: 'At least 5 characters',
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      ElevatedButton(
+                        onPressed: busy ? null : _submit,
+                        child: Text(busy ? 'Saving...' : 'Save & Continue'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: AppServices.signOut,
+                        icon: const Icon(Icons.logout, size: 18),
+                        label: const Text('Sign Out'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

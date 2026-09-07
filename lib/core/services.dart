@@ -329,6 +329,18 @@ class AppServices {
     return controller.stream;
   }
 
+  static Future<void> saveSecurityQuestions({
+    required String uid,
+    required String role,
+    required List<Map<String, String>> securityQuestions,
+  }) async {
+    final ref = profileRefForRole(uid, role);
+    await ref.update({
+      'securityQuestions': securityQuestions,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   static Future<void> registerTraveler({
     required String email,
     required String password,
@@ -336,7 +348,7 @@ class AppServices {
     required List<String> interests,
     required String budgetPreference,
     required String travelPace,
-    required List<Map<String, String>> securityQuestions,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final result = await auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -360,13 +372,10 @@ class AppServices {
     required List<String> interests,
     required String budgetPreference,
     required String travelPace,
-    required List<Map<String, String>> securityQuestions,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final user = _currentUserOrThrow();
     await user.updateDisplayName(fullName.trim());
-
-    // Check if user is signed in with Google
-    final isGoogle = user.providerData.any((p) => p.providerId == 'google.com');
 
     await travelerRef(user.uid).set({
       'uid': user.uid,
@@ -381,7 +390,7 @@ class AppServices {
       'points': 0,
       'localImpactScore': 0,
       'rank': 'Bronze',
-      'emailVerified': isGoogle || user.emailVerified,
+      'emailVerified': false, // Require email verification for all users
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -403,7 +412,7 @@ class AppServices {
     String? verificationExtension,
     Uint8List? businessImageBytes,
     String? businessImageExtension,
-    required List<Map<String, String>> securityQuestions,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final result = await auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -445,7 +454,7 @@ class AppServices {
     String? verificationExtension,
     Uint8List? businessImageBytes,
     String? businessImageExtension,
-    required List<Map<String, String>> securityQuestions,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final user = _currentUserOrThrow();
     await user.updateDisplayName(businessName.trim());
