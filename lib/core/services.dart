@@ -390,7 +390,7 @@ class AppServices {
       'points': 0,
       'localImpactScore': 0,
       'rank': 'Bronze',
-      'emailVerified': false, // Require email verification for all users
+      'emailVerified': user.emailVerified,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -513,7 +513,7 @@ class AppServices {
       'status': 'active',
       'vendorStatus': 'pending',
       'securityQuestions': securityQuestions,
-      'emailVerified': false, // Force false for new registration
+      'emailVerified': user.emailVerified,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
