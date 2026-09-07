@@ -14,6 +14,47 @@ class TravelerProfilePage extends StatefulWidget {
 }
 
 class _TravelerProfilePageState extends State<TravelerProfilePage> {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh user data (like changed email) whenever profile is opened.
+    // Use a silent reload to avoid interrupting the session.
+    _refreshUser();
+  }
+
+  Future<void> _refreshUser() async {
+    try {
+      final user = AppServices.auth.currentUser;
+      if (user != null) {
+        await user.reload();
+        final updatedUser = AppServices.auth.currentUser;
+        if (updatedUser != null &&
+            updatedUser.emailVerified &&
+            updatedUser.email != widget.profile['email']) {
+          // Attempt to update Firestore. If user was force-logged out 
+          // by Firebase, this update will fail, and we won't show the notice.
+          await AppServices.travelerRef(updatedUser.uid).update({
+            'email': updatedUser.email,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          
+          showGlobalNotice(
+            title: 'Session Expired',
+            message: 'Your email address has been verified. Please sign in again with your new email.',
+            buttonText: 'Login Now',
+            onConfirm: () async {
+              await AppServices.signOut();
+            },
+          );
+        } else if (mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      debugPrint('Profile refresh failed: $e');
+    }
+  }
+
   Future<void> deactivateAccount({required bool deletionRequested}) async {
     if (deletionRequested) {
       final keywordConfirmed = await confirmDeletionKeyword(context);
@@ -258,10 +299,62 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
                   ),
                 ),
                 _divider(),
+                FutureBuilder<bool>(
+                  future: PinService.isPinSet(),
+                  builder: (context, snapshot) {
+                    final hasPin = snapshot.data == true;
+                    return _settingsTile(
+                      icon: hasPin ? Icons.lock_open_outlined : Icons.lock_outline,
+                      title: hasPin ? 'Change or Disable PIN' : 'Setup Security PIN',
+                      onTap: () async {
+                        if (hasPin) {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Security PIN'),
+                              content: const Text('Would you like to change your PIN or disable it?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () async {
+                                    await PinService.disablePin();
+                                    if (context.mounted) {
+                                      Navigator.pop(context, true);
+                                      showMessage(context, 'Security PIN disabled.');
+                                    }
+                                  },
+                                  child: const Text('Disable PIN', style: TextStyle(color: ExplorerColors.danger)),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text('Change PIN'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirmed == false && context.mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const PinSetupPage()),
+                            ).then((_) => setState(() {}));
+                          } else if (confirmed == true) {
+                            setState(() {});
+                          }
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const PinSetupPage()),
+                          ).then((_) => setState(() {}));
+                        }
+                      },
+                    );
+                  },
+                ),
+                _divider(),
                 _settingsTile(
                   icon: Icons.logout,
                   title: 'Logout',
-                  onTap: AppServices.auth.signOut,
+                  onTap: AppServices.signOut,
                 ),
                 _divider(),
                 _settingsTile(
@@ -398,26 +491,39 @@ class _ProfileInformationPageState
         Set<String>.from(widget.profile['travelInterests'] ?? const []);
     budget = '${widget.profile['budgetPreference'] ?? 'Medium'}';
     pace = '${widget.profile['travelPace'] ?? 'Balanced'}';
+    
+    // Reload user to get latest email if it was verified/changed
+    AppServices.auth.currentUser?.reload().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> save() async {
-    if (name.text.trim().isEmpty) {
+    final cleanedName = cleanName(name.text);
+    if (cleanedName.isEmpty) {
       showMessage(context, 'Enter your full name.', error: true);
+      return;
+    }
+    if (!isValidName(name.text)) {
+      showMessage(context, 'Name contains invalid characters.', error: true);
+      return;
+    }
+    if (interests.isEmpty) {
+      showMessage(context, 'Select at least one travel interest.', error: true);
       return;
     }
     setState(() => busy = true);
     try {
       final uid = AppServices.auth.currentUser!.uid;
       await AppServices.travelerRef(uid).update({
-        'displayName': name.text.trim(),
+        'displayName': cleanedName,
         'travelInterests': interests.toList(),
         'budgetPreference': budget,
         'travelPace': pace,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      await AppServices.auth.currentUser!
-          .updateDisplayName(name.text.trim());
-      widget.profile['displayName'] = name.text.trim();
+      await AppServices.auth.currentUser!.updateDisplayName(cleanedName);
+      widget.profile['displayName'] = cleanedName;
       widget.profile['travelInterests'] = interests.toList();
       widget.profile['budgetPreference'] = budget;
       widget.profile['travelPace'] = pace;
@@ -443,8 +549,8 @@ class _ProfileInformationPageState
 
   @override
   Widget build(BuildContext context) {
-    final email =
-        '${widget.profile['email'] ?? AppServices.auth.currentUser?.email ?? ''}';
+    final email = AppServices.auth.currentUser?.email ??
+        '${widget.profile['email'] ?? ''}';
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -487,12 +593,38 @@ class _ProfileInformationPageState
                   ),
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  controller: TextEditingController(text: email),
-                  enabled: false,
-                  decoration: const InputDecoration(
-                    labelText: 'Email Address',
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: TextEditingController(text: email),
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Email Address',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ChangeEmailPage(),
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text('Change'),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 18),
                 const Align(
@@ -535,7 +667,7 @@ class _ProfileInformationPageState
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: budget,
+                  initialValue: budget,
                   decoration: const InputDecoration(
                     labelText: 'Budget Preference',
                   ),
@@ -552,7 +684,7 @@ class _ProfileInformationPageState
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
-                  value: pace,
+                  initialValue: pace,
                   decoration: const InputDecoration(
                     labelText: 'Travel Pace',
                   ),

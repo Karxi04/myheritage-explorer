@@ -20,6 +20,7 @@ import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
 import '../core/services.dart';
+import '../core/pin_service.dart';
 
 part 'home/traveler_home_page.dart';
 part 'daily_planner/malaysian_planner_data.dart';

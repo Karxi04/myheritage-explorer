@@ -9,6 +9,7 @@ import '../core/app_theme.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
+import '../core/pin_service.dart';
 
 part 'dashboard/vendor_dashboard_page.dart';
 part 'vouchers/vendor_vouchers_page.dart';

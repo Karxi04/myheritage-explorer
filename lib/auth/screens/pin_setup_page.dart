@@ -1,7 +1,10 @@
 part of '../auth_pages.dart';
 
 class PinSetupPage extends StatefulWidget {
-  const PinSetupPage({super.key});
+  const PinSetupPage({super.key, this.onSetupComplete, this.onCancel});
+
+  final VoidCallback? onSetupComplete;
+  final VoidCallback? onCancel;
 
   @override
   State<PinSetupPage> createState() => _PinSetupPageState();
@@ -60,12 +63,54 @@ class _PinSetupPageState extends State<PinSetupPage> {
   Future<void> _savePin() async {
     await PinService.setPin(confirmController.text);
     PinService.authorizeSession();
+    
     if (mounted) {
-      showGlobalNotice(
-        title: 'Security PIN Set',
-        message: 'Your 6-digit security PIN has been saved locally on this device.',
-        onConfirm: () => Navigator.popUntil(context, (route) => route.isFirst),
-      );
+      final canUseBiometrics = await PinService.canCheckBiometrics();
+      
+      if (canUseBiometrics) {
+        if (!mounted) return;
+        final enableBiometrics = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Enable Biometric Security?'),
+            content: const Text(
+              'Would you like to use fingerprint or face recognition for quicker access to your account?'
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('No, thanks'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Enable'),
+              ),
+            ],
+          ),
+        );
+
+        if (enableBiometrics == true) {
+          final authenticated = await PinService.authenticateWithBiometrics();
+          if (authenticated) {
+            await PinService.setBiometricEnabled(true);
+          }
+        }
+      }
+
+      if (mounted) {
+        showGlobalNotice(
+          title: 'Security PIN Set',
+          message: 'Your 6-digit security PIN has been saved locally on this device.',
+          onConfirm: () {
+            if (widget.onSetupComplete != null) {
+              widget.onSetupComplete!();
+            } else {
+              Navigator.popUntil(context, (route) => route.isFirst);
+            }
+          },
+        );
+      }
     }
   }
 
@@ -75,56 +120,73 @@ class _PinSetupPageState extends State<PinSetupPage> {
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
         title: const Text('Setup Security PIN'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: widget.onSetupComplete == null,
+        leading: widget.onCancel != null 
+            ? IconButton(
+                onPressed: widget.onCancel,
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
         actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.popUntil(context, (route) => route.isFirst);
-            },
-            child: const Text('Skip'),
-          ),
+          if (widget.onSetupComplete != null)
+            IconButton(
+              onPressed: () => AppServices.signOut(),
+              icon: const Icon(Icons.logout),
+              tooltip: 'Sign out',
+            ),
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            Icon(
-              isConfirming ? Icons.lock_outline : Icons.dialpad_outlined,
-              size: 64,
-              color: ExplorerColors.navy,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              isConfirming ? 'Confirm your PIN' : 'Create a 6-Digit PIN',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: ExplorerColors.navy,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isConfirming
-                  ? 'Re-enter the PIN to confirm'
-                  : 'Add an extra layer of local security to your account.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: ExplorerColors.muted),
-            ),
-            const SizedBox(height: 32),
-            _buildPinDisplay(),
-            if (error.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  error,
-                  style: const TextStyle(color: ExplorerColors.danger, fontSize: 13),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 40),
+                      Icon(
+                        isConfirming ? Icons.lock_outline : Icons.dialpad_outlined,
+                        size: 64,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        isConfirming ? 'Confirm your PIN' : 'Create a 6-Digit PIN',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: ExplorerColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isConfirming
+                            ? 'Re-enter the PIN to confirm'
+                            : 'Add an extra layer of local security to your account.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: ExplorerColors.muted),
+                      ),
+                      const SizedBox(height: 32),
+                      _buildPinDisplay(),
+                      if (error.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: Text(
+                            error,
+                            style: const TextStyle(color: ExplorerColors.danger, fontSize: 13),
+                          ),
+                        ),
+                      const Spacer(),
+                      _buildKeyboard(),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
                 ),
               ),
-            const Spacer(),
-            _buildKeyboard(),
-            const SizedBox(height: 20),
-          ],
+            );
+          },
         ),
       ),
     );

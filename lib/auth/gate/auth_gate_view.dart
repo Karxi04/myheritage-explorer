@@ -33,30 +33,34 @@ class _ResolvedRoleGate extends StatefulWidget {
 }
 
 class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
-  late Future<AccountProfile?> profileFuture;
+  late final Stream<AccountProfile?> _profileStream;
+  bool? _isPinSet;
+  bool _checkingPin = false;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    _profileStream = AppServices.accountProfileStream(widget.user.uid);
   }
 
-  void _reload() {
-    profileFuture = AppServices.currentAccountProfile().timeout(
-      const Duration(seconds: 12),
-      onTimeout: () => throw Exception(
-        'The role profile took too long to load. '
-        'Check Firestore rules and the account role document.',
-      ),
-    );
+  Future<void> _checkPinOnce() async {
+    if (_isPinSet != null || _checkingPin) return;
+    _checkingPin = true;
+    final isSet = await PinService.isPinSet();
+    if (mounted) {
+      setState(() {
+        _isPinSet = isSet;
+        _checkingPin = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<AccountProfile?>(
-      future: profileFuture,
+    return StreamBuilder<AccountProfile?>(
+      stream: _profileStream,
       builder: (context, profileSnapshot) {
-        if (profileSnapshot.connectionState != ConnectionState.done) {
+        if (profileSnapshot.connectionState == ConnectionState.waiting) {
           return const _ProfileLoadingPage(
             message: 'Loading account profile...',
           );
@@ -65,52 +69,76 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
         if (profileSnapshot.hasError) {
           return _ProfileLoadErrorPage(
             message: '${profileSnapshot.error}'.replaceFirst('Exception: ', ''),
-            onRetry: () => setState(_reload),
+            onRetry: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const AuthGate()),
+              );
+            },
           );
         }
 
         final account = profileSnapshot.data;
         if (account == null) {
+          // If no profile exists, check if user is a Google user who needs to complete setup
+          final isGoogle = widget.user.providerData.any((p) => p.providerId == 'google.com');
+          if (isGoogle) {
+            return _GoogleRoleSetupGate(user: widget.user);
+          }
           return MissingProfilePage(uid: widget.user.uid);
         }
 
-        final reference = AppServices.profileRefForRole(
-          widget.user.uid,
-          account.role,
-        );
+        final profile = account.data;
+        final role = account.role;
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: reference.snapshots(),
-          builder: (context, liveSnapshot) {
-            if (liveSnapshot.hasError) {
-              return _ProfileLoadErrorPage(
-                message: '${liveSnapshot.error}'.replaceFirst(
-                  'Exception: ',
-                  '',
-                ),
-                onRetry: () => setState(_reload),
-              );
-            }
+        // 1. Status Check (Inactive/Suspended)
+        final String status = profile['status'] ?? 'active';
+        if (status == 'inactive' || status == 'suspended' || status == 'disabled') {
+          return const AccountDisabledPage();
+        }
 
-            if (!liveSnapshot.hasData) {
-              return const _ProfileLoadingPage(
-                message: 'Opening your account...',
-              );
-            }
+        // 2. Email Verification Check
+        // Non-admins must verify their email before proceeding
+        if (profile['emailVerified'] != true && role != 'admin') {
+          return EmailVerificationPage(user: widget.user);
+        }
 
-            final profile = liveSnapshot.data!.data();
-            if (profile == null) {
-              return MissingProfilePage(uid: widget.user.uid);
-            }
+        // 3. Security Check (PIN Security)
+        // If they haven't authorized this session, we either prompt for PIN or ask to setup
+        if (!PinService.isSessionAuthorized) {
+          if (_isPinSet == null) {
+            _checkPinOnce();
+            return const _ProfileLoadingPage(message: 'Checking security...');
+          }
 
-            return _routeProfile(context, role: account.role, profile: profile);
-          },
-        );
+          // If a PIN is set, show the entry page
+          if (_isPinSet == true) {
+            return PinEntryPage(
+              onAuthorized: () {
+                setState(() {}); // Rebuild to proceed to Shell
+              },
+            );
+          }
+
+          // If no PIN is set, prompt for setup (for non-admins)
+          if (role != 'admin') {
+            return _PinSecurityGate(
+              onDecision: () {
+                setState(() {
+                  _isPinSet = null; // Force re-check pin status after decision
+                }); 
+              },
+            );
+          }
+        }
+
+        // 4. Final Shell Route
+        return _routeShell(context, role: role, profile: profile);
       },
     );
   }
 
-  Widget _routeProfile(
+  Widget _routeShell(
     BuildContext context, {
     required String role,
     required Map<String, dynamic> profile,
@@ -121,16 +149,13 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
         message:
             'The $role profile for this account is missing role == $role. '
             'Check the ${role}s/${widget.user.uid} document.',
-        onRetry: () => setState(_reload),
+        onRetry: () {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const AuthGate()),
+          );
+        },
       );
-    }
-
-    if (profile['status'] != 'active') {
-      return const AccountDisabledPage();
-    }
-
-    if (!widget.user.emailVerified && role != 'admin') {
-      return EmailVerificationPage(user: widget.user);
     }
 
     if (role == 'admin') {
@@ -141,7 +166,6 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
               'Open the web application to access the administrator portal.',
         );
       }
-
       return AdminShell(profile: profile);
     }
 
@@ -166,8 +190,196 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
 
     return _ProfileLoadErrorPage(
       message: 'Unsupported account role: $role',
-      onRetry: () => setState(_reload),
+      onRetry: () {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+        );
+      },
     );
+  }
+}
+
+class _GoogleRoleSetupGate extends StatelessWidget {
+  const _GoogleRoleSetupGate({required this.user});
+  final User user;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 450),
+              child: Column(
+                children: [
+                  const ExplorerBrand(),
+                  const SizedBox(height: 32),
+                  const Text(
+                    'Complete Your Profile',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Welcome, ${user.displayName ?? 'Explorer'}! Please choose your role to finish setting up your account.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: ExplorerColors.muted),
+                  ),
+                  const SizedBox(height: 40),
+                  _RoleSelectionButton(
+                    title: 'I am a Tourist',
+                    icon: Icons.explore_outlined,
+                    onPressed: () => _navigateToRegistration(context, 'traveler'),
+                  ),
+                  const SizedBox(height: 16),
+                  _RoleSelectionButton(
+                    title: 'I am a Vendor',
+                    icon: Icons.storefront_outlined,
+                    onPressed: () => _navigateToRegistration(context, 'vendor'),
+                  ),
+                  const SizedBox(height: 32),
+                  TextButton.icon(
+                    onPressed: () async {
+                      try {
+                        // Delete the Firebase Auth user to avoid ghost accounts 
+                        // without a Firestore profile.
+                        await AppServices.deleteCurrentUser();
+                      } catch (_) {
+                        // If deletion fails, we still want to sign out.
+                      }
+                      await AppServices.signOut();
+                    },
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Cancel & Sign Out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _navigateToRegistration(BuildContext context, String role) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RegistrationPage(
+          role: role,
+          initialName: user.displayName,
+          initialEmail: user.email,
+          isGoogle: true,
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleSelectionButton extends StatelessWidget {
+  const _RoleSelectionButton({
+    required this.title,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String title;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Text(title),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+}
+
+class _PinSecurityGate extends StatefulWidget {
+  const _PinSecurityGate({required this.onDecision});
+  final VoidCallback onDecision;
+
+  @override
+  State<_PinSecurityGate> createState() => _PinSecurityGateState();
+}
+
+class _PinSecurityGateState extends State<_PinSecurityGate> {
+  bool _setupStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showPrompt());
+  }
+
+  void _showPrompt() async {
+    if (!mounted) return;
+    
+    // Add a very small delay to allow any pending transitions to finish
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
+
+    final decision = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Secure Your Account?'),
+        content: const Text(
+          'Would you like to set up a 6-digit security PIN for this device? '
+          'This adds an extra layer of protection to your profile.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Maybe Later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Setup PIN'),
+          ),
+        ],
+      ),
+    );
+
+    if (decision == true) {
+      if (mounted) setState(() => _setupStarted = true);
+    } else if (decision == false) {
+      // User explicitly clicked "Maybe Later"
+      PinService.authorizeSession();
+      widget.onDecision();
+    } else {
+      // Dialog was dismissed somehow without a decision 
+      // (shouldn't happen with barrierDismissible: false, but for safety)
+      if (mounted) _showPrompt(); 
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_setupStarted) {
+      return PinSetupPage(
+        onSetupComplete: widget.onDecision,
+        onCancel: () => setState(() => _setupStarted = false),
+      );
+    }
+    return const _ProfileLoadingPage(message: 'Securing account...');
   }
 }
 
@@ -239,7 +451,7 @@ class _ProfileLoadErrorPage extends StatelessWidget {
                           label: const Text('Retry'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: AppServices.auth.signOut,
+                          onPressed: AppServices.signOut,
                           icon: const Icon(Icons.logout),
                           label: const Text('Sign Out'),
                         ),

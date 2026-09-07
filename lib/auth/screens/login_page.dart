@@ -20,6 +20,10 @@ class _LoginPageState extends State<LoginPage> {
       showMessage(context, 'Enter your email and password.', error: true);
       return;
     }
+    if (!isValidEmail(email.text)) {
+      showMessage(context, 'Enter a valid email address.', error: true);
+      return;
+    }
     setState(() => busy = true);
     try {
       final credential = await AppServices.auth.signInWithEmailAndPassword(
@@ -30,6 +34,92 @@ class _LoginPageState extends State<LoginPage> {
         credential.user!.uid,
         widget.role,
       );
+
+      // 1. Check if email changed in background (Verified)
+      if (profile != null &&
+          credential.user!.email != null &&
+          profile['email'] != credential.user!.email) {
+        await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+            .update({
+          'email': credential.user!.email,
+          'emailChangePending': false,
+          'pendingEmail': FieldValue.delete(),
+          'oldEmail': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        profile['email'] = credential.user!.email;
+        profile['emailChangePending'] = false;
+      }
+
+      // 2. Lockout check for pending email change
+      if (profile != null && profile['emailChangePending'] == true) {
+        // Reload to check if verification or revert happened
+        await credential.user!.reload();
+        final freshUser = AppServices.auth.currentUser!;
+
+        if (freshUser.email != profile['email']) {
+          // Case A: Verified. Email updated to new one.
+          await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+              .update({
+            'email': freshUser.email,
+            'emailChangePending': false,
+            'pendingEmail': FieldValue.delete(),
+            'oldEmail': FieldValue.delete(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          profile['email'] = freshUser.email;
+          profile['emailChangePending'] = false;
+        } else {
+          // Case B: Original Email. 
+          // They signed in with the original email, but a change is still pending.
+          final pending = profile['pendingEmail'] ?? 'your new address';
+          
+          bool? shouldCancel;
+          if (mounted) {
+            shouldCancel = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AlertDialog(
+                title: const Text('Email Change Pending'),
+                content: Text(
+                  'A request to change your email to $pending is unresolved.\n\n'
+                  'Would you like to continue waiting for verification, or cancel this request and restore access to your current email?'
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Wait for Verification'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Cancel Request'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          if (shouldCancel == true) {
+            // User chose to cancel the request in-app.
+            await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+                .update({
+              'emailChangePending': false,
+              'pendingEmail': FieldValue.delete(),
+              'oldEmail': FieldValue.delete(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            profile['emailChangePending'] = false;
+            // Login proceeds!
+          } else {
+            // Still pending. Force logout.
+            await AppServices.signOut();
+            throw Exception(
+              'Please verify the link sent to $pending to complete the change, '
+              'or cancel the request during your next login attempt.'
+            );
+          }
+        }
+      }
 
       if (profile == null || profile['role'] != widget.role) {
         try {
@@ -50,7 +140,7 @@ class _LoginPageState extends State<LoginPage> {
 
       if (profile == null || profile['role'] != widget.role) {
         final account = await AppServices.currentAccountProfile();
-        await AppServices.auth.signOut();
+        await AppServices.signOut();
 
         if (account != null) {
           throw Exception(

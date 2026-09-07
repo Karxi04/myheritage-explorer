@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
 String randomCode([int length = 6]) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   final random = Random.secure();
@@ -78,10 +80,44 @@ String cleanDisplayText(Object? value) {
 }
 
 void showMessage(BuildContext context, String message, {bool error = false}) {
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(message),
+      content: Text(
+        message,
+        maxLines: 5,
+        overflow: TextOverflow.visible,
+      ),
       backgroundColor: error ? Colors.red.shade700 : null,
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
+void showGlobalNotice({
+  required String title,
+  required String message,
+  String buttonText = 'OK',
+  VoidCallback? onConfirm,
+}) {
+  final context = appNavigatorKey.currentContext;
+  if (context == null) return;
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(context);
+            if (onConfirm != null) onConfirm();
+          },
+          child: Text(buttonText),
+        ),
+      ],
     ),
   );
 }
@@ -175,3 +211,38 @@ Future<bool> confirmDeletionKeyword(BuildContext context) async {
       ) ??
       false;
 }
+
+bool isValidEmail(String email) {
+  return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim());
+}
+
+String cleanName(String name) {
+  return name.trim().replaceAll(RegExp(r'[^a-zA-Z\s]'), '').replaceAll(RegExp(r'\s+'), ' ');
+}
+
+bool isValidName(String name) {
+  final cleaned = cleanName(name);
+  return cleaned.isNotEmpty && RegExp(r'^[a-zA-Z\s]+$').hasMatch(cleaned);
+}
+
+bool isValidMalaysianPhone(String phone) {
+  // Matches 1x-xxxxxxx or 1x-xxxxxxxx
+  return RegExp(r'^(1[0-46-9]-?[0-9]{7,8}|15-?[0-9]{7})$').hasMatch(phone.replaceAll(' ', '').replaceAll('-', ''));
+}
+
+String? validatePassword(String password) {
+  if (password.length < 8) {
+    return 'Password must be at least 8 characters long.';
+  }
+  if (!password.contains(RegExp(r'[A-Z]'))) {
+    return 'Password must contain at least one uppercase letter.';
+  }
+  if (!password.contains(RegExp(r'[a-z]'))) {
+    return 'Password must contain at least one lowercase letter.';
+  }
+  if (!password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>\-_+=~`[\]\\;/]'))) {
+    return 'Password must contain at least one special character.';
+  }
+  return null;
+}
+

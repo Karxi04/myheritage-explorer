@@ -13,6 +13,43 @@ class _PinEntryPageState extends State<PinEntryPage> {
   final pinController = TextEditingController();
   String error = '';
   bool busy = false;
+  bool _biometricSupported = false;
+  bool _biometricEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBiometrics();
+  }
+
+  Future<void> _initBiometrics() async {
+    final supported = await PinService.canCheckBiometrics();
+    final enabled = await PinService.isBiometricEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricSupported = supported;
+        _biometricEnabled = enabled;
+      });
+
+      if (supported && enabled) {
+        // Auto-trigger biometric auth
+        _authenticateBiometric();
+      }
+    }
+  }
+
+  Future<void> _authenticateBiometric() async {
+    if (busy) return;
+    final authenticated = await PinService.authenticateWithBiometrics();
+    if (authenticated) {
+      PinService.authorizeSession();
+      if (widget.onAuthorized != null) {
+        widget.onAuthorized!();
+      } else if (mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    }
+  }
 
   void _onNumberTap(String value) {
     if (busy) return;
@@ -66,50 +103,61 @@ class _PinEntryPageState extends State<PinEntryPage> {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            onPressed: () => AppServices.auth.signOut(),
+            onPressed: () => AppServices.signOut(),
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
           ),
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 60),
-            const Icon(
-              Icons.lock_person_outlined,
-              size: 72,
-              color: ExplorerColors.navy,
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Enter Security PIN',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: ExplorerColors.navy,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Please enter your 6-digit PIN to continue.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: ExplorerColors.muted),
-            ),
-            const SizedBox(height: 40),
-            _buildPinDisplay(),
-            if (error.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  error,
-                  style: const TextStyle(color: ExplorerColors.danger, fontSize: 13),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 60),
+                      const Icon(
+                        Icons.lock_person_outlined,
+                        size: 72,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Enter Security PIN',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: ExplorerColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Please enter your 6-digit PIN to continue.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: ExplorerColors.muted),
+                      ),
+                      const SizedBox(height: 40),
+                      _buildPinDisplay(),
+                      if (error.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: Text(
+                            error,
+                            style: const TextStyle(color: ExplorerColors.danger, fontSize: 13),
+                          ),
+                        ),
+                      const Spacer(),
+                      _buildKeyboard(),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
                 ),
               ),
-            const Spacer(),
-            _buildKeyboard(),
-            const SizedBox(height: 30),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -150,7 +198,22 @@ class _PinEntryPageState extends State<PinEntryPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              const SizedBox(width: 60),
+              SizedBox(
+                width: 60,
+                child: IconButton(
+                  onPressed: _biometricSupported ? _authenticateBiometric : null,
+                  icon: Icon(
+                    Icons.fingerprint,
+                    color: _biometricSupported 
+                        ? ExplorerColors.navy 
+                        : Colors.grey.shade300,
+                    size: 32,
+                  ),
+                  tooltip: _biometricSupported 
+                      ? 'Authenticate with Biometrics' 
+                      : 'Biometrics not supported',
+                ),
+              ),
               _buildKeyboardButton('0'),
               SizedBox(
                 width: 60,
