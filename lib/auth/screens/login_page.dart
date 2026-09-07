@@ -459,8 +459,13 @@ class _LoginPageState extends State<LoginPage> {
                             : 'Sign in as Vendor with Google',
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: ExplorerColors.text,
-                        side: const BorderSide(color: ExplorerColors.border),
+                        foregroundColor:
+                            tourist ? ExplorerColors.navy : ExplorerColors.goldDark,
+                        side: BorderSide(
+                          color: tourist
+                              ? ExplorerColors.navy
+                              : ExplorerColors.goldDark,
+                        ),
                       ),
                     ),
                   ),

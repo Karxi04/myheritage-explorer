@@ -304,8 +304,8 @@ class _RoleSelectionCard extends StatelessWidget {
                 ),
                 label: const Text('Register with Google'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: ExplorerColors.text,
-                  side: const BorderSide(color: ExplorerColors.border),
+                  foregroundColor: accent,
+                  side: BorderSide(color: accent),
                   shape: const StadiumBorder(),
                 ),
               ),
