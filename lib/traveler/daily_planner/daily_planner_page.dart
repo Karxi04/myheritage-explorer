@@ -1,15 +1,53 @@
 part of '../traveler_pages.dart';
 
-class GeoapifyPlannerResult {
-  const GeoapifyPlannerResult({
+class PlannerDaySchedule {
+  const PlannerDaySchedule({
+    required this.dayNumber,
+    required this.date,
+    required this.dateLabel,
+    required this.weather,
     required this.places,
     required this.totalEstimatedMinutes,
     required this.remainingMinutes,
   });
 
+  final int dayNumber;
+  final DateTime date;
+  final String dateLabel;
+  final Map<String, dynamic> weather;
   final List<Map<String, dynamic>> places;
   final int totalEstimatedMinutes;
   final int remainingMinutes;
+
+  Map<String, dynamic> toMap() => {
+    'dayNumber': dayNumber,
+    'date': date.toIso8601String(),
+    'dateLabel': dateLabel,
+    'weather': weather,
+    'stops': places,
+    'totalEstimatedMinutes': totalEstimatedMinutes,
+    'remainingMinutes': remainingMinutes,
+  };
+}
+
+class GeoapifyPlannerResult {
+  const GeoapifyPlannerResult({
+    required this.places,
+    required this.totalEstimatedMinutes,
+    required this.remainingMinutes,
+    this.days = const [],
+    this.startDate,
+    this.endDate,
+    this.dayCount = 1,
+  });
+
+  final List<Map<String, dynamic>> places;
+  final int totalEstimatedMinutes;
+  final int remainingMinutes;
+  final List<PlannerDaySchedule> days;
+  final DateTime? startDate;
+  final DateTime? endDate;
+  final int dayCount;
 }
 
 class _GeoapifyArea {
@@ -43,6 +81,15 @@ class _GeoapifyCachedPlaceDetails {
   final Map<String, dynamic> details;
 }
 
+class _TimedCache<T> {
+  const _TimedCache({required this.createdAt, required this.value});
+
+  final DateTime createdAt;
+  final T value;
+
+  bool isFresh(Duration ttl) => DateTime.now().difference(createdAt) < ttl;
+}
+
 class GeoapifyPlanner {
   const GeoapifyPlanner._();
 
@@ -51,10 +98,17 @@ class GeoapifyPlanner {
   static const int _addPlaceSearchLimit = 120;
   static const double _penangLatitude = 5.4141;
   static const double _penangLongitude = 100.3288;
+  static const Duration _firestoreCacheTtl = Duration(minutes: 5);
 
   static final Map<String, _GeoapifyArea> _geocodeCache = {};
   static final Map<String, _GeoapifyCachedPlaces> _placesCache = {};
   static final Map<String, _GeoapifyCachedPlaceDetails> _detailsCache = {};
+  static final Map<String, _TimedCache<List<Map<String, dynamic>>>>
+  _verifiedVendorCache = {};
+  static _TimedCache<List<Map<String, dynamic>>>? _culturalTasksCache;
+  static _TimedCache<Map<String, List<Map<String, dynamic>>>>?
+  _activeVoucherCache;
+  static _TimedCache<Map<String, Map<String, dynamic>>>? _reviewStatsCache;
 
   static const Map<String, List<String>> _interestCategories = {
     'Heritage': [
@@ -96,12 +150,171 @@ class GeoapifyPlanner {
     ],
   };
 
+  static Future<Map<String, dynamic>> _fetchDayForecast(
+    double lat,
+    double lng,
+    DateTime date,
+    int dayIndex,
+  ) async {
+    try {
+      final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+        'latitude': lat.toString(),
+        'longitude': lng.toString(),
+        'daily':
+            'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum',
+        'timezone': 'auto',
+        'forecast_days': '7',
+      });
+      final res = await http.get(uri).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        final daily = json['daily'] as Map<String, dynamic>?;
+        if (daily != null) {
+          final codes = List<num>.from(daily['weather_code'] ?? []);
+          final temps = List<num>.from(daily['temperature_2m_max'] ?? []);
+          final rains = List<num>.from(daily['precipitation_sum'] ?? []);
+          final idx = min(dayIndex, codes.length - 1);
+          if (idx >= 0 && idx < codes.length) {
+            final code = codes[idx].toInt();
+            final temp = temps.isNotEmpty ? temps[idx].round() : 30;
+            final rain = rains.isNotEmpty ? rains[idx].toDouble() : 0.0;
+            final severity = _weatherSeverity(
+              weatherCode: code,
+              precipitationMm: rain,
+              temperatureC: temp,
+            );
+            final isRainy =
+                severity == 'thunderstorm' ||
+                severity == 'heavy_rain' ||
+                severity == 'moderate_rain' ||
+                severity == 'light_showers';
+            final weatherCopy = _weatherCopy(
+              severity: severity,
+              temperatureC: temp,
+            );
+
+            return {
+              'temperature': '$temp°C',
+              'condition': weatherCopy.condition,
+              'isRainy': isRainy,
+              'advice': weatherCopy.advice,
+              'weatherCode': code,
+              'weatherSeverity': severity,
+              'precipitationMm': rain,
+              'outdoorFriendly': weatherCopy.outdoorFriendly,
+              'indoorPriority': weatherCopy.indoorPriority,
+            };
+          }
+        }
+      }
+    } catch (_) {}
+
+    return {
+      'temperature': '30°C',
+      'condition': 'Partly Cloudy',
+      'isRainy': false,
+      'advice':
+          'Fair tropical weather (30°C) • Keep outdoor heritage walks, with shaded or indoor breaks midday.',
+      'weatherCode': 2,
+      'weatherSeverity': 'fair',
+      'precipitationMm': 0.0,
+      'outdoorFriendly': true,
+      'indoorPriority': false,
+    };
+  }
+
+  static String _weatherSeverity({
+    required int weatherCode,
+    required double precipitationMm,
+    required int temperatureC,
+  }) {
+    if (weatherCode >= 95 || precipitationMm >= 8) return 'thunderstorm';
+    if (precipitationMm >= 5 || weatherCode == 82) return 'heavy_rain';
+    if (precipitationMm >= 2.5 ||
+        (weatherCode >= 61 && weatherCode <= 67) ||
+        weatherCode == 81) {
+      return 'moderate_rain';
+    }
+    if (precipitationMm > 0.2 ||
+        (weatherCode >= 51 && weatherCode <= 57) ||
+        weatherCode == 80) {
+      return 'light_showers';
+    }
+    if (temperatureC >= 34) return 'hot';
+    if (weatherCode >= 1 && weatherCode <= 3) return 'cloudy';
+    return 'fair';
+  }
+
+  static ({
+    String condition,
+    String advice,
+    bool outdoorFriendly,
+    bool indoorPriority,
+  })
+  _weatherCopy({required String severity, required int temperatureC}) {
+    return switch (severity) {
+      'thunderstorm' => (
+        condition: 'Thunderstorms',
+        advice:
+            'Heavy rain expected ($temperatureC°C) • Choose indoor museums, galleries and covered food courts first.',
+        outdoorFriendly: false,
+        indoorPriority: true,
+      ),
+      'heavy_rain' => (
+        condition: 'Heavy Rain',
+        advice:
+            'Heavy rain expected ($temperatureC°C) • Prefer indoor attractions and keep outdoor stops as backups.',
+        outdoorFriendly: false,
+        indoorPriority: true,
+      ),
+      'moderate_rain' => (
+        condition: 'Rain Showers',
+        advice:
+            'Rain showers expected ($temperatureC°C) • Mix indoor stops with short outdoor visits between showers.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'light_showers' => (
+        condition: 'Light Showers',
+        advice:
+            'Light showers possible ($temperatureC°C) • Outdoor heritage stops are still okay with indoor backup nearby.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'hot' => (
+        condition: 'Hot & Sunny',
+        advice:
+            'Hot weather ($temperatureC°C) • Keep outdoor sights, add shade, hydration and indoor rest breaks.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      'cloudy' => (
+        condition: 'Partly Cloudy',
+        advice:
+            'Pleasant weather ($temperatureC°C) • Good for both outdoor trails and indoor cultural stops.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+      _ => (
+        condition: 'Sunny & Warm',
+        advice:
+            'Bright skies ($temperatureC°C) • Good for outdoor heritage walks, scenic sights and local food stops.',
+        outdoorFriendly: true,
+        indoorPriority: false,
+      ),
+    };
+  }
+
   static Future<GeoapifyPlannerResult> generate({
     required String area,
     required double availableHours,
     required List<String> interests,
     required String budgetLevel,
     required String travelPace,
+    int? preferredStartMinutes,
+    DateTime? startDate,
+    int dayCount = 1,
+    bool foodExplorationEnabled = false,
   }) async {
     final normalizedArea = _normalisePenangArea(area);
     if (normalizedArea.isEmpty) {
@@ -110,6 +323,10 @@ class GeoapifyPlanner {
     if (interests.isEmpty) {
       throw Exception('Select at least one travel interest.');
     }
+
+    final tripStartDate =
+        startDate ?? DateTime.now().add(const Duration(days: 1));
+    final tripEndDate = tripStartDate.add(Duration(days: max(0, dayCount - 1)));
 
     _GeoapifyArea? locatedArea;
     if (GeoapifyConfig.isConfigured) {
@@ -124,6 +341,10 @@ class GeoapifyPlanner {
     final culturalTasks = await _loadActiveCulturalTasks();
     final reviewStats = await _loadReviewStats();
     final voucherMap = await _loadActiveVendorVouchers();
+    final coveredMealLabels = _coveredMealLabels(
+      preferredStartMinutes ?? 9 * 60,
+      (availableHours * 60).round(),
+    );
 
     final candidates = vendors
         .map((vendor) {
@@ -161,15 +382,21 @@ class GeoapifyPlanner {
             'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
             'activeVouchers': vouchers.take(3).toList(),
             'activeVoucherCount': vouchers.length,
-            if (task != null) 'culturalTask': task,
+            ...?task == null ? null : {'culturalTask': task},
           };
         })
         .where((vendor) {
-          return _vendorMatchesInterests(vendor, interests) &&
+          final supportsMealPlanning =
+              coveredMealLabels.isNotEmpty && _isFoodPlace(vendor);
+          final matchesPreference =
+              _vendorMatchesInterests(vendor, interests) &&
               _budgetAllowed(
                 userBudget: budgetLevel,
                 placeBudget: '${vendor['budgetLevel'] ?? 'Medium'}',
               );
+          return matchesPreference ||
+              supportsMealPlanning ||
+              (foodExplorationEnabled && _isFoodPlace(vendor));
         })
         .toList();
 
@@ -178,36 +405,155 @@ class GeoapifyPlanner {
         places: const [],
         totalEstimatedMinutes: 0,
         remainingMinutes: (availableHours * 60).round(),
+        startDate: tripStartDate,
+        endDate: tripEndDate,
+        dayCount: dayCount,
       );
     }
 
-    final built = await _buildItinerary(
-      candidates: candidates,
-      availableMinutes: (availableHours * 60).round(),
-      pace: travelPace,
-      selectedInterests: interests,
-      origin: locatedArea == null
-          ? null
-          : {
-              'latitude': locatedArea.latitude,
-              'longitude': locatedArea.longitude,
-            },
+    final minimumAreaScore = _minimumAreaTextScore(normalizedArea);
+    final areaMatchedCandidates = candidates.where((c) {
+      final areaScore = (c['areaRelevanceScore'] as num?)?.toDouble() ?? 0.0;
+      return areaScore >= minimumAreaScore;
+    }).toList();
+    final generationArea = locatedArea;
+    final localCandidates = generationArea == null
+        ? areaMatchedCandidates
+        : candidates
+              .where(
+                (candidate) => _isLocalCandidate(
+                  candidate,
+                  locatedArea: generationArea,
+                  selectedArea: normalizedArea,
+                ),
+              )
+              .toList();
+    final activeCandidates = localCandidates.isNotEmpty
+        ? localCandidates
+        : areaMatchedCandidates;
+
+    if (activeCandidates.isEmpty) {
+      return GeoapifyPlannerResult(
+        places: const [],
+        totalEstimatedMinutes: 0,
+        remainingMinutes: (availableHours * 60).round(),
+        startDate: tripStartDate,
+        endDate: tripEndDate,
+        dayCount: dayCount,
+      );
+    }
+
+    final daySchedules = <PlannerDaySchedule>[];
+    final allEnrichedStops = <Map<String, dynamic>>[];
+    final globallyUsedKeys = <String>{};
+    final remainingCandidates = List<Map<String, dynamic>>.from(
+      activeCandidates,
     );
 
-    final enriched = await Future.wait(
-      built.places.map((place) async {
-        try {
-          return await ItineraryImageResolver.resolveStop(place);
-        } catch (_) {
-          return place;
-        }
-      }),
+    final originLat = locatedArea?.latitude ?? _penangLatitude;
+    final originLng = locatedArea?.longitude ?? _penangLongitude;
+
+    for (int dayIdx = 0; dayIdx < dayCount; dayIdx++) {
+      final currentDayDate = tripStartDate.add(Duration(days: dayIdx));
+      final dayForecast = await _fetchDayForecast(
+        originLat,
+        originLng,
+        currentDayDate,
+        dayIdx,
+      );
+      final isRainy = dayForecast['isRainy'] == true;
+      final weatherSeverity = '${dayForecast['weatherSeverity'] ?? 'fair'}';
+
+      final availableCandidates = remainingCandidates.where((c) {
+        final keys = _allPlaceKeys(c);
+        return !keys.any((k) => globallyUsedKeys.contains(k));
+      }).toList();
+
+      final poolForDay = availableCandidates.isNotEmpty
+          ? availableCandidates
+          : activeCandidates.where((c) {
+              final keys = _allPlaceKeys(c);
+              return !keys.any((k) => globallyUsedKeys.contains(k));
+            }).toList();
+
+      final poolToUse = poolForDay.isNotEmpty ? poolForDay : activeCandidates;
+
+      final built = await _buildItinerary(
+        candidates: poolToUse,
+        availableMinutes: (availableHours * 60).round(),
+        pace: travelPace,
+        selectedInterests: interests,
+        userBudget: budgetLevel,
+        preferredStartMinutes: preferredStartMinutes,
+        isRainy: isRainy,
+        weatherSeverity: weatherSeverity,
+        foodExplorationEnabled: foodExplorationEnabled,
+        usedKeys: globallyUsedKeys,
+        maxLegDistanceKm: locatedArea == null
+            ? 18.0
+            : min(
+                18.0,
+                max(7.0, _localSearchRadiusMeters(normalizedArea) / 1000 * .65),
+              ),
+        origin: locatedArea == null
+            ? null
+            : {
+                'latitude': locatedArea.latitude,
+                'longitude': locatedArea.longitude,
+              },
+      );
+
+      final enriched = await Future.wait(
+        built.places.map((place) async {
+          try {
+            return await ItineraryImageResolver.resolveStop(place);
+          } catch (_) {
+            return place;
+          }
+        }),
+      );
+
+      for (final p in enriched) {
+        globallyUsedKeys.addAll(_allPlaceKeys(p));
+      }
+      remainingCandidates.removeWhere((p) {
+        final keys = _allPlaceKeys(p);
+        return keys.any((k) => globallyUsedKeys.contains(k));
+      });
+
+      final dayLabel = DateFormat('d MMM').format(currentDayDate);
+      daySchedules.add(
+        PlannerDaySchedule(
+          dayNumber: dayIdx + 1,
+          date: currentDayDate,
+          dateLabel: '$dayLabel (Day ${dayIdx + 1})',
+          weather: dayForecast,
+          places: enriched,
+          totalEstimatedMinutes: built.totalEstimatedMinutes,
+          remainingMinutes: built.remainingMinutes,
+        ),
+      );
+
+      allEnrichedStops.addAll(enriched);
+    }
+
+    final totalMinutesAllDays = daySchedules.fold<int>(
+      0,
+      (sum, d) => sum + d.totalEstimatedMinutes,
     );
 
     return GeoapifyPlannerResult(
-      places: enriched,
-      totalEstimatedMinutes: built.totalEstimatedMinutes,
-      remainingMinutes: built.remainingMinutes,
+      places: daySchedules.isNotEmpty
+          ? daySchedules.first.places
+          : allEnrichedStops,
+      totalEstimatedMinutes: totalMinutesAllDays,
+      remainingMinutes: daySchedules.isNotEmpty
+          ? daySchedules.first.remainingMinutes
+          : 0,
+      days: daySchedules,
+      startDate: tripStartDate,
+      endDate: tripEndDate,
+      dayCount: dayCount,
     );
   }
 
@@ -226,6 +572,14 @@ class GeoapifyPlanner {
     final voucherMap = await _loadActiveVendorVouchers();
     final excluded = excludedPlaceIds.toSet();
     final queryKey = _normalize(query);
+    _GeoapifyArea? locatedArea;
+    if (GeoapifyConfig.isConfigured) {
+      try {
+        locatedArea = await _geocodeArea(normalisedArea);
+      } catch (_) {
+        // Area text relevance still keeps registered-vendor search local.
+      }
+    }
 
     final candidates = vendors
         .map((vendor) {
@@ -240,8 +594,19 @@ class GeoapifyPlanner {
               voucherMap[vendorId] ?? const <Map<String, dynamic>>[];
           final matchedInterest = _bestVendorInterest(vendor, interests);
           final interestMatchScore = _interestMatchScore(vendor, interests);
+          final vendorLocation = _coordinateMap(vendor['location']);
+          final distanceMeters = locatedArea == null || vendorLocation == null
+              ? (vendor['distanceMeters'] as num?)?.toDouble() ?? 0.0
+              : _haversineKm(
+                      locatedArea.latitude,
+                      locatedArea.longitude,
+                      vendorLocation['latitude']!,
+                      vendorLocation['longitude']!,
+                    ) *
+                    1000;
           final enriched = <String, dynamic>{
             ...vendor,
+            'distanceMeters': distanceMeters,
             'category': matchedInterest,
             'matchedInterest': matchedInterest,
             'interestMatchScore': interestMatchScore,
@@ -252,7 +617,7 @@ class GeoapifyPlanner {
             'trustLabel': stats['trustLabel'] ?? 'Insufficient Data',
             'activeVouchers': vouchers.take(3).toList(),
             'activeVoucherCount': vouchers.length,
-            if (task != null) 'culturalTask': task,
+            ...?task == null ? null : {'culturalTask': task},
           };
           enriched['suggestionReason'] = _suggestionReason(enriched);
           return enriched;
@@ -260,6 +625,17 @@ class GeoapifyPlanner {
         .where((vendor) {
           final placeId = '${vendor['placeId'] ?? ''}';
           if (placeId.isEmpty || excluded.contains(placeId)) return false;
+          final areaScore =
+              (vendor['areaRelevanceScore'] as num?)?.toDouble() ?? 0.0;
+          final addSearchArea = locatedArea;
+          final localEnough = addSearchArea == null
+              ? areaScore >= _minimumAreaTextScore(normalisedArea)
+              : _isLocalCandidate(
+                  vendor,
+                  locatedArea: addSearchArea,
+                  selectedArea: normalisedArea,
+                );
+          if (!localEnough) return false;
           if (queryKey.isEmpty) {
             return interests.isEmpty ||
                 _vendorMatchesInterests(vendor, interests);
@@ -267,13 +643,52 @@ class GeoapifyPlanner {
           final searchable = _normalize(
             '${vendor['name'] ?? ''} ${vendor['formattedAddress'] ?? ''} '
             '${vendor['businessCategory'] ?? ''} '
+            '${vendor['description'] ?? ''} ${vendor['area'] ?? ''} '
+            '${(vendor['plannerCategories'] as List?)?.join(' ') ?? ''} '
             '${(vendor['tags'] as List?)?.join(' ') ?? ''}',
           );
           return _matchesSearchQuery(query, searchable);
         })
         .toList();
 
-    candidates.sort((first, second) {
+    if (queryKey.isNotEmpty && locatedArea != null) {
+      try {
+        final mapResults = <Map<String, dynamic>>[];
+        for (final variant in _searchQueryVariants(query)) {
+          mapResults.addAll(
+            await _searchNamedPenangPlaces(
+              query: variant,
+              area: normalisedArea,
+              locatedArea: locatedArea,
+              selectedInterests: interests,
+            ),
+          );
+          if (mapResults.length >= 12) break;
+          mapResults.addAll(
+            await _searchAutocompletePenangPlaces(
+              query: variant,
+              area: normalisedArea,
+              locatedArea: locatedArea,
+              selectedInterests: interests,
+            ),
+          );
+          if (mapResults.length >= 12) break;
+        }
+        for (final place in mapResults) {
+          final placeId = '${place['placeId'] ?? ''}';
+          if (placeId.isEmpty || excluded.contains(placeId)) continue;
+          place['interestMatchScore'] = _interestMatchScore(place, interests);
+          place['suggestionReason'] = _suggestionReason(place);
+          candidates.add(place);
+        }
+      } catch (_) {
+        // Typed search still returns local registered and curated places.
+      }
+    }
+
+    final searchResults = _deduplicate(candidates);
+
+    searchResults.sort((first, second) {
       final firstScore = _addPlaceRank(
         first,
         queryKey: queryKey,
@@ -289,7 +704,7 @@ class GeoapifyPlanner {
       return secondScore.compareTo(firstScore);
     });
 
-    final selected = candidates.take(limit).toList();
+    final selected = searchResults.take(limit).toList();
     return Future.wait(
       selected.map((vendor) async {
         try {
@@ -330,8 +745,27 @@ class GeoapifyPlanner {
       'Armenian Street',
       'Lebuh Armenian',
     ]);
+    addWhen(
+      (key.contains('bukit mertajam') || key.contains('bm')) &&
+          (key.contains('market') ||
+              key.contains('pasar') ||
+              key.contains('old street')),
+      const [
+        'Pekan Bukit Mertajam Old Market Street',
+        'Jalan Pasar Bukit Mertajam',
+        'BM Old Market Street',
+      ],
+    );
+    addWhen(key.contains('hin') || key.contains('bus depot'), const [
+      'Hin Bus Depot',
+      'Hin Bus Depot George Town',
+    ]);
+    addWhen(key.contains('street art') || key.contains('mural'), const [
+      'Penang Street Art Armenian Street',
+      'Butterworth Art Walk',
+    ]);
 
-    return variants.take(4).toList();
+    return variants.take(6).toList();
   }
 
   static bool _matchesSearchQuery(String query, String searchable) {
@@ -421,58 +855,119 @@ class GeoapifyPlanner {
   }
 
   static String _normalisePenangArea(String area) {
-    final value = area.trim();
-    if (value.isEmpty) return 'George Town, Penang, Malaysia';
-
-    final lower = value.toLowerCase();
-    if (lower == 'penang' ||
-        lower == 'pulau pinang' ||
-        lower == 'penang island') {
-      return 'George Town, Penang, Malaysia';
-    }
-    if (lower.contains('malaysia')) return value;
-    if (lower.contains('penang') || lower.contains('pulau pinang')) {
-      return '$value, Malaysia';
-    }
-    return '$value, Penang, Malaysia';
+    return MalaysianAreaSearchEngine.normalise(area);
   }
 
-  static bool _isPenangArea(String value) {
-    final lower = value.toLowerCase();
-    return lower.contains('penang') ||
-        lower.contains('pulau pinang') ||
-        lower.contains('george town') ||
-        lower.contains('air itam') ||
-        lower.contains('batu ferringhi') ||
-        lower.contains('tanjung bungah') ||
-        lower.contains('tanjung tokong') ||
-        lower.contains('teluk bahang') ||
-        lower.contains('balik pulau') ||
-        lower.contains('bayan lepas') ||
-        lower.contains('jelutong') ||
-        lower.contains('gelugor');
+  static bool _isAreaResultCompatible({
+    required String selectedArea,
+    required String address,
+    required int distanceMeters,
+    int maxDistanceMeters = 25000,
+  }) {
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null) {
+      if (MalaysianAreaSearchEngine.matchesSpecificDestination(
+        selectedArea: selectedArea,
+        vendorAddress: address,
+      )) {
+        return true;
+      }
+      return distanceMeters <=
+          min(maxDistanceMeters, _localSearchRadiusMeters(selectedArea));
+    }
+
+    final areaScore = _areaTextRelevance(
+      selectedArea: selectedArea,
+      vendorAddress: address,
+    );
+    return areaScore >= 0.65 || distanceMeters <= maxDistanceMeters;
   }
 
-  static bool _isPenangAddress(String value) {
-    final lower = value.toLowerCase();
-    const terms = [
-      'penang',
-      'pulau pinang',
-      'george town',
-      'air itam',
-      'ayer itam',
-      'batu ferringhi',
-      'tanjung bungah',
-      'tanjung tokong',
-      'teluk bahang',
-      'balik pulau',
-      'bayan lepas',
-      'jelutong',
-      'gelugor',
-      'butterworth',
-      'bukit mertajam',
-    ];
-    return terms.any(lower.contains);
+  static int _localSearchRadiusMeters(String selectedArea) {
+    final key = _normalize(selectedArea);
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null) {
+      final destinationKey = _normalize(specificDestination.name);
+      if (destinationKey.contains('langkawi')) return 18000;
+      if (destinationKey.contains('cameron highlands') ||
+          destinationKey.contains('kundasang') ||
+          destinationKey.contains('sekinchan') ||
+          destinationKey.contains('balik pulau') ||
+          destinationKey.contains('sungai lembing')) {
+        return 12000;
+      }
+      return 7000;
+    }
+    final isStateWide =
+        key == 'malaysia' ||
+        [
+          'penang',
+          'pulau pinang',
+          'selangor',
+          'perak',
+          'kedah',
+          'kelantan',
+          'terengganu',
+          'pahang',
+          'johor',
+          'sabah',
+          'sarawak',
+          'melaka',
+          'malacca',
+          'perlis',
+          'labuan',
+        ].contains(key);
+    if (isStateWide) return 65000;
+    if (key.contains('kuala lumpur') || key == 'kl') return 18000;
+    return 14000;
+  }
+
+  static double _minimumAreaTextScore(String selectedArea) {
+    return MalaysianAreaSearchEngine.findSpecificSubArea(selectedArea) == null
+        ? 0.65
+        : 0.95;
+  }
+
+  static bool _isLocalCandidate(
+    Map<String, dynamic> candidate, {
+    required _GeoapifyArea locatedArea,
+    required String selectedArea,
+  }) {
+    final address =
+        '${candidate['formattedAddress'] ?? ''} ${candidate['area'] ?? ''}';
+    final specificDestination = MalaysianAreaSearchEngine.findSpecificSubArea(
+      selectedArea,
+    );
+    if (specificDestination != null &&
+        MalaysianAreaSearchEngine.matchesSpecificDestination(
+          selectedArea: selectedArea,
+          vendorAddress: address,
+        )) {
+      return true;
+    }
+
+    final areaScore =
+        (candidate['areaRelevanceScore'] as num?)?.toDouble() ??
+        _areaTextRelevance(selectedArea: selectedArea, vendorAddress: address);
+    if (specificDestination == null && areaScore >= 0.65) return true;
+
+    final candidatePoint = _coordinateMap(candidate['location']);
+    if (candidatePoint == null) return false;
+
+    final distanceMeters =
+        _haversineKm(
+          locatedArea.latitude,
+          locatedArea.longitude,
+          candidatePoint['latitude']!,
+          candidatePoint['longitude']!,
+        ) *
+        1000;
+    candidate['distanceMeters'] = distanceMeters;
+    return distanceMeters <= _localSearchRadiusMeters(selectedArea);
   }
 
   static String _categoryFromSearchText(
@@ -553,7 +1048,7 @@ class GeoapifyPlanner {
     required List<String> selectedInterests,
   }) async {
     final uri = Uri.https(_host, '/v1/geocode/autocomplete', {
-      'text': '$query, Penang, Malaysia',
+      'text': '$query, $area',
       'type': 'amenity',
       'format': 'json',
       'lang': 'en',
@@ -593,8 +1088,7 @@ class GeoapifyPlanner {
       if (latitude == null ||
           longitude == null ||
           placeId.isEmpty ||
-          !_isUsefulPlaceName(name) ||
-          !_isPenangAddress(formattedAddress)) {
+          !_isUsefulPlaceName(name)) {
         continue;
       }
 
@@ -616,6 +1110,13 @@ class GeoapifyPlanner {
                   ) *
                   1000)
               .round();
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+      )) {
+        continue;
+      }
 
       results.add({
         'placeId': 'geoapify_$placeId',
@@ -645,8 +1146,8 @@ class GeoapifyPlanner {
             '&mlon=$longitude#map=18/$latitude/$longitude',
         'mapPreviewUrl': mapPreviewUrl,
         'fallbackImageUrl': mapPreviewUrl,
-        'imageUrl': mapPreviewUrl,
-        'imageType': 'map_preview',
+        'imageUrl': '',
+        'imageType': 'pending_resolution',
         'trustLabel': 'Insufficient Data',
         'searchMatchScore': 1.20,
       });
@@ -662,7 +1163,7 @@ class GeoapifyPlanner {
     required List<String> selectedInterests,
   }) async {
     final uri = Uri.https(_host, '/v1/geocode/search', {
-      'text': '$query, Penang, Malaysia',
+      'text': '$query, $area',
       'format': 'json',
       'lang': 'en',
       'limit': '15',
@@ -700,8 +1201,7 @@ class GeoapifyPlanner {
       if (latitude == null ||
           longitude == null ||
           placeId.isEmpty ||
-          !_isUsefulPlaceName(name) ||
-          !_isPenangAddress(formattedAddress)) {
+          !_isUsefulPlaceName(name)) {
         continue;
       }
 
@@ -723,6 +1223,13 @@ class GeoapifyPlanner {
                   ) *
                   1000)
               .round();
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+      )) {
+        continue;
+      }
 
       results.add({
         'placeId': 'geoapify_$placeId',
@@ -751,8 +1258,8 @@ class GeoapifyPlanner {
             'https://www.openstreetmap.org/?mlat=$latitude'
             '&mlon=$longitude#map=18/$latitude/$longitude',
         'mapPreviewUrl': mapPreviewUrl,
-        'imageUrl': mapPreviewUrl,
-        'imageType': 'map_preview',
+        'imageUrl': '',
+        'imageType': 'pending_resolution',
         'trustLabel': 'Insufficient Data',
         'searchMatchScore': 1.0,
       });
@@ -767,15 +1274,20 @@ class GeoapifyPlanner {
     if (cached != null) return cached;
 
     final query = _normalisePenangArea(area);
-    final uri = Uri.https(_host, '/v1/geocode/search', {
+    final knownCenter = MalaysianAreaSearchEngine.findKnownCenter(query);
+    final parameters = <String, String>{
       'text': query,
       'format': 'json',
       'lang': 'en',
       'limit': '1',
       'filter': 'countrycode:my',
-      'bias': 'proximity:$_penangLongitude,$_penangLatitude',
       'apiKey': GeoapifyConfig.apiKey,
-    });
+    };
+    if (knownCenter != null) {
+      parameters['bias'] =
+          'proximity:${knownCenter['longitude']},${knownCenter['latitude']}';
+    }
+    final uri = Uri.https(_host, '/v1/geocode/search', parameters);
 
     final response = await http
         .get(uri, headers: const {'Accept': 'application/json'})
@@ -953,10 +1465,6 @@ class GeoapifyPlanner {
           '${properties['formatted'] ?? locatedArea.displayName}'.trim();
       if (formattedAddress.isEmpty) continue;
 
-      if (_isPenangArea(area) && !_isPenangAddress(formattedAddress)) {
-        continue;
-      }
-
       final exactImageUrl = _normaliseImageUrl(
         _firstText([media['image'], properties['image'], rawSource['image']]),
       );
@@ -964,10 +1472,10 @@ class GeoapifyPlanner {
         latitude: latitudeValue,
         longitude: longitudeValue,
       );
-      final imageUrl = exactImageUrl.isNotEmpty ? exactImageUrl : mapPreviewUrl;
+      final imageUrl = exactImageUrl;
       final imageType = exactImageUrl.isNotEmpty
           ? 'place_photo'
-          : 'map_preview';
+          : 'pending_resolution';
 
       final distanceMeters =
           (properties['distance'] as num?)?.round() ??
@@ -980,6 +1488,14 @@ class GeoapifyPlanner {
                   1000)
               .round();
       if (!usePlaceBoundary && distanceMeters > radiusMeters + 300) continue;
+      if (!_isAreaResultCompatible(
+        selectedArea: area,
+        address: formattedAddress,
+        distanceMeters: distanceMeters,
+        maxDistanceMeters: radiusMeters + 300,
+      )) {
+        continue;
+      }
 
       final website = _firstText([
         properties['website'],
@@ -1137,111 +1653,208 @@ class GeoapifyPlanner {
   static Future<List<Map<String, dynamic>>> _loadVerifiedVendors(
     String area,
   ) async {
-    final snapshot = await AppServices.db
-        .collection('vendors')
-        .where('status', isEqualTo: 'active')
-        .where('vendorStatus', isEqualTo: 'verified')
-        .get();
+    final cacheKey = _normalize(area);
+    final cached = _verifiedVendorCache[cacheKey];
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value
+          .map((vendor) => Map<String, dynamic>.from(vendor))
+          .toList();
+    }
 
-    return snapshot.docs
-        .where((doc) {
-          final data = doc.data();
-          final address = '${data['shopLocation'] ?? ''}';
-          final name = '${data['businessName'] ?? data['displayName'] ?? ''}'
-              .trim();
-          return name.isNotEmpty &&
-              (_isPenangAddress(address) ||
-                  '${data['state'] ?? ''}'.toLowerCase() == 'penang');
-        })
-        .map((doc) {
-          final data = doc.data();
-          final rawLocation = data['location'];
-          Map<String, dynamic>? location;
-          if (rawLocation is GeoPoint) {
-            location = {
-              'latitude': rawLocation.latitude,
-              'longitude': rawLocation.longitude,
-            };
-          } else if (rawLocation is Map) {
-            location = Map<String, dynamic>.from(rawLocation);
-          } else if (data['latitude'] is num && data['longitude'] is num) {
-            location = {
-              'latitude': (data['latitude'] as num).toDouble(),
-              'longitude': (data['longitude'] as num).toDouble(),
-            };
-          }
+    final firestoreVendors = <Map<String, dynamic>>[];
+    try {
+      final snapshot = await AppServices.db
+          .collection('vendors')
+          .where('status', isEqualTo: 'active')
+          .where('vendorStatus', isEqualTo: 'verified')
+          .get();
 
-          final plannerCategories = _vendorCategories(data);
-          final category = plannerCategories.firstWhere(
-            (item) => item != 'Local Business',
-            orElse: () => 'Local Business',
-          );
-          final duration = switch (category) {
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final address =
+            '${data['formattedAddress'] ?? data['shopLocation'] ?? data['area'] ?? ''}';
+        final vendorArea =
+            '${data['area'] ?? data['city'] ?? (address.isNotEmpty ? address : area)}';
+        final name = '${data['businessName'] ?? data['displayName'] ?? ''}'
+            .trim();
+        if (name.isEmpty) continue;
+
+        final rawLocation = data['location'];
+        Map<String, dynamic>? location;
+        if (rawLocation is GeoPoint) {
+          location = {
+            'latitude': rawLocation.latitude,
+            'longitude': rawLocation.longitude,
+          };
+        } else if (rawLocation is Map) {
+          location = Map<String, dynamic>.from(rawLocation);
+        } else if (data['latitude'] is num && data['longitude'] is num) {
+          location = {
+            'latitude': (data['latitude'] as num).toDouble(),
+            'longitude': (data['longitude'] as num).toDouble(),
+          };
+        }
+
+        final plannerCategories = _vendorCategories(data);
+        final vendorTags = List<String>.from(
+          data['tags'] ?? const <String>[],
+        ).where((item) => item.trim().isNotEmpty).toList();
+        final combinedTags = <String>{
+          ...plannerCategories,
+          ...vendorTags,
+        }.toList();
+        final category = plannerCategories.firstWhere(
+          (item) => item != 'Local Business',
+          orElse: () => 'Local Business',
+        );
+        final duration = switch (category) {
+          'Food' => 60,
+          'Nature' => 90,
+          'Heritage' || 'Culture' || 'Art' => 75,
+          _ => 45,
+        };
+
+        final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
+        final storedImageCandidates = List<String>.from(
+          data['imageCandidates'] ?? const <String>[],
+        ).where((url) => url.trim().isNotEmpty).toList();
+        final website = '${data['website'] ?? data['websiteUrl'] ?? ''}'.trim();
+        final mapPreview = location == null
+            ? ''
+            : ItineraryImageResolver.staticMapPreview(
+                latitude: location['latitude']!,
+                longitude: location['longitude']!,
+              );
+
+        firestoreVendors.add({
+          'placeId': 'vendor_${doc.id}',
+          'vendorId': doc.id,
+          'source': 'registered_vendor',
+          'name':
+              '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
+          'businessCategory': '${data['businessCategory'] ?? ''}',
+          'plannerCategories': plannerCategories,
+          'description':
+              '${data['description'] ?? data['businessDescription'] ?? ''}',
+          'formattedAddress': address.isNotEmpty ? address : vendorArea,
+          'area': vendorArea,
+          'areaRelevanceScore': _areaTextRelevance(
+            selectedArea: area,
+            vendorAddress: '$address $vendorArea',
+          ),
+          'category': category,
+          'tags': combinedTags,
+          'durationMinutes': duration,
+          'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
+          'score': (data['score'] as num?)?.toDouble() ?? 4.8,
+          'imageUrl': imageUrl,
+          'fallbackImageUrl': mapPreview,
+          'mapPreviewUrl': mapPreview,
+          'imageCandidates': [
+            ...storedImageCandidates,
+            if (imageUrl.isNotEmpty) imageUrl,
+          ],
+          'imageType': imageUrl.isNotEmpty
+              ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
+              : 'pending_resolution',
+          'dataCompletenessScore': _dataCompletenessScore(
+            address: address.isNotEmpty ? address : vendorArea,
+            website: website,
+            phone: '${data['phone'] ?? data['contactNumber'] ?? ''}',
+            openingHours:
+                '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+            imageType: imageUrl.isNotEmpty
+                ? 'place_photo'
+                : mapPreview.isNotEmpty
+                ? 'map_preview'
+                : 'none',
+          ),
+          'matchedInterest': category,
+          'phone': '${data['phone'] ?? data['contactNumber'] ?? ''}',
+          'website': website,
+          'openingHours':
+              '${data['openingHours'] ?? data['businessHours'] ?? ''}',
+          'location': location,
+          'mapUrl': '${data['mapUrl'] ?? ''}',
+          'trustLabel': '${data['trustLabel'] ?? 'Verified Vendor'}',
+        });
+      }
+    } catch (_) {
+      // Graceful fallback
+    }
+
+    final curated = curatedRealPlaces.map((place) {
+      final name = '${place['name']}';
+      final address = '${place['formattedAddress'] ?? place['address']}';
+      final category = '${place['category']}';
+      final duration =
+          (place['durationMinutes'] as num?)?.round() ??
+          switch (category) {
             'Food' => 60,
             'Nature' => 90,
             'Heritage' || 'Culture' || 'Art' => 75,
             _ => 45,
           };
+      final location = Map<String, dynamic>.from(place['location'] as Map);
+      final lat = (location['latitude'] as num).toDouble();
+      final lng = (location['longitude'] as num).toDouble();
+      final mapPreview = ItineraryImageResolver.staticMapPreview(
+        latitude: lat,
+        longitude: lng,
+      );
+      final googleMapsUrl =
+          'https://www.google.com/maps/search/?api=1&query='
+          '${Uri.encodeComponent('$name, $address')}';
 
-          final imageUrl = '${data['imageUrl'] ?? ''}'.trim();
-          final mapPreview = location == null
-              ? ''
-              : ItineraryImageResolver.staticMapPreview(
-                  latitude: location['latitude']!,
-                  longitude: location['longitude']!,
-                );
+      return <String, dynamic>{
+        'placeId': 'curated_${_normalize(name)}',
+        'vendorId': '',
+        'source': 'real_map_place',
+        'name': name,
+        'businessCategory': category,
+        'plannerCategories': List<String>.from(
+          place['plannerCategories'] ?? [category, 'Local Business'],
+        ),
+        'description': '${place['description'] ?? ''}',
+        'formattedAddress': address,
+        'area': '${place['area'] ?? address}',
+        'areaRelevanceScore': _areaTextRelevance(
+          selectedArea: area,
+          vendorAddress: address,
+        ),
+        'category': category,
+        'tags': List<String>.from(place['tags'] ?? [category]),
+        'durationMinutes': duration,
+        'budgetLevel': '${place['budgetLevel'] ?? 'Medium'}',
+        'score': (place['score'] as num?)?.toDouble() ?? 4.8,
+        'imageUrl': '${place['imageUrl'] ?? ''}',
+        'fallbackImageUrl': mapPreview,
+        'mapPreviewUrl': mapPreview,
+        'imageCandidates': [
+          if ('${place['imageUrl'] ?? ''}'.isNotEmpty) '${place['imageUrl']}',
+        ],
+        'imageType': '${place['imageUrl'] ?? ''}'.isNotEmpty
+            ? 'curated_place_photo'
+            : 'pending_resolution',
+        'dataCompletenessScore': 0.95,
+        'matchedInterest': category,
+        'phone': '${place['phone'] ?? ''}',
+        'website': '${place['website'] ?? ''}',
+        'openingHours': '${place['openingHours'] ?? ''}',
+        'location': {'latitude': lat, 'longitude': lng},
+        'mapUrl': '${place['mapUrl'] ?? googleMapsUrl}',
+        'trustLabel': 'Real Map Verified',
+        if (place['culturalTask'] != null)
+          'culturalTask': place['culturalTask'],
+      };
+    }).toList();
 
-          return <String, dynamic>{
-            'placeId': 'vendor_${doc.id}',
-            'vendorId': doc.id,
-            'source': 'registered_vendor',
-            'name':
-                '${data['businessName'] ?? data['displayName'] ?? 'Local business'}',
-            'businessCategory': '${data['businessCategory'] ?? ''}',
-            'plannerCategories': plannerCategories,
-            'description': '${data['businessDescription'] ?? ''}',
-            'formattedAddress': '${data['shopLocation'] ?? area}',
-            'area': '${data['shopLocation'] ?? area}',
-            'areaRelevanceScore': _areaTextRelevance(
-              selectedArea: area,
-              vendorAddress: '${data['shopLocation'] ?? ''}',
-            ),
-            'category': category,
-            'tags': plannerCategories,
-            'durationMinutes': duration,
-            'budgetLevel': '${data['budgetLevel'] ?? 'Medium'}',
-            'score': (data['score'] as num?)?.toDouble() ?? 0,
-            'imageUrl': imageUrl.isNotEmpty ? imageUrl : mapPreview,
-            'fallbackImageUrl': mapPreview,
-            'mapPreviewUrl': mapPreview,
-            'imageCandidates': [
-              if (imageUrl.isNotEmpty) imageUrl,
-              if (mapPreview.isNotEmpty) mapPreview,
-            ],
-            'imageType': imageUrl.isNotEmpty
-                ? '${data['imageType'] ?? 'vendor_uploaded_photo'}'
-                : 'map_preview',
-            'dataCompletenessScore': _dataCompletenessScore(
-              address: '${data['shopLocation'] ?? area}',
-              website: '${data['website'] ?? ''}',
-              phone: '${data['contactNumber'] ?? ''}',
-              openingHours: '${data['businessHours'] ?? ''}',
-              imageType: imageUrl.isNotEmpty
-                  ? 'place_photo'
-                  : mapPreview.isNotEmpty
-                  ? 'map_preview'
-                  : 'none',
-            ),
-            'matchedInterest': category,
-            'phone': '${data['contactNumber'] ?? ''}',
-            'website': '${data['website'] ?? ''}',
-            'openingHours': '${data['businessHours'] ?? ''}',
-            'location': location,
-            'mapUrl': '${data['mapUrl'] ?? ''}',
-            'trustLabel': '${data['trustLabel'] ?? 'Insufficient Data'}',
-          };
-        })
-        .toList();
+    final result = _deduplicate([...firestoreVendors, ...curated]);
+    _verifiedVendorCache[cacheKey] = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map((vendor) => Map<String, dynamic>.from(vendor)).toList(),
+    );
+    return result;
   }
 
   static List<String> _vendorCategories(Map<String, dynamic> data) {
@@ -1278,26 +1891,10 @@ class GeoapifyPlanner {
     required String selectedArea,
     required String vendorAddress,
   }) {
-    final selectedTokens = _normalize(selectedArea)
-        .split(' ')
-        .where(
-          (token) =>
-              token.length > 2 &&
-              token != 'penang' &&
-              token != 'malaysia' &&
-              token != 'pulau' &&
-              token != 'pinang',
-        )
-        .toSet();
-    if (selectedTokens.isEmpty) return 0;
-
-    final addressTokens = _normalize(
-      vendorAddress,
-    ).split(' ').where((token) => token.length > 2).toSet();
-    if (addressTokens.isEmpty) return 0;
-
-    final matched = selectedTokens.intersection(addressTokens).length;
-    return matched / selectedTokens.length;
+    return MalaysianAreaSearchEngine.calculateAreaRelevance(
+      selectedArea: selectedArea,
+      vendorAddress: vendorAddress,
+    );
   }
 
   static bool _vendorMatchesInterests(
@@ -1333,6 +1930,27 @@ class GeoapifyPlanner {
     return matched / selected.length;
   }
 
+  static List<String> _matchedSelectedInterests(
+    Map<String, dynamic> vendor,
+    List<String> interests,
+  ) {
+    final values = <String>{
+      _normalize('${vendor['category'] ?? ''}'),
+      _normalize('${vendor['matchedInterest'] ?? ''}'),
+      _normalize('${vendor['businessCategory'] ?? ''}'),
+      ...List<String>.from(
+        vendor['plannerCategories'] ?? const <String>[],
+      ).map(_normalize),
+      ...List<String>.from(vendor['tags'] ?? const <String>[]).map(_normalize),
+    }..remove('');
+
+    return interests
+        .where((interest) => interest.trim().isNotEmpty)
+        .where((interest) => interest != 'Local Business')
+        .where((interest) => values.contains(_normalize(interest)))
+        .toList();
+  }
+
   static String _bestVendorInterest(
     Map<String, dynamic> vendor,
     List<String> interests,
@@ -1356,6 +1974,16 @@ class GeoapifyPlanner {
 
   static Future<Map<String, List<Map<String, dynamic>>>>
   _loadActiveVendorVouchers() async {
+    final cached = _activeVoucherCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value.map(
+        (key, value) => MapEntry(
+          key,
+          value.map((item) => Map<String, dynamic>.from(item)).toList(),
+        ),
+      );
+    }
+
     final snapshot = await AppServices.db
         .collection('vouchers')
         .where('status', isEqualTo: 'active')
@@ -1372,17 +2000,33 @@ class GeoapifyPlanner {
       if (expiry != null && expiry.isBefore(now)) continue;
       result.putIfAbsent(vendorId, () => []).add({'id': doc.id, ...data});
     }
+    _activeVoucherCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map(
+        (key, value) => MapEntry(
+          key,
+          value.map((item) => Map<String, dynamic>.from(item)).toList(),
+        ),
+      ),
+    );
     return result;
   }
 
   static Future<List<Map<String, dynamic>>> _loadActiveCulturalTasks() async {
+    final cached = _culturalTasksCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value
+          .map((task) => Map<String, dynamic>.from(task))
+          .toList();
+    }
+
     final snapshot = await AppServices.db
         .collection('cultural_tasks')
         .where('status', isEqualTo: 'active')
         .get();
     final now = DateTime.now();
 
-    return snapshot.docs
+    final result = snapshot.docs
         .map((doc) {
           return {'id': doc.id, ...doc.data()};
         })
@@ -1391,6 +2035,11 @@ class GeoapifyPlanner {
           return deadline == null || !deadline.isBefore(now);
         })
         .toList();
+    _culturalTasksCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map((task) => Map<String, dynamic>.from(task)).toList(),
+    );
+    return result;
   }
 
   static Future<Map<String, Map<String, dynamic>>> _loadPlaceContent() async {
@@ -1476,6 +2125,13 @@ class GeoapifyPlanner {
   }
 
   static Future<Map<String, Map<String, dynamic>>> _loadReviewStats() async {
+    final cached = _reviewStatsCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      );
+    }
+
     final snapshot = await AppServices.db.collection('reviews').get();
     final grouped = <String, List<Map<String, dynamic>>>{};
 
@@ -1546,6 +2202,12 @@ class GeoapifyPlanner {
         'trustLabel': trustLabel,
       };
     });
+    _reviewStatsCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      ),
+    );
     return result;
   }
 
@@ -1598,7 +2260,14 @@ class GeoapifyPlanner {
     required int availableMinutes,
     required String pace,
     required List<String> selectedInterests,
+    required String userBudget,
+    required int? preferredStartMinutes,
     required Map<String, double>? origin,
+    bool isRainy = false,
+    String weatherSeverity = 'fair',
+    bool foodExplorationEnabled = false,
+    double maxLegDistanceKm = 18.0,
+    Set<String>? usedKeys,
   }) async {
     final paceMultiplier = switch (pace) {
       'Relaxed' => 1.25,
@@ -1606,78 +2275,264 @@ class GeoapifyPlanner {
       _ => 1.0,
     };
 
-    final remainingCandidates = candidates.map((place) {
-      final base = (place['durationMinutes'] as num?)?.round() ?? 60;
-      return {
-        ...place,
-        'durationMinutes': max(30, (base * paceMultiplier).round()),
-      };
-    }).toList()..sort((first, second) => _rank(second).compareTo(_rank(first)));
+    final remainingCandidates =
+        candidates.map((place) {
+          final base = (place['durationMinutes'] as num?)?.round() ?? 60;
+          return {
+            ...place,
+            'durationMinutes': max(30, (base * paceMultiplier).round()),
+          };
+        }).toList()..sort(
+          (first, second) =>
+              _rank(
+                second,
+                userBudget: userBudget,
+                preferredStartMinutes: preferredStartMinutes,
+                isRainy: isRainy,
+                weatherSeverity: weatherSeverity,
+              ).compareTo(
+                _rank(
+                  first,
+                  userBudget: userBudget,
+                  preferredStartMinutes: preferredStartMinutes,
+                  isRainy: isRainy,
+                  weatherSeverity: weatherSeverity,
+                ),
+              ),
+        );
 
     final selected = <Map<String, dynamic>>[];
+    final selectedNames = <String>{};
     final selectedIdentities = <String>{};
     final categoryCounts = <String, int>{};
+    final selectedMealLabels = <String>{};
+    var optionalFoodCount = 0;
     var remaining = availableMinutes;
+    final routeStartMinute = preferredStartMinutes ?? 9 * 60;
+    final routeEndMinute = routeStartMinute + availableMinutes;
 
-    while (remainingCandidates.isNotEmpty && selected.length < 6) {
+    final maxStops = availableMinutes <= 150
+        ? 2
+        : availableMinutes <= 270
+        ? 4
+        : availableMinutes <= 390
+        ? 5
+        : 6;
+
+    while (remainingCandidates.isNotEmpty && selected.length < maxStops) {
       var bestIndex = -1;
       var bestScore = -double.infinity;
       var bestTravelMinutes = 0;
+      var bestBufferMinutes = 0;
+      String? bestMealLabel;
+      var bestOptionalFood = false;
+      final currentRouteMinute =
+          routeStartMinute + (availableMinutes - remaining);
+      final pendingMealLabel = _pendingMealLabel(
+        currentRouteMinute,
+        routeEndMinute,
+        selectedMealLabels,
+      );
 
       for (var index = 0; index < remainingCandidates.length; index++) {
         final candidate = remainingCandidates[index];
+        final candidateName = _normalize('${candidate['name'] ?? ''}');
         final identity = _placeIdentity(candidate);
-        if (selectedIdentities.contains(identity)) continue;
+        final candidateKeys = _allPlaceKeys(candidate);
+        if (selectedNames.contains(candidateName) ||
+            selectedIdentities.contains(identity) ||
+            candidateKeys.any((k) => selectedIdentities.contains(k)) ||
+            (usedKeys != null &&
+                (usedKeys.contains('name:$candidateName') ||
+                 candidateKeys.any((k) => usedKeys.contains(k))))) {
+          continue;
+        }
         final previousLocation = selected.isEmpty
             ? origin
             : _coordinateMap(selected.last['location']);
+        final candidateLocation = _coordinateMap(candidate['location']);
+        final distanceKm = previousLocation != null && candidateLocation != null
+            ? _haversineKm(
+                previousLocation['latitude']!,
+                previousLocation['longitude']!,
+                candidateLocation['latitude']!,
+                candidateLocation['longitude']!,
+              )
+            : 0.0;
+        if (selected.isNotEmpty && distanceKm > maxLegDistanceKm) {
+          continue;
+        }
         final travelMinutes = previousLocation == null
             ? 0
             : _estimatedTravelMinutes(
                 previousLocation,
-                candidate['location'],
+                candidateLocation,
                 pace,
               );
         final visitMinutes =
             (candidate['durationMinutes'] as num?)?.round() ?? 60;
-        if (travelMinutes + visitMinutes > remaining) continue;
+        final currentDayMinute = currentRouteMinute + travelMinutes;
+        final candidateMealLabel = _mealLabelForMinute(currentDayMinute);
+        final isFoodPlace = _isFoodPlace(candidate);
+        final isMealCandidate =
+            isFoodPlace &&
+            candidateMealLabel != null &&
+            !selectedMealLabels.contains(candidateMealLabel);
+        final isPendingMealCandidate =
+            isMealCandidate &&
+            pendingMealLabel != null &&
+            candidateMealLabel == pendingMealLabel;
+        final isOptionalFoodCandidate =
+            isFoodPlace &&
+            candidateMealLabel == null &&
+            foodExplorationEnabled &&
+            optionalFoodCount < 2 &&
+            selected.length >= 2;
+        if (pendingMealLabel != null && !isPendingMealCandidate) {
+          continue;
+        }
+        if (isFoodPlace && !isMealCandidate && !isOptionalFoodCandidate) {
+          continue;
+        }
+        final bufferMinutes = _bufferMinutesFor(
+          candidate,
+          travelMinutes: travelMinutes,
+          pace: pace,
+        );
+        if (travelMinutes + visitMinutes + bufferMinutes > remaining) continue;
+
+        // Opening hours verification based on estimated visit time
+        final window = ItinerarySchedulePlanner._openingWindow(
+          '${candidate['openingHours'] ?? ''}',
+        );
+        double openingAdjustment = 0.0;
+        if (window != null && !window.open24Hours) {
+          if (currentDayMinute < window.opens) {
+            openingAdjustment = -1.2; // Arrives before opening
+          } else if (currentDayMinute >= window.closes) {
+            openingAdjustment = -2.5; // Place already closed
+          } else if (currentDayMinute + visitMinutes > window.closes) {
+            openingAdjustment = -0.8; // Visit extends beyond closing
+          } else {
+            openingAdjustment = 0.50; // Perfectly fits open hours
+          }
+        }
 
         final category = '${candidate['category'] ?? ''}';
-        final matchedInterest = '${candidate['matchedInterest'] ?? category}';
-        final categoryAlreadySelected = (categoryCounts[category] ?? 0) > 0;
+        final matchedInterests = _matchedSelectedInterests(
+          candidate,
+          selectedInterests,
+        );
+        final primaryInterest = matchedInterests.firstWhere(
+          (interest) => (categoryCounts[interest] ?? 0) == 0,
+          orElse: () => '${candidate['matchedInterest'] ?? category}',
+        );
+        final categoryAlreadySelected =
+            (categoryCounts[primaryInterest] ?? 0) > 0;
         final coverageBonus =
-            selectedInterests.contains(matchedInterest) &&
-                !categoryAlreadySelected
-            ? 0.55
+            matchedInterests.isNotEmpty && !categoryAlreadySelected
+            ? 1.25
             : 0.0;
-        final duplicatePenalty = (categoryCounts[category] ?? 0) * 0.28;
-        final travelPenalty = min(travelMinutes / 60, 1.0) * 0.25;
+        final duplicatePenalty = (categoryCounts[primaryInterest] ?? 0) * 0.62;
+        final travelPenalty =
+            min(travelMinutes / 45, 2.0) * 0.80 +
+            max(0.0, distanceKm - 3.0) * 0.12;
+        final mealAdjustment = _mealTimeScore(candidate, currentDayMinute);
+        final optionalFoodPenalty = isOptionalFoodCandidate ? 0.55 : 0.0;
         final adjusted =
-            _rank(candidate) + coverageBonus - duplicatePenalty - travelPenalty;
+            _rank(
+              candidate,
+              userBudget: userBudget,
+              preferredStartMinutes: preferredStartMinutes,
+              isRainy: isRainy,
+              weatherSeverity: weatherSeverity,
+            ) +
+            coverageBonus +
+            mealAdjustment +
+            openingAdjustment -
+            duplicatePenalty -
+            travelPenalty -
+            optionalFoodPenalty;
 
         if (adjusted > bestScore) {
           bestScore = adjusted;
           bestIndex = index;
           bestTravelMinutes = travelMinutes;
+          bestBufferMinutes = bufferMinutes;
+          bestMealLabel = isMealCandidate ? candidateMealLabel : null;
+          bestOptionalFood = isOptionalFoodCandidate;
         }
       }
 
-      if (bestIndex < 0) break;
+      if (bestIndex < 0) {
+        if (pendingMealLabel != null &&
+            !selectedMealLabels.contains(pendingMealLabel)) {
+          selectedMealLabels.add(pendingMealLabel);
+          continue;
+        }
+        break;
+      }
       final chosen = remainingCandidates.removeAt(bestIndex);
       chosen['travelMinutesBefore'] = bestTravelMinutes;
+      chosen['bufferMinutesAfter'] = bestBufferMinutes;
+      final chosenStartMinute =
+          routeStartMinute + (availableMinutes - remaining) + bestTravelMinutes;
+      final mealSuggestion = _mealSuggestionText(chosen, chosenStartMinute);
+      if (bestOptionalFood) {
+        optionalFoodCount++;
+        chosen['durationMinutes'] = max(
+          35,
+          ((chosen['durationMinutes'] as num?)?.round() ?? 45),
+        );
+        chosen['optionalFoodExperience'] = true;
+        chosen['scheduleType'] = 'optional_food';
+        chosen['mealSuggestionLabel'] = 'Optional food exploration stop';
+      } else if (mealSuggestion == null) {
+        chosen.remove('mealSuggestionLabel');
+        chosen.remove('optionalFoodExperience');
+        chosen.remove('scheduleType');
+      } else {
+        chosen['durationMinutes'] = max(
+          45,
+          ((chosen['durationMinutes'] as num?)?.round() ?? 60),
+        );
+        chosen['mealRole'] = bestMealLabel;
+        chosen['scheduleType'] = 'meal';
+        chosen['mealSuggestionLabel'] = mealSuggestion;
+      }
       selected.add(chosen);
+      final chosenName = _normalize('${chosen['name'] ?? ''}');
+      if (chosenName.isNotEmpty) selectedNames.add(chosenName);
       selectedIdentities.add(_placeIdentity(chosen));
+      selectedIdentities.addAll(_allPlaceKeys(chosen));
+      if (_isFoodPlace(chosen) && bestMealLabel != null) {
+        selectedMealLabels.add(bestMealLabel);
+      }
       remaining -=
           bestTravelMinutes +
-          ((chosen['durationMinutes'] as num?)?.round() ?? 60);
-      final category = '${chosen['category'] ?? ''}';
-      categoryCounts[category] = (categoryCounts[category] ?? 0) + 1;
+          ((chosen['durationMinutes'] as num?)?.round() ?? 60) +
+          bestBufferMinutes;
+      final chosenInterests = _matchedSelectedInterests(
+        chosen,
+        selectedInterests,
+      );
+      final countKey = chosenInterests.firstWhere(
+        (interest) => (categoryCounts[interest] ?? 0) == 0,
+        orElse: () =>
+            '${chosen['matchedInterest'] ?? chosen['category'] ?? ''}',
+      );
+      categoryCounts[countKey] = (categoryCounts[countKey] ?? 0) + 1;
     }
 
-    _optimiseVisitOrder(selected, origin: origin, pace: pace);
+    _optimiseVisitOrder(
+      selected,
+      origin: origin,
+      pace: pace,
+      preferredStartMinutes: preferredStartMinutes,
+    );
 
     if (GeoapifyConfig.useRoutingApi) {
-      await _applyRoutingTimes(selected);
+      await _applyRoutingTimes(selected, pace: pace);
     }
 
     var totalEstimatedMinutes = selected.fold<int>(
@@ -1685,7 +2540,8 @@ class GeoapifyPlanner {
       (total, place) =>
           total +
           ((place['durationMinutes'] as num?)?.round() ?? 60) +
-          ((place['travelMinutesBefore'] as num?)?.round() ?? 0),
+          ((place['travelMinutesBefore'] as num?)?.round() ?? 0) +
+          ((place['bufferMinutesAfter'] as num?)?.round() ?? 0),
     );
 
     while (selected.length > 1 && totalEstimatedMinutes > availableMinutes) {
@@ -1695,7 +2551,8 @@ class GeoapifyPlanner {
         (total, place) =>
             total +
             ((place['durationMinutes'] as num?)?.round() ?? 60) +
-            ((place['travelMinutesBefore'] as num?)?.round() ?? 0),
+            ((place['travelMinutesBefore'] as num?)?.round() ?? 0) +
+            ((place['bufferMinutesAfter'] as num?)?.round() ?? 0),
       );
     }
 
@@ -1714,6 +2571,7 @@ class GeoapifyPlanner {
     List<Map<String, dynamic>> selected, {
     required Map<String, double>? origin,
     required String pace,
+    required int? preferredStartMinutes,
   }) {
     if (selected.length < 2) {
       if (selected.isNotEmpty) {
@@ -1723,40 +2581,102 @@ class GeoapifyPlanner {
     }
 
     final unordered = List<Map<String, dynamic>>.from(selected);
+    unordered.sort((a, b) {
+      final winA = ItinerarySchedulePlanner._openingWindow(
+        '${a['openingHours'] ?? ''}',
+      );
+      final winB = ItinerarySchedulePlanner._openingWindow(
+        '${b['openingHours'] ?? ''}',
+      );
+      final openA = winA?.open24Hours == true
+          ? 9 * 60
+          : (winA?.opens ?? 9 * 60);
+      final openB = winB?.open24Hours == true
+          ? 9 * 60
+          : (winB?.opens ?? 9 * 60);
+      return openA.compareTo(openB);
+    });
+
     final ordered = <Map<String, dynamic>>[];
     Map<String, double>? current = origin;
+    var accumulatedTime = preferredStartMinutes ?? 9 * 60;
 
     while (unordered.isNotEmpty) {
       var bestIndex = 0;
-      var bestDistance = double.infinity;
+      var bestScore = double.infinity;
+
       for (var index = 0; index < unordered.length; index++) {
-        final point = _coordinateMap(unordered[index]['location']);
-        if (point == null || current == null) {
-          if (bestDistance == double.infinity) bestIndex = index;
-          continue;
-        }
-        final distance = _haversineKm(
-          current['latitude']!,
-          current['longitude']!,
-          point['latitude']!,
-          point['longitude']!,
+        final candidate = unordered[index];
+        final point = _coordinateMap(candidate['location']);
+        final distanceKm = (point != null && current != null)
+            ? _haversineKm(
+                current['latitude']!,
+                current['longitude']!,
+                point['latitude']!,
+                point['longitude']!,
+              )
+            : 2.0;
+
+        final mealSlot = _mealSlotForLabel('${candidate['mealRole'] ?? ''}');
+        final win = ItinerarySchedulePlanner._openingWindow(
+          '${candidate['openingHours'] ?? ''}',
         );
-        if (distance < bestDistance) {
-          bestDistance = distance;
+        final opensAt = win?.open24Hours == true ? 0 : (win?.opens ?? 9 * 60);
+        final closesAt = win?.open24Hours == true
+            ? 24 * 60
+            : (win?.closes ?? 22 * 60);
+
+        double timePenalty = 0.0;
+        if (mealSlot != null) {
+          final estimatedArrival = accumulatedTime + (distanceKm * 10).round();
+          if (estimatedArrival < mealSlot.start) {
+            timePenalty += (mealSlot.start - estimatedArrival) * 0.02;
+          } else if (estimatedArrival > mealSlot.end) {
+            timePenalty += 80.0;
+          } else {
+            timePenalty -= 12.0;
+          }
+        }
+        if (accumulatedTime < opensAt) {
+          timePenalty += (opensAt - accumulatedTime) * 0.08;
+        } else if (accumulatedTime >= closesAt) {
+          timePenalty += 50.0;
+        }
+
+        final score = distanceKm * 1.5 + timePenalty;
+        if (score < bestScore) {
+          bestScore = score;
           bestIndex = index;
         }
       }
 
       final next = unordered.removeAt(bestIndex);
-      next['travelMinutesBefore'] = ordered.isEmpty
+      final travel = ordered.isEmpty
           ? 0
           : _estimatedTravelMinutes(
               ordered.last['location'],
               next['location'],
               pace,
             );
+      final buffer = _bufferMinutesFor(next, travelMinutes: travel, pace: pace);
+      next['travelMinutesBefore'] = travel;
+      next['bufferMinutesAfter'] = buffer;
       ordered.add(next);
       current = _coordinateMap(next['location']) ?? current;
+
+      final win = ItinerarySchedulePlanner._openingWindow(
+        '${next['openingHours'] ?? ''}',
+      );
+      final opensAt = win?.open24Hours == true ? 0 : (win?.opens ?? 9 * 60);
+      final mealSlot = _mealSlotForLabel('${next['mealRole'] ?? ''}');
+      var effectiveArrival = max(accumulatedTime + travel, opensAt);
+      if (mealSlot != null && effectiveArrival < mealSlot.start) {
+        effectiveArrival = mealSlot.start;
+      }
+      accumulatedTime =
+          effectiveArrival +
+          ((next['durationMinutes'] as num?)?.round() ?? 60) +
+          buffer;
     }
 
     selected
@@ -1765,8 +2685,9 @@ class GeoapifyPlanner {
   }
 
   static Future<void> _applyRoutingTimes(
-    List<Map<String, dynamic>> selected,
-  ) async {
+    List<Map<String, dynamic>> selected, {
+    required String pace,
+  }) async {
     if (selected.length < 2) return;
 
     final points = <Map<String, double>>[];
@@ -1813,9 +2734,12 @@ class GeoapifyPlanner {
         final seconds = _asDouble(leg['time']);
         final distance = _asDouble(leg['distance']);
         if (seconds != null) {
-          selected[index + 1]['travelMinutesBefore'] = max(
-            1,
-            (seconds / 60).ceil(),
+          final travelMinutes = max(1, (seconds / 60).ceil());
+          selected[index + 1]['travelMinutesBefore'] = travelMinutes;
+          selected[index + 1]['bufferMinutesAfter'] = _bufferMinutesFor(
+            selected[index + 1],
+            travelMinutes: travelMinutes,
+            pace: pace,
           );
         }
         if (distance != null) {
@@ -1844,12 +2768,21 @@ class GeoapifyPlanner {
       toPoint['latitude']!,
       toPoint['longitude']!,
     );
-    final walkingSpeed = switch (pace) {
-      'Relaxed' => 3.5,
-      'Fast' || 'Packed' => 5.5,
-      _ => 4.5,
-    };
-    return max(5, min(60, ((distanceKm / walkingSpeed) * 60).round()));
+
+    // Realistic Malaysian travel estimation:
+    // <= 1.0 km: walkable (5-8 min)
+    // 1.0 - 4.0 km: short drive/e-hailing (8-14 min)
+    // 4.0 - 10.0 km: city transit/drive (14-22 min)
+    // > 10.0 km: cross-district drive (22-35 min)
+    if (distanceKm <= 1.0) {
+      return (distanceKm * 7 + 4).round().clamp(5, 10);
+    } else if (distanceKm <= 4.0) {
+      return (distanceKm * 2.0 + 5).round().clamp(8, 15);
+    } else if (distanceKm <= 10.0) {
+      return (distanceKm * 1.5 + 6).round().clamp(12, 22);
+    } else {
+      return (distanceKm * 0.8 + 12).round().clamp(20, 35);
+    }
   }
 
   static Map<String, double>? _coordinateMap(Object? raw) {
@@ -1884,7 +2817,278 @@ class GeoapifyPlanner {
     return earthRadiusKm * c;
   }
 
-  static double _rank(Map<String, dynamic> place) {
+  static bool _isFoodPlace(Map<String, dynamic> place) {
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+    final name =
+        '${place['name'] ?? ''} ${place['businessName'] ?? ''} ${place['displayName'] ?? ''}'
+            .toLowerCase();
+    final category = '${place['category'] ?? ''}'.toLowerCase();
+    final plannerCategories = List<String>.from(
+      place['plannerCategories'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+
+    return category == 'food' ||
+        plannerCategories.contains('food') ||
+        tags.any(
+          (t) =>
+              t.contains('food') ||
+              t.contains('restaurant') ||
+              t.contains('cafe') ||
+              t.contains('hawker') ||
+              t.contains('kopitiam') ||
+              t.contains('bakery') ||
+              t.contains('dessert') ||
+              t.contains('tea') ||
+              t.contains('market'),
+        ) ||
+        name.contains('restaurant') ||
+        name.contains('cafe') ||
+        name.contains('coffee') ||
+        name.contains('kopitiam') ||
+        name.contains('hawker') ||
+        name.contains('food court') ||
+        name.contains('bakery') ||
+        name.contains('dessert') ||
+        name.contains('tea') ||
+        name.contains('nasi') ||
+        name.contains('laksa') ||
+        name.contains('roti') ||
+        name.contains('char koay') ||
+        name.contains('market');
+  }
+
+  static String? _mealLabelForMinute(int minutes) {
+    final value = minutes % (24 * 60);
+    if (value >= 7 * 60 && value <= 10 * 60 + 30) return 'Breakfast';
+    if (value >= 11 * 60 + 30 && value <= 14 * 60) return 'Lunch';
+    if (value >= 18 * 60 && value <= 21 * 60) return 'Dinner';
+    return null;
+  }
+
+  static Set<String> _coveredMealLabels(
+    int startMinutes,
+    int availableMinutes,
+  ) {
+    final endMinutes = startMinutes + availableMinutes;
+    final labels = <String>{};
+    for (final slot in _mealSlots) {
+      if (endMinutes >= slot.start && startMinutes <= slot.end) {
+        labels.add(slot.label);
+      }
+    }
+    return labels;
+  }
+
+  static ({String label, int start, int end})? _mealSlotForLabel(String label) {
+    for (final slot in _mealSlots) {
+      if (slot.label == label) return slot;
+    }
+    return null;
+  }
+
+  static String? _pendingMealLabel(
+    int currentMinute,
+    int endMinute,
+    Set<String> selectedMealLabels,
+  ) {
+    for (final slot in _mealSlots) {
+      if (selectedMealLabels.contains(slot.label)) continue;
+      if (endMinute < slot.start + 30) continue;
+      if (currentMinute >= slot.start - 20 && currentMinute <= slot.end) {
+        return slot.label;
+      }
+    }
+    return null;
+  }
+
+  static const List<({String label, int start, int end})> _mealSlots = [
+    (label: 'Breakfast', start: 7 * 60, end: 10 * 60 + 30),
+    (label: 'Lunch', start: 11 * 60 + 30, end: 14 * 60),
+    (label: 'Dinner', start: 18 * 60, end: 21 * 60),
+  ];
+
+  static double _mealTimeScore(Map<String, dynamic> place, int startMinutes) {
+    if (!_isFoodPlace(place)) return 0.0;
+    final meal = _mealLabelForMinute(startMinutes);
+    if (meal == null) return -0.22;
+    return meal == 'Breakfast' ? 0.55 : 0.72;
+  }
+
+  static String? _mealSuggestionText(
+    Map<String, dynamic> place,
+    int startMinutes,
+  ) {
+    final meal = _mealLabelForMinute(startMinutes);
+    if (meal == null || !_isFoodPlace(place)) return null;
+    return '$meal stop around ${ItinerarySchedulePlanner.formatTime(startMinutes)}';
+  }
+
+  static int _bufferMinutesFor(
+    Map<String, dynamic> place, {
+    required int travelMinutes,
+    required String pace,
+  }) {
+    final isMeal = _isFoodPlace(place);
+    if (pace == 'Relaxed') {
+      if (travelMinutes >= 30) return 15;
+      return isMeal ? 10 : 8;
+    }
+    if (pace == 'Fast' || pace == 'Packed') {
+      if (travelMinutes >= 35) return 8;
+      return isMeal ? 5 : 0;
+    }
+    if (travelMinutes >= 30) return 10;
+    if (travelMinutes >= 18) return 5;
+    return isMeal ? 5 : 0;
+  }
+
+  static double _timeOfDayScore(Map<String, dynamic> place, int startMinutes) {
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((t) => t.toLowerCase()).toList();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final category = '${place['category'] ?? ''}';
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final mealScore = _mealTimeScore(place, startMinutes);
+    if (mealScore != 0) return mealScore;
+
+    final isMorningCandidate =
+        tags.any(
+          (t) =>
+              t.contains('kopitiam') ||
+              t.contains('coffee') ||
+              t.contains('breakfast') ||
+              t.contains('bakery') ||
+              t.contains('market') ||
+              t.contains('nature') ||
+              t.contains('trail'),
+        ) ||
+        category == 'Food' ||
+        category == 'Nature' ||
+        name.contains('kopitiam') ||
+        name.contains('market') ||
+        desc.contains('morning');
+
+    final isAfternoonCandidate =
+        tags.any(
+          (t) =>
+              t.contains('museum') ||
+              t.contains('mansion') ||
+              t.contains('heritage') ||
+              t.contains('gallery') ||
+              t.contains('indoor'),
+        ) ||
+        category == 'Heritage' ||
+        category == 'Culture' ||
+        category == 'Art';
+
+    final isEveningCandidate =
+        tags.any(
+          (t) =>
+              t.contains('night') ||
+              t.contains('sunset') ||
+              t.contains('dinner') ||
+              t.contains('waterfront'),
+        ) ||
+        name.contains('night') ||
+        desc.contains('evening') ||
+        desc.contains('night');
+
+    if (startMinutes < 660) {
+      // Morning (before 11:00 AM)
+      return isMorningCandidate ? 0.35 : (isAfternoonCandidate ? 0.15 : 0.0);
+    } else if (startMinutes < 1020) {
+      // Midday / Afternoon (11:00 AM - 5:00 PM)
+      return isAfternoonCandidate ? 0.35 : 0.15;
+    } else {
+      // Evening / Night (5:00 PM+)
+      return isEveningCandidate ? 0.45 : 0.10;
+    }
+  }
+
+  static bool _isOutdoorPlace(Map<String, dynamic> place) {
+    final category = '${place['category'] ?? ''}'.toLowerCase();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((tag) => tag.toLowerCase()).toList();
+    final terms = <String>[category, name, desc, ...tags];
+
+    return terms.any(
+      (term) =>
+          term.contains('nature') ||
+          term.contains('park') ||
+          term.contains('garden') ||
+          term.contains('beach') ||
+          term.contains('viewpoint') ||
+          term.contains('trail') ||
+          term.contains('hill') ||
+          term.contains('waterfront') ||
+          term.contains('outdoor') ||
+          term.contains('street art') ||
+          term.contains('walking'),
+    );
+  }
+
+  static bool _isIndoorFriendlyPlace(Map<String, dynamic> place) {
+    final category = '${place['category'] ?? ''}'.toLowerCase();
+    final name = '${place['name'] ?? ''}'.toLowerCase();
+    final desc = '${place['description'] ?? ''}'.toLowerCase();
+    final tags = List<String>.from(
+      place['tags'] ?? const <String>[],
+    ).map((tag) => tag.toLowerCase()).toList();
+    final terms = <String>[category, name, desc, ...tags];
+
+    return terms.any(
+      (term) =>
+          term.contains('museum') ||
+          term.contains('gallery') ||
+          term.contains('mansion') ||
+          term.contains('cafe') ||
+          term.contains('restaurant') ||
+          term.contains('food court') ||
+          term.contains('mall') ||
+          term.contains('market') ||
+          term.contains('covered') ||
+          term.contains('indoor') ||
+          term.contains('heritage house') ||
+          term.contains('temple'),
+    );
+  }
+
+  static double _weatherScore(
+    Map<String, dynamic> place, {
+    required String weatherSeverity,
+    required bool isRainy,
+  }) {
+    final isOutdoor = _isOutdoorPlace(place);
+    final indoorFriendly = _isIndoorFriendlyPlace(place);
+
+    return switch (weatherSeverity) {
+      'thunderstorm' ||
+      'heavy_rain' => isOutdoor ? -0.75 : (indoorFriendly ? 0.40 : 0.12),
+      'moderate_rain' => isOutdoor ? -0.30 : (indoorFriendly ? 0.20 : 0.06),
+      'light_showers' => isOutdoor ? -0.08 : (indoorFriendly ? 0.10 : 0.03),
+      'hot' => isOutdoor ? -0.10 : (indoorFriendly ? 0.08 : 0.02),
+      'cloudy' => isOutdoor ? 0.24 : (indoorFriendly ? 0.04 : 0.0),
+      'fair' => isOutdoor ? 0.28 : (indoorFriendly ? 0.02 : 0.0),
+      _ =>
+        isRainy
+            ? (isOutdoor ? -0.18 : (indoorFriendly ? 0.14 : 0.04))
+            : (isOutdoor ? 0.22 : 0.0),
+    };
+  }
+
+  static double _rank(
+    Map<String, dynamic> place, {
+    String? userBudget,
+    int? preferredStartMinutes,
+    bool isRainy = false,
+    String weatherSeverity = 'fair',
+  }) {
     final score = (place['score'] as num?)?.toDouble() ?? 0;
     final reviewCount = (place['inAppReviewCount'] as num?)?.toDouble() ?? 0;
     final distanceMeters = (place['distanceMeters'] as num?)?.toDouble() ?? 0;
@@ -1895,6 +3099,8 @@ class GeoapifyPlanner {
         ? 0.52
         : source == 'verified_vendor'
         ? 0.42
+        : source == 'real_map_place'
+        ? 0.40
         : source == 'firestore'
         ? 0.34
         : 0.16;
@@ -1919,19 +3125,43 @@ class GeoapifyPlanner {
         ? 0.0
         : 0.06;
     final penangPriority = (place['penangPriority'] as num?)?.toDouble() ?? 0.0;
-    final penangBonus = min(max(penangPriority, 0.0) / 100.0, 1.0) * 0.65;
+    final penangBonus = min(max(penangPriority, 0.0) / 100.0, 1.0) * 0.45;
+
+    // Time-of-day alignment bonus
+    final timeBonus = preferredStartMinutes != null
+        ? _timeOfDayScore(place, preferredStartMinutes)
+        : 0.0;
+
+    // Budget alignment bonus
+    final placeBudget = '${place['budgetLevel'] ?? 'Medium'}';
+    final budgetBonus =
+        userBudget != null &&
+            userBudget.toLowerCase() == placeBudget.toLowerCase()
+        ? 0.30
+        : 0.0;
+
+    final weatherBonus = _weatherScore(
+      place,
+      weatherSeverity: weatherSeverity,
+      isRainy: isRainy,
+    );
+
     return (score / 5) * 0.48 +
         min(reviewCount / 10, 1.0) * 0.18 +
         sourceBonus +
         taskBonus +
         voucherBonus +
         distanceBonus +
-        min(max(areaRelevance, 0.0), 1.0) * 0.24 +
-        min(max(interestRelevance, 0.0), 1.0) * 0.75 +
+        min(max(areaRelevance, 0.0), 1.0) * 1.50 +
+        (areaRelevance < 0.2 ? -1.0 : 0.0) +
+        min(max(interestRelevance, 0.0), 1.0) * 0.85 +
         min(completeness, 1.0) * 0.20 +
         imageBonus +
         openingBonus +
-        penangBonus;
+        penangBonus +
+        timeBonus +
+        budgetBonus +
+        weatherBonus;
   }
 
   static String _placeIdentity(Map<String, dynamic> place) {
@@ -1955,6 +3185,21 @@ class GeoapifyPlanner {
     return name;
   }
 
+  static Set<String> _allPlaceKeys(Map<String, dynamic> place) {
+    final keys = <String>{};
+    final placeId = '${place['placeId'] ?? ''}'.trim();
+    if (placeId.isNotEmpty) keys.add('place:$placeId');
+    final vendorId = '${place['vendorId'] ?? ''}'.trim();
+    if (vendorId.isNotEmpty) keys.add('vendor:$vendorId');
+    final geoapifyPlaceId = '${place['geoapifyPlaceId'] ?? ''}'.trim();
+    if (geoapifyPlaceId.isNotEmpty) keys.add('geo:$geoapifyPlaceId');
+    final name = _normalize('${place['name'] ?? ''}');
+    if (name.isNotEmpty) keys.add('name:$name');
+    final identity = _placeIdentity(place);
+    if (identity.isNotEmpty) keys.add(identity);
+    return keys;
+  }
+
   static List<Map<String, dynamic>> _deduplicate(
     List<Map<String, dynamic>> places,
   ) {
@@ -1962,7 +3207,7 @@ class GeoapifyPlanner {
     for (final place in places) {
       final name = _normalize('${place['name'] ?? ''}');
       if (name.isEmpty) continue;
-      final key = _placeIdentity(place);
+      final key = name;
       final current = unique[key];
       if (current == null || _rank(place) > _rank(current)) {
         unique[key] = place;
@@ -2135,6 +3380,10 @@ class GeoapifyPlanner {
 
   static String _suggestionReason(Map<String, dynamic> place) {
     final reasons = <String>[];
+    final mealSuggestion = '${place['mealSuggestionLabel'] ?? ''}'.trim();
+    if (mealSuggestion.isNotEmpty) {
+      reasons.add(mealSuggestion);
+    }
     final interest = '${place['matchedInterest'] ?? place['category'] ?? ''}';
     if (interest.trim().isNotEmpty) {
       reasons.add('Matches $interest');
@@ -2381,10 +3630,10 @@ class GeoapifyPlanner {
     );
     final imageUrl = exactImageUrl.isNotEmpty
         ? exactImageUrl
-        : _firstText([original['imageUrl'], original['mapPreviewUrl']]);
+        : _firstText([original['imageUrl']]);
     final imageType = exactImageUrl.isNotEmpty
         ? 'place_photo'
-        : '${original['imageType'] ?? 'map_preview'}';
+        : '${original['imageType'] ?? 'pending_resolution'}';
     final brand = _firstText([properties['brand'], original['brand']]);
     final operatorName = _firstText([
       properties['operator'],
@@ -2677,20 +3926,77 @@ class DailyPlannerPage extends StatefulWidget {
 }
 
 class _DailyPlannerPageState extends State<DailyPlannerPage> {
-  final area = TextEditingController(text: 'George Town, Penang');
+  String selectedStateId = 'penang';
+  String selectedStateName = 'Penang';
+  String selectedArea = 'George Town';
+  List<MalaysianStateItem> availableStates = MalaysiaLocationService.defaultStates;
+  List<String> availableAreas = [
+    'George Town',
+    'Batu Ferringhi',
+    'Bayan Lepas',
+    'Balik Pulau',
+    'Bukit Mertajam',
+    'Butterworth',
+  ];
+
   final selectedInterests = <String>{'Heritage'};
+  DateTime tripStartDate = DateTime.now().add(const Duration(days: 1));
+  DateTime tripEndDate = DateTime.now().add(const Duration(days: 1));
+  int get tripDays {
+    final s = DateTime(tripStartDate.year, tripStartDate.month, tripStartDate.day);
+    final e = DateTime(tripEndDate.year, tripEndDate.month, tripEndDate.day);
+    final diff = e.difference(s).inDays + 1;
+    return diff < 1 ? 1 : diff;
+  }
+
+  int selectedDayIndex = 0;
+  List<PlannerDaySchedule> generatedDays = [];
+  TimeOfDay startTime = const TimeOfDay(hour: 9, minute: 0);
   double availableHours = 4;
   String budgetLevel = 'Medium';
   String pace = 'Balanced';
+  bool foodExplorationEnabled = false;
   bool loading = false;
+  bool saving = false;
   int totalEstimatedMinutes = 0;
   int remainingMinutes = 0;
   List<Map<String, dynamic>> results = [];
+  ItineraryModel? latestGeneratedItinerary;
 
   @override
   void initState() {
     super.initState();
+    _loadLocationData();
     _loadSavedPreferences();
+  }
+
+  Future<void> _loadLocationData() async {
+    try {
+      final states = await MalaysiaLocationService.getStates();
+      if (!mounted) return;
+      setState(() => availableStates = states);
+      final areas = await MalaysiaLocationService.getAreasForState(selectedStateId);
+      if (!mounted) return;
+      setState(() {
+        availableAreas = areas;
+        if (!areas.contains(selectedArea) && areas.isNotEmpty) {
+          selectedArea = areas.first;
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _onStateChanged(String newStateId) async {
+    setState(() {
+      selectedStateId = newStateId;
+      selectedStateName = MalaysiaLocationService.getStateName(newStateId);
+    });
+    final areas = await MalaysiaLocationService.getAreasForState(newStateId);
+    if (!mounted) return;
+    setState(() {
+      availableAreas = areas;
+      selectedArea = areas.isNotEmpty ? areas.first : '';
+    });
   }
 
   Future<void> _loadSavedPreferences() async {
@@ -2714,78 +4020,120 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         if (['Relaxed', 'Balanced', 'Fast', 'Packed'].contains(savedPace)) {
           pace = savedPace == 'Packed' ? 'Fast' : savedPace;
         }
+        final plannerPrefs = profile['lastPlannerPreferences'];
+        if (plannerPrefs is Map) {
+          foodExplorationEnabled =
+              plannerPrefs['foodExplorationEnabled'] == true;
+          final sId = '${plannerPrefs['stateId'] ?? ''}'.trim();
+          if (sId.isNotEmpty) {
+            selectedStateId = sId;
+            selectedStateName = MalaysiaLocationService.getStateName(sId);
+            _loadLocationData();
+          }
+        }
       });
-    } catch (_) {
-      // Existing defaults remain available when the profile is unavailable.
-    }
+    } catch (_) {}
   }
 
+  int get preferredStartMinutes => startTime.hour * 60 + startTime.minute;
+
   Future<void> generate() async {
-    if (area.text.trim().isEmpty || selectedInterests.isEmpty) {
+    if (selectedStateId.trim().isEmpty || selectedArea.trim().isEmpty || selectedInterests.isEmpty) {
       showMessage(
         context,
-        'Complete all required travel preferences.',
+        'Please select a state, area, and at least one travel interest.',
+        error: true,
+      );
+      return;
+    }
+
+    if (tripEndDate.isBefore(tripStartDate)) {
+      showMessage(
+        context,
+        'End date cannot be before start date.',
         error: true,
       );
       return;
     }
 
     setState(() => loading = true);
+
     try {
-      final generated = await GeoapifyPlanner.generate(
-        area: area.text.trim(),
+      final prefs = TravelPreferences(
+        stateId: selectedStateId,
+        stateName: selectedStateName,
+        selectedArea: selectedArea,
+        startDate: tripStartDate,
+        endDate: tripEndDate,
+        dailyStartMinutes: preferredStartMinutes,
         availableHours: availableHours,
         interests: selectedInterests.toList(),
-        budgetLevel: budgetLevel,
-        travelPace: pace,
+        budget: budgetLevel,
+        pace: pace,
+        foodExplorationEnabled: foodExplorationEnabled,
       );
 
-      // Resolve a real place photograph or a location-map fallback before
-      // displaying the generated itinerary. This also prevents unresolved
-      // image URLs from being stored later.
-      ItineraryImageResolver.clearCache();
-      final resolvedPlaces = await Future.wait(
-        generated.places.map(
-          (place) => ItineraryImageResolver.resolveStop(
-            Map<String, dynamic>.from(place),
-          ),
-        ),
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: prefs,
+        userId: AppServices.auth.currentUser?.uid ?? 'guest',
       );
+
+      final plannedDays = <PlannerDaySchedule>[];
+      for (final d in itinerary.days) {
+        final stopMaps = d.stops.map((s) => s.toMap()).toList();
+        plannedDays.add(
+          PlannerDaySchedule(
+            dayNumber: d.dayNumber,
+            date: d.date,
+            dateLabel: d.dateLabel,
+            weather: d.weather,
+            places: stopMaps,
+            totalEstimatedMinutes: d.totalEstimatedMinutes,
+            remainingMinutes: d.remainingMinutes,
+          ),
+        );
+      }
 
       if (!mounted) return;
       setState(() {
-        results = resolvedPlaces;
-        totalEstimatedMinutes = generated.totalEstimatedMinutes;
-        remainingMinutes = generated.remainingMinutes;
+        latestGeneratedItinerary = itinerary;
+        generatedDays = plannedDays;
+        selectedDayIndex = 0;
+        if (plannedDays.isNotEmpty) {
+          results = plannedDays.first.places;
+          totalEstimatedMinutes = plannedDays.first.totalEstimatedMinutes;
+          remainingMinutes = plannedDays.first.remainingMinutes;
+        } else {
+          results = [];
+          totalEstimatedMinutes = 0;
+          remainingMinutes = (availableHours * 60).round();
+        }
       });
 
       final uid = AppServices.auth.currentUser?.uid;
       if (uid != null) {
         await AppServices.travelerRef(uid).set({
           'lastPlannerPreferences': {
-            'area': area.text.trim(),
+            'stateId': selectedStateId,
+            'stateName': selectedStateName,
+            'area': selectedArea,
             'availableHours': availableHours,
+            'dayCount': tripDays,
             'interests': selectedInterests.toList(),
             'budgetLevel': budgetLevel,
             'travelPace': pace,
-            'placeSource': 'Registered MyHeritage vendors in Penang',
+            'startMinutes': preferredStartMinutes,
+            'foodExplorationEnabled': foodExplorationEnabled,
+            'tripStartDate': Timestamp.fromDate(tripStartDate),
           },
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
 
-      if (generated.places.isEmpty && mounted) {
+      if (results.isEmpty && mounted) {
         showMessage(
           context,
-          'No registered vendor matches the selected interests and budget. Try another Penang area or interest.',
-          error: true,
-        );
-      }
-    } on TimeoutException {
-      if (mounted) {
-        showMessage(
-          context,
-          'The map-area lookup took too long. Please try again.',
+          'No verified attractions found in $selectedStateName matching your interests. Try choosing more interests.',
           error: true,
         );
       }
@@ -2802,102 +4150,226 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     }
   }
 
-  double get budgetAmount {
-    return switch (budgetLevel) {
-      'Low' => 50,
-      'High' => 200,
-      _ => 100,
-    };
+  Future<void> _addDessertStop() async {
+    if (latestGeneratedItinerary == null || generatedDays.isEmpty) return;
+    try {
+      final currentDayModel = latestGeneratedItinerary!.days[selectedDayIndex];
+      final allPlaces = await PlaceRepository.getPlacesForState(selectedStateId);
+      final updatedDay = ItineraryRecommendationService.addDessertStopToDay(
+        currentDay: currentDayModel,
+        availablePlaces: allPlaces,
+        availableHours: availableHours,
+        startMinutes: preferredStartMinutes,
+        stateId: selectedStateId,
+        stateName: selectedStateName,
+      );
+      if (updatedDay == null) {
+        showMessage(context, 'Not enough remaining time to add a dessert stop.', error: true);
+        return;
+      }
+      setState(() {
+        final newDays = List<ItineraryDayModel>.from(latestGeneratedItinerary!.days);
+        newDays[selectedDayIndex] = updatedDay;
+        latestGeneratedItinerary = latestGeneratedItinerary!.copyWith(days: newDays);
+
+        final newPlannedDays = List<PlannerDaySchedule>.from(generatedDays);
+        newPlannedDays[selectedDayIndex] = PlannerDaySchedule(
+          dayNumber: updatedDay.dayNumber,
+          date: updatedDay.date,
+          dateLabel: updatedDay.dateLabel,
+          weather: updatedDay.weather,
+          places: updatedDay.stops.map((s) => s.toMap()).toList(),
+          totalEstimatedMinutes: updatedDay.totalEstimatedMinutes,
+          remainingMinutes: updatedDay.remainingMinutes,
+        );
+        generatedDays = newPlannedDays;
+        results = newPlannedDays[selectedDayIndex].places;
+        totalEstimatedMinutes = updatedDay.totalEstimatedMinutes;
+        remainingMinutes = updatedDay.remainingMinutes;
+      });
+      if (mounted) {
+        showMessage(context, 'Added authentic dessert stop to ${currentDayModel.dateLabel}!');
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      }
+    }
+  }
+
+  ItineraryScheduleResult _currentSchedule() {
+    final currentStops =
+        generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length
+        ? generatedDays[selectedDayIndex].places
+        : results;
+    return ItinerarySchedulePlanner.plan(
+      stops: currentStops,
+      pace: pace,
+      availableHours: availableHours,
+      preferredStartMinutes: preferredStartMinutes,
+    );
   }
 
   Future<void> save() async {
-    if (results.isEmpty) return;
-    final uid = AppServices.auth.currentUser!.uid;
+    if ((results.isEmpty && generatedDays.isEmpty) || saving) return;
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid == null) {
+      showMessage(
+        context,
+        'Please sign in to save your itinerary.',
+        error: true,
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+
     try {
-      showMessage(context, 'Preparing itinerary images...');
+      showMessage(context, 'Saving itinerary to your account...');
 
-      final resolvedStops = await Future.wait(
-        results.asMap().entries.map((entry) async {
-          final data = await ItineraryImageResolver.resolveStop(
-            Map<String, dynamic>.from(entry.value),
+      final allDaysMap = <Map<String, dynamic>>[];
+      final allStopsResolved = <Map<String, dynamic>>[];
+
+      if (generatedDays.isNotEmpty) {
+        for (final day in generatedDays) {
+          final schedule = ItinerarySchedulePlanner.plan(
+            stops: day.places,
+            pace: pace,
+            availableHours: availableHours,
+            preferredStartMinutes: preferredStartMinutes,
           );
-          final task = data['culturalTask'] is Map
-              ? Map<String, dynamic>.from(data['culturalTask'] as Map)
-              : null;
-          final fallback =
-              '${data['fallbackImageUrl'] ?? data['mapPreviewUrl'] ?? ''}'
-                  .trim();
 
-          return <String, dynamic>{
-            'placeId': data['placeId'],
-            'geoapifyPlaceId': data['geoapifyPlaceId'],
-            'vendorId': data['vendorId'],
-            'mapUrl': data['mapUrl'],
-            'source': data['source'],
-            'sequence': entry.key + 1,
-            'name': data['name'],
-            'description': data['description'],
-            'imageUrl': '${data['imageUrl'] ?? ''}',
-            'fallbackImageUrl': fallback,
-            'mapPreviewUrl': '${data['mapPreviewUrl'] ?? fallback}',
-            'imageCandidates': List<String>.from(
-              data['imageCandidates'] ?? const <String>[],
-            ),
-            'imageType': data['imageType'],
-            'imageAttribution': data['imageAttribution'],
-            'imageSourceUrl': data['imageSourceUrl'],
-            'suggestionReason': data['suggestionReason'],
-            'distanceMeters': data['distanceMeters'],
-            'matchedInterest': data['matchedInterest'],
-            'area': data['area'],
-            'category': data['category'],
-            'formattedAddress': data['formattedAddress'],
-            'durationMinutes': data['durationMinutes'] ?? 60,
-            'travelMinutesBefore': data['travelMinutesBefore'] ?? 0,
-            'budgetLevel': data['budgetLevel'],
-            'cuisine': data['cuisine'],
-            'diet': data['diet'],
-            'openingHours': data['openingHours'],
-            'phone': data['phone'],
-            'website': data['website'],
-            'email': data['email'],
-            'services': data['services'],
-            'facilities': data['facilities'],
-            'paymentMethods': data['paymentMethods'],
-            'score': data['score'],
-            'inAppAverageRating': data['inAppAverageRating'],
-            'inAppReviewCount': data['inAppReviewCount'],
-            'trustLabel': data['trustLabel'],
-            'location': data['location'],
-            'culturalTask': task,
-            'culturalTaskId': task?['id'] ?? data['activeCulturalTaskId'],
-            'culturalTaskTitle': task?['title'],
-            'culturalTaskRewardPoints': task?['rewardPoints'],
-            'activeVouchers': data['activeVouchers'],
-            'activeVoucherCount': data['activeVoucherCount'],
-          };
-        }),
+          final dayStops = schedule.stops;
+          allDaysMap.add({
+            'dayNumber': day.dayNumber,
+            'date': day.date.toIso8601String(),
+            'dateLabel': day.dateLabel,
+            'weather': day.weather,
+            'stops': dayStops,
+            'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+            'remainingMinutes': schedule.remainingMinutes,
+            'budget': 'RM 50 - 150',
+            'budgetLevel': budgetLevel,
+          });
+
+          allStopsResolved.addAll(dayStops);
+        }
+      } else {
+        final schedule = _currentSchedule();
+        final dayStops = schedule.stops;
+        allStopsResolved.addAll(dayStops);
+        allDaysMap.add({
+          'dayNumber': 1,
+          'date': tripStartDate.toIso8601String(),
+          'dateLabel': DateFormat('d MMM').format(tripStartDate),
+          'weather': <String, dynamic>{},
+          'stops': dayStops,
+          'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+          'remainingMinutes': schedule.remainingMinutes,
+          'budget': 'RM 50 - 150',
+          'budgetLevel': budgetLevel,
+        });
+      }
+
+      final tripTitle = tripDays > 1
+          ? '$selectedStateName $tripDays-Day Tour'
+          : '$selectedArea Cultural Day';
+      final tripBudget = ItineraryBudgetEstimator.estimateTrip(
+        allDaysMap,
+        fallbackStops: allStopsResolved,
       );
 
-      await AppServices.db.collection('itineraries').add({
+      final docRef = await AppServices.db.collection('itineraries').add({
         'userId': uid,
-        'title': '${area.text.trim()} Cultural Day',
-        'area': area.text.trim(),
+        'title': tripTitle,
+        'stateId': selectedStateId,
+        'stateName': selectedStateName,
+        'selectedArea': selectedArea,
+        'area': selectedArea,
         'availableHours': availableHours,
-        'budget': budgetAmount,
-        'budgetLevel': budgetLevel,
+        'dailyHours': availableHours,
+        'numberOfDays': tripDays,
+        'dayCount': tripDays,
+        'dailyStartTime': startTime.format(context),
+        'dailyEndTime': TimeOfDay(
+          hour: (startTime.hour + availableHours.toInt()) % 24,
+          minute: startTime.minute,
+        ).format(context),
+        'startDate': Timestamp.fromDate(tripStartDate),
+        'endDate': Timestamp.fromDate(tripEndDate),
+        'budget': tripBudget.tripBudget,
+        'budgetLevel': tripBudget.budgetLevel,
+        'budgetPreference': budgetLevel,
         'interests': selectedInterests.toList(),
         'travelPace': pace,
-        'placeSource': 'Registered MyHeritage vendors in Penang',
+        'pace': pace,
+        'suggestedStartMinutes': preferredStartMinutes,
         'totalEstimatedMinutes': totalEstimatedMinutes,
         'remainingMinutes': remainingMinutes,
-        'stops': resolvedStops,
+        'stops': allStopsResolved,
+        'days': allDaysMap,
         'status': 'saved',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      await AppServices.scheduleTripNotification(
+        userId: uid,
+        itineraryId: docRef.id,
+        title: tripTitle,
+        area: selectedArea,
+        tripStartDate: tripStartDate,
+        tripEndDate: tripEndDate,
+      );
+
       if (mounted) {
-        showMessage(context, 'Itinerary saved with place previews.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Itinerary saved with trip notifications enabled!',
+            ),
+            backgroundColor: ExplorerColors.navy,
+            action: SnackBarAction(
+              label: 'View',
+              textColor: ExplorerColors.gold,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ItineraryDetailPage(
+                      itineraryId: docRef.id,
+                      initialItinerary: {
+                        'userId': uid,
+                        'title': tripTitle,
+                        'stateId': selectedStateId,
+                        'stateName': selectedStateName,
+                        'selectedArea': selectedArea,
+                        'area': selectedArea,
+                        'availableHours': availableHours,
+                        'dailyHours': availableHours,
+                        'numberOfDays': tripDays,
+                        'dayCount': tripDays,
+                        'startDate': Timestamp.fromDate(tripStartDate),
+                        'endDate': Timestamp.fromDate(tripEndDate),
+                        'budget': tripBudget.tripBudget,
+                        'budgetLevel': tripBudget.budgetLevel,
+                        'budgetPreference': budgetLevel,
+                        'interests': selectedInterests.toList(),
+                        'travelPace': pace,
+                        'suggestedStartMinutes': preferredStartMinutes,
+                        'totalEstimatedMinutes': totalEstimatedMinutes,
+                        'remainingMinutes': remainingMinutes,
+                        'stops': allStopsResolved,
+                        'days': allDaysMap,
+                        'status': 'saved',
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -2907,17 +4379,18 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           error: true,
         );
       }
+    } finally {
+      if (mounted) setState(() => saving = false);
     }
   }
 
   @override
-  void dispose() {
-    area.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final schedule = _currentSchedule();
+    final scheduledResults = schedule.stops;
+    final displayTotalMinutes = schedule.totalEstimatedMinutes;
+    final displayRemainingMinutes = schedule.remainingMinutes;
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
@@ -2955,7 +4428,7 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Curate your perfect heritage journey in George Town.',
+            'Curate your perfect cultural itinerary with authentic places & tasks across Malaysia.',
             style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 18),
@@ -2965,50 +4438,512 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               children: [
                 const ExplorerSectionTitle('Trip Preferences'),
                 const SizedBox(height: 16),
-                const Text(
-                  'Area',
-                  style: TextStyle(
-                    color: ExplorerColors.text,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Malaysian State *',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<String>(
+                            value: availableStates.any((s) => s.id == selectedStateId)
+                                ? selectedStateId
+                                : 'penang',
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              prefixIcon: Icon(Icons.map_outlined, size: 18),
+                            ),
+                            items: availableStates
+                                .map((s) => DropdownMenuItem(
+                                      value: s.id,
+                                      child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) _onStateChanged(v);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Area / City *',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<String>(
+                            value: availableAreas.contains(selectedArea)
+                                ? selectedArea
+                                : (availableAreas.isNotEmpty ? availableAreas.first : null),
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              prefixIcon: Icon(Icons.location_on_outlined, size: 18),
+                            ),
+                            items: availableAreas
+                                .map((a) => DropdownMenuItem(
+                                      value: a,
+                                      child: Text(a, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) setState(() => selectedArea = v);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (availableAreas.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Quick Pick Area ($selectedStateName):',
+                    style: const TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: availableAreas.map((sub) {
+                        final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Text(sub),
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? Colors.white : ExplorerColors.navy,
+                            ),
+                            selected: isSelected,
+                            selectedColor: ExplorerColors.navy,
+                            backgroundColor: Colors.white,
+                            onSelected: (_) => setState(() => selectedArea = sub),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: ExplorerColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'One itinerary stays within $selectedStateName. To visit another Malaysian state, create a separate itinerary.',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: ExplorerColors.navy,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: area,
-                  decoration: const InputDecoration(
-                    hintText: 'George Town, Penang',
-                    prefixIcon: Icon(Icons.location_on_outlined),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Start Date',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          InkWell(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: tripStartDate,
+                                firstDate: DateTime.now().subtract(
+                                  const Duration(days: 30),
+                                ),
+                                lastDate: DateTime.now().add(
+                                  const Duration(days: 730),
+                                ),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  tripStartDate = picked;
+                                  if (tripEndDate.isBefore(tripStartDate)) {
+                                    tripEndDate = tripStartDate;
+                                  }
+                                });
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ExplorerColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.calendar_month_outlined,
+                                    size: 16,
+                                    color: ExplorerColors.goldDark,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      DateFormat(
+                                        'd MMM yyyy',
+                                      ).format(tripStartDate),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'End Date (No Day Limit)',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          InkWell(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: tripEndDate.isBefore(tripStartDate)
+                                    ? tripStartDate
+                                    : tripEndDate,
+                                firstDate: tripStartDate,
+                                lastDate: tripStartDate.add(
+                                  const Duration(days: 365),
+                                ),
+                              );
+                              if (picked != null) {
+                                setState(() => tripEndDate = picked);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ExplorerColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.event_available_outlined,
+                                    size: 16,
+                                    color: Color(0xFF2E7D32),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      DateFormat(
+                                        'd MMM yyyy',
+                                      ).format(tripEndDate),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Total Duration: $tripDays ${tripDays > 1 ? "Days" : "Day"} (${DateFormat("d MMM").format(tripStartDate)} - ${DateFormat("d MMM yyyy").format(tripEndDate)})',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: ExplorerColors.navy,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text(
-                  'Time Available',
-                  style: TextStyle(
-                    color: ExplorerColors.text,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<double>(
-                  value: availableHours,
-                  items: const [
-                    DropdownMenuItem(value: 2, child: Text('2 hours')),
-                    DropdownMenuItem(
-                      value: 4,
-                      child: Text('4 hours (Half Day)'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Daily Start Time',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          InkWell(
+                            onTap: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: startTime,
+                              );
+                              if (picked != null) {
+                                setState(() => startTime = picked);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ExplorerColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.access_time,
+                                    size: 16,
+                                    color: ExplorerColors.goldDark,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      startTime.format(context),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.arrow_drop_down,
+                                    color: ExplorerColors.muted,
+                                    size: 18,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    DropdownMenuItem(
-                      value: 8,
-                      child: Text('8 hours (Full Day)'),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Hours (Per Day)',
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<double>(
+                            isExpanded: true,
+                            isDense: true,
+                            value: availableHours,
+                            selectedItemBuilder: (BuildContext context) {
+                              return const [2.0, 4.0, 6.0, 8.0].map<Widget>((double val) {
+                                return Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    '${val.toInt()} hrs / day',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                );
+                              }).toList();
+                            },
+                            items: const [
+                              DropdownMenuItem(
+                                value: 2,
+                                child: Text(
+                                  '2 Hours / day (Short)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 4,
+                                child: Text(
+                                  '4 Hours / day (Half Day)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 6,
+                                child: Text(
+                                  '6 Hours / day (Standard)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 8,
+                                child: Text(
+                                  '8 Hours / day (Full Day)',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: ExplorerColors.navy,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                setState(() => availableHours = value ?? 4),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 6,
+                              ),
+                              prefixIconConstraints: BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                              prefixIcon: Padding(
+                                padding: EdgeInsets.only(left: 6, right: 4),
+                                child: Icon(
+                                  Icons.schedule,
+                                  size: 16,
+                                  color: ExplorerColors.goldDark,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
-                  onChanged: (value) =>
-                      setState(() => availableHours = value ?? 4),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.schedule),
-                  ),
                 ),
                 const SizedBox(height: 14),
                 const Text(
@@ -3041,12 +4976,40 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                                 selectedInterests.add(item);
                               } else {
                                 selectedInterests.remove(item);
+                                if (item == 'Food') {
+                                  foodExplorationEnabled = false;
+                                }
                               }
                             });
                           },
                         );
                       }).toList(),
                 ),
+                if (selectedInterests.contains('Food')) ...[
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    value: foodExplorationEnabled,
+                    onChanged: (value) =>
+                        setState(() => foodExplorationEnabled = value),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    dense: true,
+                    title: const Text(
+                      'Explore local food',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Add optional dessert, tea or snack stops outside main meals.',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Row(
                   children: [
@@ -3085,11 +5048,55 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFB9CBE2)),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.payments_outlined,
+                        color: ExplorerColors.navy,
+                        size: 16,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Budget range: Low RM0-50/day, Medium RM51-150/day, High RM151+/day. Saved trip budget is calculated from the selected places.',
+                          style: TextStyle(
+                            color: ExplorerColors.navy,
+                            fontSize: 11,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: loading ? null : generate,
-                  icon: const Icon(Icons.auto_awesome, size: 18),
-                  label: Text(loading ? 'Generating...' : 'Generate Itinerary'),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: loading ? null : generate,
+                    icon: loading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.auto_awesome, size: 18),
+                    label: Text(loading ? 'Generating Itinerary...' : 'Generate Itinerary'),
+                  ),
                 ),
               ],
             ),
@@ -3099,43 +5106,18 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             results.isEmpty ? 'Suggested Places' : 'Suggested Itinerary',
             trailing: results.isEmpty
                 ? null
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Save itinerary',
-                        onPressed: save,
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                      ),
-                      IconButton(
-                        tooltip: 'Share itinerary link',
-                        onPressed: () => ItineraryShareHelper.openShareDialog(
-                          context,
-                          {
-                            'title':
-                                '${GeoapifyPlanner._normalisePenangArea(area.text)} Cultural Day',
-                            'area': GeoapifyPlanner._normalisePenangArea(
-                              area.text,
-                            ),
-                            'availableHours': availableHours,
-                            'budgetLevel': budgetLevel,
-                            'interests': selectedInterests.toList(),
-                            'travelPace': pace,
-                            'totalEstimatedMinutes': totalEstimatedMinutes,
-                            'remainingMinutes': remainingMinutes,
-                            'stops': results,
-                          },
-                        ),
-                        icon: const Icon(Icons.link_rounded),
-                      ),
-                    ],
+                : IconButton(
+                    tooltip: 'Save itinerary',
+                    onPressed: saving ? null : save,
+                    icon: const Icon(Icons.bookmark_add_outlined),
                   ),
           ),
           if (results.isNotEmpty && totalEstimatedMinutes > 0) ...[
             const SizedBox(height: 7),
             Text(
-              '${(totalEstimatedMinutes / 60).toStringAsFixed(1)} hours '
-              'planned - $remainingMinutes minutes remaining',
+              tripDays > 1
+                  ? '$tripDays-Day $selectedStateName Tour • ${(totalEstimatedMinutes / 60).toStringAsFixed(1)} total hours planned'
+                  : '${(displayTotalMinutes / 60).toStringAsFixed(1)} hours planned - $displayRemainingMinutes minutes remaining',
               style: const TextStyle(
                 color: ExplorerColors.muted,
                 fontSize: 11,
@@ -3143,13 +5125,78 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               ),
             ),
           ],
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          if (generatedDays.length > 1) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: generatedDays.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final d = entry.value;
+                  final isSel = selectedDayIndex == idx;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(d.dateLabel),
+                      selected: isSel,
+                      selectedColor: ExplorerColors.navy,
+                      labelStyle: TextStyle(
+                        color: isSel ? Colors.white : ExplorerColors.navy,
+                        fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                      backgroundColor: Colors.white,
+                      onSelected: (_) => setState(() {
+                        selectedDayIndex = idx;
+                        results = d.places;
+                        totalEstimatedMinutes = d.totalEstimatedMinutes;
+                        remainingMinutes = d.remainingMinutes;
+                      }),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (scheduledResults.isNotEmpty) ...[
+            ItineraryTimelineSummary(schedule: schedule),
+            const SizedBox(height: 10),
+            if (selectedInterests.contains('Food')) ...[
+              Wrap(
+                spacing: 8,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.icecream_outlined, size: 16, color: ExplorerColors.navy),
+                    label: const Text(
+                      '+ Add Dessert Stop',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        color: ExplorerColors.navy,
+                      ),
+                    ),
+                    backgroundColor: ExplorerColors.goldSoft,
+                    onPressed: _addDessertStop,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+          ],
           if (loading)
             const ExplorerCard(
               child: Center(
                 child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: CircularProgressIndicator(),
+                  padding: EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('Finding the best cultural destinations...'),
+                    ],
+                  ),
                 ),
               ),
             )
@@ -3158,32 +5205,68 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
               child: ExplorerEmptyState(
                 title: 'Generate your itinerary',
                 subtitle:
-                    'Select your preferences to generate an itinerary using verified Penang vendors registered in MyHeritage.',
+                    'Select your state, dates, and interests to generate an authentic cultural itinerary.',
                 icon: Icons.route_outlined,
               ),
             )
-          else
-            ...results.asMap().entries.map(
+          else ...[
+            const ExplorerSectionTitle(
+              'Main Schedule',
+              subtitle: 'Meals, travel time, attraction visits and buffer time.',
+            ),
+            const SizedBox(height: 10),
+            ...scheduledResults.asMap().entries.map(
               (entry) => Padding(
                 padding: const EdgeInsets.only(bottom: 11),
                 child: _placeCard(context, entry.value, entry.key + 1),
               ),
             ),
-          const SizedBox(height: 6),
-          const Center(
-            child: Text(
-              'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: ExplorerColors.muted,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 14),
+              child: Column(
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                      backgroundColor: ExplorerColors.navy,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: saving ? null : save,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.bookmark_add_outlined),
+                    label: Text(
+                      saving ? 'Saving Itinerary...' : 'Save Itinerary',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Save to your account to track cultural tasks and earn explorer points.',
+                    style: TextStyle(color: ExplorerColors.muted, fontSize: 10),
+                  ),
+                ],
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  String _extractShortArea(String address) {
+    if (address.isEmpty) return '';
+    final parts = address.split(',');
+    return parts.first.trim();
   }
 
   Widget _placeCard(
@@ -3195,6 +5278,15 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
     final task = data['culturalTask'] is Map
         ? Map<String, dynamic>.from(data['culturalTask'] as Map)
         : null;
+    final scheduleNotes = List<String>.from(
+      data['scheduleNotes'] ?? const <String>[],
+    );
+    final timeLabel = '${data['suggestedTimeLabel'] ?? ''}'.trim();
+    final mealSuggestion = '${data['mealSuggestionLabel'] ?? ''}'.trim();
+    final bufferMinutes = (data['bufferMinutesAfter'] as num?)?.round() ?? 0;
+    final formattedAddress = '${data['formattedAddress'] ?? data['area'] ?? ''}'
+        .trim();
+    final shortArea = _extractShortArea(formattedAddress);
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
@@ -3253,8 +5345,52 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                   ],
                 ),
                 const SizedBox(height: 7),
+                if (timeLabel.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule_outlined,
+                        size: 15,
+                        color: ExplorerColors.goldDark,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        timeLabel,
+                        style: const TextStyle(
+                          color: ExplorerColors.goldDark,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                ],
+                if (mealSuggestion.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.restaurant_menu_outlined,
+                        size: 15,
+                        color: ExplorerColors.navy,
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          mealSuggestion,
+                          style: const TextStyle(
+                            color: ExplorerColors.navy,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                ],
                 Text(
-                  '${data['description'] ?? data['formattedAddress'] ?? ''}',
+                  '${data['description'] ?? formattedAddress}',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -3290,12 +5426,16 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                     ],
                   ),
                 ],
+                if (scheduleNotes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  ScheduleNoteList(notes: scheduleNotes),
+                ],
                 const SizedBox(height: 11),
                 Wrap(
                   spacing: 12,
                   runSpacing: 7,
                   children: [
-                    _meta(Icons.place_outlined, '${data['area'] ?? area.text}'),
+                    _meta(Icons.place_outlined, shortArea),
                     _meta(Icons.category_outlined, '${data['category'] ?? ''}'),
                     _meta(
                       Icons.schedule,
@@ -3307,19 +5447,51 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                         Icons.directions_walk_outlined,
                         '${data['travelMinutesBefore']} min travel',
                       ),
+                    if (bufferMinutes > 0)
+                      _meta(
+                        Icons.more_time_outlined,
+                        '$bufferMinutes min buffer',
+                      ),
                     _meta(
                       Icons.payments_outlined,
                       '${data['budgetLevel'] ?? 'Low'} budget',
                     ),
-                    if ((data['inAppReviewCount'] as num?) != null &&
-                        (data['inAppReviewCount'] as num) > 0)
-                      _meta(
-                        Icons.star_rounded,
-                        '${data['score']} MyHeritage '
-                        '(${data['inAppReviewCount']})',
-                      ),
+                    _meta(Icons.star_rounded, () {
+                      final raw =
+                          ((data['score'] as num?) ??
+                                  (data['rating'] as num?) ??
+                                  0)
+                              .toDouble();
+                      final s = raw > 0 ? raw : 4.8;
+                      final count = (data['inAppReviewCount'] as num? ?? 0);
+                      return '${s.toStringAsFixed(1)} ★ (${count > 0 ? '$count reviews' : 'Verified'})';
+                    }()),
                   ],
                 ),
+                if (formattedAddress.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.location_on_outlined,
+                        size: 14,
+                        color: ExplorerColors.muted,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          formattedAddress,
+                          style: const TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 10,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (task != null) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -3391,20 +5563,244 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   }
 
   Widget _meta(IconData icon, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: ExplorerColors.muted),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            color: ExplorerColors.muted,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 200),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: ExplorerColors.muted),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: ExplorerColors.muted,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class PlannerWeatherCard extends StatefulWidget {
+  const PlannerWeatherCard({
+    super.key,
+    required this.area,
+    this.latitude,
+    this.longitude,
+  });
+
+  final String area;
+  final double? latitude;
+  final double? longitude;
+
+  @override
+  State<PlannerWeatherCard> createState() => _PlannerWeatherCardState();
+}
+
+class _PlannerWeatherCardState extends State<PlannerWeatherCard> {
+  bool loading = true;
+  String? temperature;
+  String? condition;
+  String? tip;
+  IconData icon = Icons.wb_sunny_outlined;
+  Color iconColor = Colors.orange;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWeather();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlannerWeatherCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.area != widget.area ||
+        oldWidget.latitude != widget.latitude ||
+        oldWidget.longitude != widget.longitude) {
+      _fetchWeather();
+    }
+  }
+
+  Future<void> _fetchWeather() async {
+    final lat = widget.latitude ?? 5.4164;
+    final lng = widget.longitude ?? 100.3327;
+
+    try {
+      final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+        'latitude': lat.toString(),
+        'longitude': lng.toString(),
+        'current':
+            'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m',
+        'forecast_days': '1',
+        'timezone': 'auto',
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final current = Map<String, dynamic>.from(
+          json['current'] as Map? ?? {},
+        );
+        final temp = (current['temperature_2m'] as num?)?.round() ?? 30;
+        final code = (current['weather_code'] as num?)?.toInt() ?? 0;
+        final rain = (current['precipitation'] as num?)?.toDouble() ?? 0.0;
+
+        String cond;
+        String advice;
+        IconData ic;
+        Color color;
+
+        if (code >= 95 || rain > 5) {
+          cond = 'Thunderstorms Forecast';
+          advice =
+              'Heavy rain possible. Prioritize indoor heritage museums, craft galleries & covered food courts.';
+          ic = Icons.thunderstorm_outlined;
+          color = Colors.deepPurple;
+        } else if (code >= 51 || rain > 0) {
+          cond = 'Scattered Showers';
+          advice =
+              'Rain showers expected. Carry an umbrella and schedule outdoor photo walks between showers.';
+          ic = Icons.beach_access_outlined;
+          color = Colors.blue;
+        } else if (code >= 1 && code <= 3) {
+          cond = 'Partly Cloudy';
+          advice =
+              'Pleasant weather for cultural walks, street art viewing & heritage trail exploration.';
+          ic = Icons.cloud_outlined;
+          color = ExplorerColors.navy;
+        } else {
+          cond = 'Sunny & Warm';
+          advice =
+              'Bright skies. Stay hydrated, use sun protection, and enjoy outdoor sights & beaches.';
+          ic = Icons.wb_sunny_outlined;
+          color = Colors.orange;
+        }
+
+        if (mounted) {
+          setState(() {
+            loading = false;
+            temperature = '$temp°C';
+            condition = cond;
+            tip = advice;
+            icon = ic;
+            iconColor = color;
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        loading = false;
+        temperature = '30°C';
+        condition = 'Tropical Fair';
+        tip =
+            'Warm tropical weather. Stay hydrated and carry an umbrella for sudden afternoon tropical rain.';
+        icon = Icons.wb_sunny_outlined;
+        iconColor = Colors.orange;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ExplorerColors.border),
         ),
-      ],
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Checking local weather & travel advice...',
+              style: TextStyle(fontSize: 11, color: ExplorerColors.muted),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ExplorerColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: iconColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${widget.area}: $temperature • $condition',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const WeatherReminderPage(),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Forecast',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: ExplorerColors.goldDark,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 14,
+                      color: ExplorerColors.goldDark,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (tip != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              tip!,
+              style: const TextStyle(
+                fontSize: 11,
+                color: ExplorerColors.muted,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

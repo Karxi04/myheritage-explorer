@@ -15,9 +15,23 @@ class ItineraryEditPage extends StatefulWidget {
 }
 
 class _ItineraryEditPageState extends State<ItineraryEditPage> {
-  late List<Map<String, dynamic>> stops;
+  int selectedDayIndex = 0;
+  List<Map<String, dynamic>> days = [];
   bool saving = false;
   bool loadingPlaces = false;
+
+  String get _destinationLabel {
+    final value = '${widget.itinerary['area'] ?? ''}'.trim();
+    return value.isEmpty ? 'George Town, Penang' : value;
+  }
+
+  String get _itineraryStateId {
+    final raw = '${widget.itinerary['stateId'] ?? widget.itinerary['state'] ?? widget.itinerary['stateName'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return MalaysiaLocationService.normalizeStateId(raw);
+    return MalaysiaLocationService.inferStateIdFromArea(_destinationLabel);
+  }
+
+  String get _itineraryStateName => MalaysiaLocationService.getStateName(_itineraryStateId);
 
   String _stopIdentity(Map<String, dynamic> stop) {
     final vendorId = '${stop['vendorId'] ?? ''}'.trim();
@@ -39,36 +53,170 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
     return false;
   }
 
+  List<Map<String, dynamic>> get currentDayStops {
+    if (days.isEmpty) return [];
+    final idx = selectedDayIndex.clamp(0, days.length - 1);
+    final raw = days[idx]['stops'];
+    if (raw is List) {
+      return List<Map<String, dynamic>>.from(
+        raw.map((e) => Map<String, dynamic>.from(e is Map ? e : {})),
+      );
+    }
+    return [];
+  }
+
+  void _setCurrentDayStops(List<Map<String, dynamic>> newStops) {
+    if (days.isEmpty) return;
+    final idx = selectedDayIndex.clamp(0, days.length - 1);
+    days[idx]['stops'] = newStops;
+  }
+
+  String get _chosenPace =>
+      '${widget.itinerary['travelPace'] ?? widget.itinerary['pace'] ?? 'Balanced'}';
+
+  String _calculateDynamicPace(List<Map<String, dynamic>> stopsList) {
+    final chosenPace = _chosenPace;
+    if (stopsList.isEmpty) return chosenPace;
+    final availableH =
+        (widget.itinerary['availableHours'] as num?)?.toDouble() ??
+        (widget.itinerary['dailyHours'] as num?)?.toDouble() ??
+        4.0;
+    final count = stopsList.length;
+    final stopsPerHour = count / max(1.0, availableH);
+
+    if (stopsPerHour > 1.35 || (count >= 5 && availableH <= 4)) {
+      return 'Fast';
+    } else if (stopsPerHour <= 0.55 || (count <= 2 && availableH >= 4)) {
+      return 'Relaxed';
+    }
+    return chosenPace;
+  }
+
+  String _paceDisplayLabel(List<Map<String, dynamic>> stopsList) {
+    final actualPace = _calculateDynamicPace(stopsList);
+    final selectedPace = _chosenPace;
+    if (actualPace == selectedPace) return actualPace;
+    return '$selectedPace selected -> $actualPace schedule';
+  }
+
+  ItineraryScheduleResult _scheduleStops(List<Map<String, dynamic>> values) {
+    final dynamicPace = _calculateDynamicPace(values);
+    return ItinerarySchedulePlanner.plan(
+      stops: values,
+      pace: dynamicPace,
+      availableHours:
+          (widget.itinerary['availableHours'] as num?)?.toDouble() ??
+          (widget.itinerary['dailyHours'] as num?)?.toDouble() ??
+          4.0,
+      preferredStartMinutes: (widget.itinerary['suggestedStartMinutes'] as num?)
+          ?.round(),
+    );
+  }
+
+  void _rescheduleCurrentDay() {
+    final scheduled = _scheduleStops(currentDayStops).stops;
+    _setCurrentDayStops(scheduled);
+  }
+
   @override
   void initState() {
     super.initState();
-    stops = List<Map<String, dynamic>>.from(
+    final rawDays = widget.itinerary['days'];
+    if (rawDays is List && rawDays.isNotEmpty) {
+      for (final d in rawDays) {
+        if (d is Map) {
+          days.add(Map<String, dynamic>.from(d));
+        }
+      }
+    }
+
+    final allStops = List<Map<String, dynamic>>.from(
       (widget.itinerary['stops'] ?? const []).map(
-        (item) => Map<String, dynamic>.from(item),
+        (item) => Map<String, dynamic>.from(item is Map ? item : {}),
       ),
     );
+
+    if (days.isEmpty) {
+      final sDate =
+          asDate(widget.itinerary['startDate']) ??
+          asDate(widget.itinerary['targetDate']) ??
+          DateTime.now();
+      final eDate = asDate(widget.itinerary['endDate']) ?? sDate;
+      final daySpan = max(
+        1,
+        (widget.itinerary['dayCount'] as num?)?.round() ??
+            (eDate.difference(sDate).inDays + 1),
+      );
+
+      if (daySpan > 1 && allStops.isNotEmpty) {
+        final stopsPerDay = (allStops.length / daySpan).ceil();
+        for (var i = 0; i < daySpan; i++) {
+          final startIdx = i * stopsPerDay;
+          final endIdx = min(allStops.length, startIdx + stopsPerDay);
+          final dayStops = (startIdx < allStops.length)
+              ? allStops.sublist(startIdx, endIdx)
+              : <Map<String, dynamic>>[];
+          final dayDate = sDate.add(Duration(days: i));
+          days.add({
+            'dayNumber': i + 1,
+            'date': dayDate.toIso8601String(),
+            'dateLabel':
+                'Day ${i + 1} (${DateFormat('d MMM').format(dayDate)})',
+            'stops': dayStops,
+            'weather': <String, dynamic>{},
+          });
+        }
+      } else {
+        days.add({
+          'dayNumber': 1,
+          'date': sDate.toIso8601String(),
+          'dateLabel': 'Day 1',
+          'stops': allStops,
+          'weather': <String, dynamic>{},
+        });
+      }
+    }
+
+    _rescheduleCurrentDay();
   }
 
   Future<void> addStop() async {
     setState(() => loadingPlaces = true);
     try {
+      final curStops = currentDayStops;
       final selected = await showDialog<Map<String, dynamic>>(
         context: context,
         barrierDismissible: false,
         builder: (_) => _AddItineraryStopDialog(
           itinerary: widget.itinerary,
-          existingPlaceIds: stops
+          selectedDayNumber: selectedDayIndex + 1,
+          existingPlaceIds: curStops
               .map((stop) => '${stop['placeId'] ?? ''}')
               .where((id) => id.isNotEmpty)
               .toList(),
         ),
       );
       if (selected == null || !mounted) return;
-      final selectedKey = _stopIdentity(selected);
-      if (stops.any((stop) => _stopIdentity(stop) == selectedKey)) {
+
+      final stopState = MalaysiaLocationService.normalizeStateId(
+        '${selected['stateId'] ?? selected['state'] ?? selected['stateName'] ?? ''}'.trim().isNotEmpty
+            ? '${selected['stateId'] ?? selected['state'] ?? selected['stateName'] ?? ''}'
+            : MalaysiaLocationService.inferStateIdFromArea('${selected['area'] ?? selected['formattedAddress'] ?? ''}'),
+      );
+      if (stopState.isNotEmpty && stopState != _itineraryStateId) {
         showMessage(
           context,
-          'This stop is already in the itinerary.',
+          'This itinerary is for $_itineraryStateName only. Please create a new itinerary to plan locations in another state.',
+          error: true,
+        );
+        return;
+      }
+
+      final selectedKey = _stopIdentity(selected);
+      if (curStops.any((stop) => _stopIdentity(stop) == selectedKey)) {
+        showMessage(
+          context,
+          'This stop is already in today\'s route.',
           error: true,
         );
         return;
@@ -77,18 +225,53 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
       Map<String, dynamic> detailed = selected;
       try {
         detailed = await GeoapifyPlanner.loadPlaceDetails(selected);
-      } catch (_) {
-        // The search result already contains enough information to add it.
-      }
+      } catch (_) {}
       detailed = await ItineraryImageResolver.resolveStop(detailed);
       if (!mounted) return;
 
       final detailedKey = _stopIdentity(detailed);
-      if (stops.any((stop) => _stopIdentity(stop) == detailedKey)) {
+      if (curStops.any((stop) => _stopIdentity(stop) == detailedKey)) {
         showMessage(
           context,
-          'This stop is already in the itinerary.',
+          'This stop is already in today\'s route.',
           error: true,
+        );
+        return;
+      }
+
+      final availableHours =
+          (widget.itinerary['availableHours'] as num?)?.toDouble() ??
+          (widget.itinerary['dailyHours'] as num?)?.toDouble() ??
+          4.0;
+      final maxAllowedMinutes = (availableHours * 60 * 1.25).round();
+
+      final candidateStops = [...curStops, detailed];
+      final projected = _scheduleStops(candidateStops);
+
+      if (projected.totalEstimatedMinutes > maxAllowedMinutes) {
+        final projectedHours = (projected.totalEstimatedMinutes / 60)
+            .toStringAsFixed(1);
+        final limitHours = availableHours.toStringAsFixed(0);
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Day Duration Limit'),
+              ],
+            ),
+            content: Text(
+              'Adding "${detailed['name']}" would increase today\'s duration to $projectedHours hours, which exceeds your planned $limitHours-hour daily trip limit.\n\nTo add this stop, please remove another stop first.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
         );
         return;
       }
@@ -96,48 +279,58 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
       final task = detailed['culturalTask'] is Map
           ? Map<String, dynamic>.from(detailed['culturalTask'] as Map)
           : null;
+      final fallback =
+          '${detailed['fallbackImageUrl'] ?? detailed['mapPreviewUrl'] ?? ''}'
+              .trim();
+
+      final newStopItem = <String, dynamic>{
+        'placeId': detailed['placeId'],
+        'geoapifyPlaceId': detailed['geoapifyPlaceId'],
+        'vendorId': detailed['vendorId'],
+        'mapUrl': detailed['mapUrl'],
+        'source': detailed['source'],
+        'sequence': curStops.length + 1,
+        'dayNumber': selectedDayIndex + 1,
+        'name': detailed['name'],
+        'description': detailed['description'],
+        'area': detailed['area'],
+        'category': detailed['category'],
+        'formattedAddress': detailed['formattedAddress'],
+        'durationMinutes': detailed['durationMinutes'] ?? 60,
+        'travelMinutesBefore': detailed['travelMinutesBefore'] ?? 0,
+        'budgetLevel': detailed['budgetLevel'],
+        'score': detailed['score'],
+        'inAppAverageRating': detailed['inAppAverageRating'],
+        'inAppReviewCount': detailed['inAppReviewCount'],
+        'trustLabel': detailed['trustLabel'],
+        'location': detailed['location'],
+        'imageUrl': '${detailed['imageUrl'] ?? ''}',
+        'fallbackImageUrl': fallback,
+        'imageType': detailed['imageType'],
+        'mapPreviewUrl': '${detailed['mapPreviewUrl'] ?? fallback}',
+        'openingHours': detailed['openingHours'],
+        'phone': detailed['phone'],
+        'website': detailed['website'],
+        'cuisine': detailed['cuisine'],
+        'mealSuggestionLabel': detailed['mealSuggestionLabel'],
+        'suggestionReason': detailed['suggestionReason'],
+        'culturalTask': task,
+        'culturalTaskId': task?['id'] ?? detailed['activeCulturalTaskId'],
+        'culturalTaskTitle': task?['title'],
+        'culturalTaskRewardPoints': task?['rewardPoints'],
+        'activeVouchers': detailed['activeVouchers'],
+        'activeVoucherCount': detailed['activeVoucherCount'],
+      };
+
       setState(() {
-        stops.add({
-          'placeId': detailed['placeId'],
-          'geoapifyPlaceId': detailed['geoapifyPlaceId'],
-          'vendorId': detailed['vendorId'],
-          'mapUrl': detailed['mapUrl'],
-          'source': detailed['source'],
-          'sequence': stops.length + 1,
-          'name': detailed['name'],
-          'description': detailed['description'],
-          'area': detailed['area'],
-          'category': detailed['category'],
-          'formattedAddress': detailed['formattedAddress'],
-          'durationMinutes': detailed['durationMinutes'] ?? 60,
-          'travelMinutesBefore': detailed['travelMinutesBefore'] ?? 0,
-          'budgetLevel': detailed['budgetLevel'],
-          'score': detailed['score'],
-          'inAppAverageRating': detailed['inAppAverageRating'],
-          'inAppReviewCount': detailed['inAppReviewCount'],
-          'flaggedReviewCount': detailed['flaggedReviewCount'],
-          'trustLabel': detailed['trustLabel'],
-          'location': detailed['location'],
-          'imageUrl': '${detailed['imageUrl'] ?? ''}',
-          'fallbackImageUrl':
-              '${detailed['fallbackImageUrl'] ?? detailed['mapPreviewUrl'] ?? ''}',
-          'imageType': detailed['imageType'],
-          'mapPreviewUrl':
-              '${detailed['mapPreviewUrl'] ?? detailed['fallbackImageUrl'] ?? ''}',
-          'openingHours': detailed['openingHours'],
-          'phone': detailed['phone'],
-          'website': detailed['website'],
-          'cuisine': detailed['cuisine'],
-          'suggestionReason': detailed['suggestionReason'],
-          'culturalTask': task,
-          'culturalTaskId': task?['id'] ?? detailed['activeCulturalTaskId'],
-          'culturalTaskTitle': task?['title'],
-          'culturalTaskRewardPoints': task?['rewardPoints'],
-          'activeVouchers': detailed['activeVouchers'],
-          'activeVoucherCount': detailed['activeVoucherCount'],
-        });
+        final updated = [...curStops, newStopItem];
+        _setCurrentDayStops(updated);
+        _rescheduleCurrentDay();
       });
-      showMessage(context, '${detailed['name']} added to the itinerary.');
+      showMessage(
+        context,
+        '${detailed['name']} added to Day ${selectedDayIndex + 1}.',
+      );
     } on TimeoutException {
       if (mounted) {
         showMessage(
@@ -168,10 +361,18 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
       );
       return;
     }
-    if (_hasDuplicateStops(stops)) {
+
+    final allStopsToCheck = <Map<String, dynamic>>[];
+    for (final d in days) {
+      final s = d['stops'] as List? ?? [];
+      for (final item in s) {
+        if (item is Map) allStopsToCheck.add(Map<String, dynamic>.from(item));
+      }
+    }
+    if (_hasDuplicateStops(allStopsToCheck)) {
       showMessage(
         context,
-        'Remove duplicate stops before saving this itinerary.',
+        'Remove duplicate places across your itinerary before saving.',
         error: true,
       );
       return;
@@ -179,30 +380,69 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 
     setState(() => saving = true);
     try {
-      final updatedStops = await Future.wait(
-        stops.asMap().entries.map((entry) async {
-          final resolved = await ItineraryImageResolver.resolveStop(
-            Map<String, dynamic>.from(entry.value),
-          );
-          final fallback =
-              '${resolved['fallbackImageUrl'] ?? resolved['mapPreviewUrl'] ?? ''}'
-                  .trim();
-          return <String, dynamic>{
-            ...resolved,
-            'sequence': entry.key + 1,
-            'imageUrl': '${resolved['imageUrl'] ?? ''}',
-            'fallbackImageUrl': fallback,
-            'mapPreviewUrl': '${resolved['mapPreviewUrl'] ?? fallback}',
-          };
-        }),
-      );
+      final allStopsCombined = <Map<String, dynamic>>[];
+      final updatedDays = <Map<String, dynamic>>[];
+
+      for (var dIdx = 0; dIdx < days.length; dIdx++) {
+        final dayMap = days[dIdx];
+        final rawStops = List<Map<String, dynamic>>.from(
+          (dayMap['stops'] as List? ?? []).map(
+            (e) => Map<String, dynamic>.from(e is Map ? e : {}),
+          ),
+        );
+        final schedule = _scheduleStops(rawStops);
+
+        final resolvedDayStops = await Future.wait(
+          schedule.stops.asMap().entries.map((entry) async {
+            final resolved = await ItineraryImageResolver.resolveStop(
+              Map<String, dynamic>.from(entry.value),
+            );
+            final fallback =
+                '${resolved['fallbackImageUrl'] ?? resolved['mapPreviewUrl'] ?? ''}'
+                    .trim();
+            return <String, dynamic>{
+              ...resolved,
+              'sequence': entry.key + 1,
+              'dayNumber': dIdx + 1,
+              'imageUrl': '${resolved['imageUrl'] ?? ''}',
+              'fallbackImageUrl': fallback,
+              'mapPreviewUrl': '${resolved['mapPreviewUrl'] ?? fallback}',
+            };
+          }),
+        );
+
+        final dayBudget = ItineraryBudgetEstimator.estimateDay(
+          resolvedDayStops,
+        );
+        updatedDays.add({
+          ...dayMap,
+          'dayNumber': dIdx + 1,
+          'stops': resolvedDayStops,
+          'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+          'remainingMinutes': schedule.remainingMinutes,
+          'budget': dayBudget.dayBudget,
+          'budgetLevel': dayBudget.budgetLevel,
+        });
+
+        allStopsCombined.addAll(resolvedDayStops);
+      }
+
+      final currentPace = _calculateDynamicPace(currentDayStops);
+      final tripBudget = ItineraryBudgetEstimator.estimateTrip(updatedDays);
+
       await AppServices.db
           .collection('itineraries')
           .doc(widget.itineraryId)
           .update({
-            'stops': updatedStops,
+            'days': updatedDays,
+            'stops': allStopsCombined,
+            'travelPace': currentPace,
+            'pace': currentPace,
+            'budget': tripBudget.tripBudget,
+            'budgetLevel': tripBudget.budgetLevel,
             'updatedAt': FieldValue.serverTimestamp(),
           });
+
       if (mounted) {
         showMessage(context, 'Itinerary updated successfully.');
         Navigator.pop(context);
@@ -222,6 +462,13 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    final curStops = currentDayStops;
+    final schedule = _scheduleStops(curStops);
+    final scheduledStops = schedule.stops;
+    final dynamicPace = _paceDisplayLabel(curStops);
+    final dayBudget = ItineraryBudgetEstimator.estimateDay(scheduledStops);
+    final tripBudget = ItineraryBudgetEstimator.estimateTrip(days);
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       floatingActionButton: FloatingActionButton.extended(
@@ -233,15 +480,18 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.add_location_alt_outlined),
-        label: Text(loadingPlaces ? 'Opening Search...' : 'Add Stop'),
+        label: Text(
+          loadingPlaces
+              ? 'Opening Search...'
+              : 'Add Stop (Day ${selectedDayIndex + 1})',
+        ),
       ),
       body: SafeArea(
         child: Column(
           children: [
             ExplorerPageHeader(
               title: 'Edit Itinerary',
-              subtitle:
-                  'Search favourite places, add new stops and drag to reorder.',
+              subtitle: 'Add stops in $_destinationLabel and drag to reorder.',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -260,108 +510,281 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                 ),
               ],
             ),
+            if (days.length > 1) ...[
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: days.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final d = entry.value;
+                      final isSel = selectedDayIndex == idx;
+                      final dStops = (d['stops'] as List?)?.length ?? 0;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(
+                            '${d['dateLabel'] ?? 'Day ${idx + 1}'} ($dStops places)',
+                          ),
+                          selected: isSel,
+                          selectedColor: ExplorerColors.navy,
+                          labelStyle: TextStyle(
+                            color: isSel ? Colors.white : ExplorerColors.navy,
+                            fontWeight: isSel
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                          backgroundColor: Colors.white,
+                          onSelected: (_) {
+                            setState(() {
+                              selectedDayIndex = idx;
+                              _rescheduleCurrentDay();
+                            });
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+              const Divider(height: 1, color: ExplorerColors.border),
+            ],
             Expanded(
-              child: stops.isEmpty
+              child: curStops.isEmpty
                   ? const ExplorerEmptyState(
-                      title: 'No itinerary stops',
-                      subtitle: 'Add a place to start building your route.',
+                      title: 'No stops for this day',
+                      subtitle:
+                          'Tap "Add Stop" below to add a place to this day\'s route.',
                       icon: Icons.route_outlined,
                     )
-                  : ReorderableListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
-                      itemCount: stops.length,
-                      onReorder: (oldIndex, newIndex) {
-                        setState(() {
-                          if (newIndex > oldIndex) newIndex -= 1;
-                          final item = stops.removeAt(oldIndex);
-                          stops.insert(newIndex, item);
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        final stop = stops[index];
-                        return Padding(
-                          key: ValueKey('${stop['placeId']}_$index'),
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: ExplorerCard(
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(11),
-                                  child: SizedBox(
-                                    width: 58,
-                                    height: 58,
-                                    child: ItineraryPlaceImage(
-                                      stop: stop,
-                                      width: 58,
-                                      height: 58,
-                                      fit: BoxFit.cover,
+                  : Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ItineraryTimelineSummary(schedule: schedule),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: ExplorerColors.goldSoft,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: ExplorerColors.gold.withValues(
+                                          alpha: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.speed_rounded,
+                                          size: 14,
+                                          color: ExplorerColors.goldDark,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          'Pace: $dynamicPace',
+                                          style: const TextStyle(
+                                            color: ExplorerColors.goldDark,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                CircleAvatar(
-                                  radius: 19,
-                                  backgroundColor: ExplorerColors.goldSoft,
-                                  foregroundColor: ExplorerColors.goldDark,
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: ExplorerColors.subtle,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: ExplorerColors.border,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.payments_outlined,
+                                          size: 14,
+                                          color: ExplorerColors.navy,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          'Day: RM ${dayBudget.dayBudget} (${dayBudget.budgetLevel}) | Trip: RM ${tripBudget.tripBudget}',
+                                          style: const TextStyle(
+                                            color: ExplorerColors.navy,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ReorderableListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                            itemCount: scheduledStops.length,
+                            onReorder: (oldIndex, newIndex) {
+                              setState(() {
+                                if (newIndex > oldIndex) newIndex -= 1;
+                                final item = curStops.removeAt(oldIndex);
+                                curStops.insert(newIndex, item);
+                                _setCurrentDayStops(curStops);
+                                _rescheduleCurrentDay();
+                              });
+                            },
+                            itemBuilder: (context, index) {
+                              final stop = scheduledStops[index];
+                              final scheduleNotes =
+                                  (stop['scheduleNotes'] as List?)
+                                      ?.map((e) => '$e')
+                                      .where((e) => e.isNotEmpty)
+                                      .toList() ??
+                                  const <String>[];
+                              final timeLabel =
+                                  '${stop['suggestedTimeLabel'] ?? ''}'.trim();
+                              final mealSuggestion =
+                                  '${stop['mealSuggestionLabel'] ?? ''}'.trim();
+
+                              return Padding(
+                                key: ValueKey(
+                                  '${_stopIdentity(stop)}_day${selectedDayIndex}_$index',
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: ExplorerCard(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        '${stop['name'] ?? ''}',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.navy,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                      Row(
+                                        children: [
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              11,
+                                            ),
+                                            child: SizedBox(
+                                              width: 58,
+                                              height: 58,
+                                              child: ItineraryPlaceImage(
+                                                stop: stop,
+                                                width: 58,
+                                                height: 58,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          CircleAvatar(
+                                            radius: 19,
+                                            backgroundColor:
+                                                ExplorerColors.goldSoft,
+                                            foregroundColor:
+                                                ExplorerColors.goldDark,
+                                            child: Text(
+                                              '${index + 1}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  '${stop['name'] ?? ''}',
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.navy,
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  '${timeLabel.isEmpty ? '' : '$timeLabel - '}'
+                                                  '${stop['category'] ?? ''} - '
+                                                  '${stop['durationMinutes'] ?? 60} minutes',
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.muted,
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                                if (mealSuggestion
+                                                    .isNotEmpty) ...[
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    mealSuggestion,
+                                                    style: const TextStyle(
+                                                      color:
+                                                          ExplorerColors.navy,
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Remove stop',
+                                            onPressed: () => setState(() {
+                                              curStops.removeAt(index);
+                                              _setCurrentDayStops(curStops);
+                                              _rescheduleCurrentDay();
+                                            }),
+                                            icon: const Icon(
+                                              Icons.remove_circle_outline,
+                                              color: ExplorerColors.danger,
+                                            ),
+                                          ),
+                                          const Icon(
+                                            Icons.drag_indicator_rounded,
+                                            color: ExplorerColors.muted,
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        '${stop['category'] ?? ''} • '
-                                        '${stop['durationMinutes'] ?? 60} minutes',
-                                        style: const TextStyle(
-                                          color: ExplorerColors.muted,
-                                          fontSize: 10,
-                                        ),
-                                      ),
+                                      if (scheduleNotes.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        ScheduleNoteList(notes: scheduleNotes),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Remove stop',
-                                  onPressed: stops.length <= 1
-                                      ? () => showMessage(
-                                          context,
-                                          'Cannot remove the only location. '
-                                          'Delete the full itinerary instead.',
-                                          error: true,
-                                        )
-                                      : () => setState(
-                                          () => stops.removeAt(index),
-                                        ),
-                                  icon: const Icon(
-                                    Icons.remove_circle_outline,
-                                    color: ExplorerColors.danger,
-                                  ),
-                                ),
-                                const Icon(
-                                  Icons.drag_indicator_rounded,
-                                  color: ExplorerColors.muted,
-                                ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
             ),
           ],
@@ -374,10 +797,12 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
 class _AddItineraryStopDialog extends StatefulWidget {
   const _AddItineraryStopDialog({
     required this.itinerary,
+    required this.selectedDayNumber,
     required this.existingPlaceIds,
   });
 
   final Map<String, dynamic> itinerary;
+  final int selectedDayNumber;
   final List<String> existingPlaceIds;
 
   @override
@@ -393,6 +818,31 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
   String? error;
   String category = 'All';
   String lastQuery = '';
+
+  String get _stateId {
+    final raw = '${widget.itinerary['stateId'] ?? widget.itinerary['state'] ?? widget.itinerary['stateName'] ?? ''}'.trim();
+    if (raw.isNotEmpty) return MalaysiaLocationService.normalizeStateId(raw);
+    final area = '${widget.itinerary['area'] ?? widget.itinerary['selectedArea'] ?? ''}'.trim();
+    return MalaysiaLocationService.inferStateIdFromArea(area);
+  }
+
+  String get _stateName => MalaysiaLocationService.getStateName(_stateId);
+
+  String get _destinationLabel {
+    final area = '${widget.itinerary['area'] ?? widget.itinerary['selectedArea'] ?? ''}'.trim();
+    if (area.isNotEmpty) return area;
+    final title = '${widget.itinerary['title'] ?? ''}'.trim();
+    if (title.isNotEmpty && title.contains('(')) {
+      final insideParen = title.split('(').last.replaceAll(')', '').trim();
+      if (insideParen.isNotEmpty) return insideParen;
+    }
+    final match = MalaysiaLocationService.defaultStates.firstWhere(
+      (s) => s.id == _stateId,
+      orElse: () => const MalaysianStateItem(id: '', name: '', areas: []),
+    );
+    if (match.areas.isNotEmpty) return match.areas.first;
+    return _stateName;
+  }
 
   static const categories = <String>[
     'All',
@@ -421,8 +871,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
     if (category != 'All') return <String>[category];
 
     // A typed favourite-place search should not be restricted to the
-    // itinerary's original interests. This allows a user to search for a
-    // restaurant, temple, museum, park or other Penang place directly.
+    // itinerary's original interests. Destination filtering still applies.
     if (search.text.trim().isNotEmpty) {
       return const <String>[
         'Heritage',
@@ -482,15 +931,48 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
       lastQuery = typedQuery;
     });
     try {
-      final places = await GeoapifyPlanner.searchPlacesForAdding(
-        area: '${widget.itinerary['area'] ?? 'George Town, Penang'}',
+      final statePlaces = await PlaceRepository.searchPlacesForAdding(
+        stateId: _stateId,
+        area: _destinationLabel,
         interests: _selectedInterests,
-        budgetLevel: '${widget.itinerary['budgetLevel'] ?? 'Medium'}',
         query: typedQuery,
         excludedPlaceIds: widget.existingPlaceIds,
       );
+
+      var placesList = statePlaces.map((p) => p.toItineraryStopMap()).toList();
+
+      if (category != 'All') {
+        placesList = placesList.where((p) {
+          final cat = '${p['category'] ?? ''}'.toLowerCase();
+          final rawTags = p['tags'] ?? p['interestTags'];
+          final tags = rawTags is List ? rawTags.map((e) => '$e'.toLowerCase()).toList() : <String>[];
+          return cat == category.toLowerCase() || tags.contains(category.toLowerCase());
+        }).toList();
+      }
+
+      if (placesList.isEmpty && typedQuery.isNotEmpty) {
+        try {
+          final geoPlaces = await GeoapifyPlanner.searchPlacesForAdding(
+            area: _destinationLabel,
+            interests: _selectedInterests,
+            budgetLevel: '${widget.itinerary['budgetLevel'] ?? 'Medium'}',
+            query: typedQuery,
+            excludedPlaceIds: widget.existingPlaceIds,
+          );
+          final filteredGeo = geoPlaces.where((p) {
+            final pState = MalaysiaLocationService.normalizeStateId(
+              '${p['stateId'] ?? p['state'] ?? p['stateName'] ?? ''}'.trim().isNotEmpty
+                  ? '${p['stateId'] ?? p['state'] ?? p['stateName'] ?? ''}'
+                  : MalaysiaLocationService.inferStateIdFromArea('${p['area'] ?? p['formattedAddress'] ?? ''}'),
+            );
+            return pState.isEmpty || pState == _stateId;
+          }).toList();
+          placesList.addAll(filteredGeo);
+        } catch (_) {}
+      }
+
       if (!mounted) return;
-      setState(() => results = places);
+      setState(() => results = placesList);
     } catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -518,22 +1000,24 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Add a Favourite Place',
-                          style: TextStyle(
+                          'Add a Place to Day ${widget.selectedDayNumber}',
+                          style: const TextStyle(
                             color: ExplorerColors.navy,
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        SizedBox(height: 3),
+                        const SizedBox(height: 3),
                         Text(
-                          'Browse suggestions or search a place by name.',
-                          style: TextStyle(
+                          'Showing places in $_stateName ($_destinationLabel) only.',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
                             color: ExplorerColors.muted,
                             fontSize: 11,
                           ),
@@ -557,8 +1041,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                 onChanged: _scheduleSearch,
                 onSubmitted: (_) => _runSearch(),
                 decoration: InputDecoration(
-                  hintText:
-                      'Search a Penang restaurant, museum, temple, park or attraction...',
+                  hintText: 'Search a place in $_destinationLabel...',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -589,7 +1072,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 scrollDirection: Axis.horizontal,
                 itemCount: categories.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 7),
+                separatorBuilder: (_, _) => const SizedBox(width: 7),
                 itemBuilder: (context, index) {
                   final value = categories[index];
                   return ChoiceChip(
@@ -609,7 +1092,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                   ? const Center(child: CircularProgressIndicator())
                   : error != null
                   ? ExplorerEmptyState(
-                      title: 'Unable to search registered vendors',
+                      title: 'Unable to search places',
                       subtitle: error,
                       icon: Icons.cloud_off_outlined,
                       action: OutlinedButton.icon(
@@ -622,12 +1105,12 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                   ? ExplorerEmptyState(
                       title: lastQuery.length == 1
                           ? 'Type at least 2 characters'
-                          : 'No matching registered vendors found',
+                          : 'No matching places in $_destinationLabel',
                       subtitle: lastQuery.length == 1
-                          ? 'Continue typing the place name, for example “Clan Jetties”.'
+                          ? 'Continue typing the place name.'
                           : lastQuery.isEmpty
                           ? 'No suggestions are available for this filter. Try another category.'
-                          : 'No Penang place matched “$lastQuery”. Check the spelling or use a shorter keyword.',
+                          : 'No place in $_destinationLabel matched “$lastQuery”. Check the spelling or use a shorter keyword.',
                       icon: Icons.search_off_rounded,
                       action: lastQuery.length >= 2
                           ? OutlinedButton.icon(
@@ -640,7 +1123,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: results.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 9),
+                      separatorBuilder: (_, _) => const SizedBox(height: 9),
                       itemBuilder: (context, index) {
                         final place = results[index];
                         return _AddPlaceResultCard(
@@ -653,7 +1136,7 @@ class _AddItineraryStopDialogState extends State<_AddItineraryStopDialog> {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 6, 20, 14),
               child: Text(
-                'Registered vendors from MyHeritage | Maps by Geoapify and © OpenStreetMap contributors',
+                'MyHeritage vendors and map places | Maps by Geoapify and © OpenStreetMap contributors',
                 style: TextStyle(color: ExplorerColors.muted, fontSize: 9),
               ),
             ),
