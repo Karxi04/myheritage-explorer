@@ -20,6 +20,8 @@ class NotificationsPage extends StatelessWidget {
       'voucher_nearby' when referenceId.isNotEmpty => VoucherDetailPage(
         voucherId: referenceId,
       ),
+      'voucher_claimed' || 'voucher_redeemed' when referenceId.isNotEmpty =>
+        VoucherDetailPage(voucherId: referenceId),
       'voucher_nearby' => const RewardsPage(),
       'voucher_claimed' || 'voucher_redeemed' => const VoucherWalletPage(),
       _ => null,

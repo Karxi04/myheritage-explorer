@@ -13,6 +13,7 @@ class VendorAnalyticsPage extends StatefulWidget {
 class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
   String period = 'All time';
   DateTimeRange? customRange;
+  bool exporting = false;
 
   String? get voucherId => widget.voucherId;
   String? get voucherTitle => widget.voucherTitle;
@@ -53,6 +54,248 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
         customRange = selected;
         period = 'Custom';
       });
+    }
+  }
+
+  String get _periodLabel {
+    if (period == 'Custom' && customRange != null) {
+      return '${DateFormat.yMMMd().format(customRange!.start)} to ${DateFormat.yMMMd().format(customRange!.end)}';
+    }
+    return period;
+  }
+
+  String _csvCell(Object? value) {
+    final text = '${value ?? ''}'.replaceAll('"', '""');
+    return '"$text"';
+  }
+
+  String _pdfSafe(String value) => String.fromCharCodes(
+    value.runes.map((character) => character <= 255 ? character : 63),
+  );
+
+  String _exportName(String extension) {
+    final scope = (voucherTitle ?? 'all_vouchers')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    final date = DateFormat('yyyyMMdd').format(DateTime.now());
+    return 'myheritage_${scope.isEmpty ? 'analytics' : scope}_$date.$extension';
+  }
+
+  List<List<String>> _redemptionRows(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+  ) {
+    return redemptions.map((doc) {
+      final data = doc.data();
+      final redeemedAt = asDate(data['redeemedAt']);
+      final method = '${data['redemptionMethod'] ?? ''}' == 'pin'
+          ? '6-digit PIN'
+          : 'QR code';
+      return <String>[
+        '${data['voucherTitle'] ?? 'Voucher'}',
+        redeemedAt == null
+            ? 'Unknown date'
+            : DateFormat.yMMMd().add_jm().format(redeemedAt),
+        method,
+        '${data['pointCost'] ?? 0}',
+        '${data['claimId'] ?? doc.id}',
+      ];
+    }).toList();
+  }
+
+  Future<void> _exportReport({
+    required String format,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+    required num totalIssued,
+    required num totalClaimed,
+    required double redemptionRate,
+    required String peakHourLabel,
+  }) async {
+    if (exporting) return;
+    setState(() => exporting = true);
+    try {
+      final scope = voucherTitle ?? 'All published vouchers';
+      final rows = _redemptionRows(redemptions);
+      late final Uint8List bytes;
+      late final String mimeType;
+      late final String fileName;
+
+      if (format == 'csv') {
+        final csv = StringBuffer()
+          ..writeln(
+            ['MyHeritage Explorer Vendor Analytics'].map(_csvCell).join(','),
+          )
+          ..writeln(['Report scope', scope].map(_csvCell).join(','))
+          ..writeln(['Period', _periodLabel].map(_csvCell).join(','))
+          ..writeln(
+            [
+              'Generated',
+              DateFormat.yMMMd().add_jm().format(DateTime.now()),
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(['Campaign inventory', totalIssued].map(_csvCell).join(','))
+          ..writeln(['Total claimed', totalClaimed].map(_csvCell).join(','))
+          ..writeln(
+            [
+              'Filtered redemptions',
+              redemptions.length,
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(
+            [
+              'Redemption rate',
+              '${redemptionRate.toStringAsFixed(1)}%',
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(
+            ['Peak redemption hour', peakHourLabel].map(_csvCell).join(','),
+          )
+          ..writeln()
+          ..writeln(
+            [
+              'Voucher',
+              'Redeemed at',
+              'Method',
+              'Points',
+              'Claim reference',
+            ].map(_csvCell).join(','),
+          );
+        for (final row in rows) {
+          csv.writeln(row.map(_csvCell).join(','));
+        }
+        bytes = Uint8List.fromList(utf8.encode('\uFEFF$csv'));
+        mimeType = 'text/csv';
+        fileName = _exportName('csv');
+      } else {
+        final document = pw.Document(
+          title: 'MyHeritage Explorer Vendor Analytics',
+          author: 'MyHeritage Explorer',
+        );
+        final navy = PdfColor.fromInt(ExplorerColors.navy.toARGB32());
+        final gold = PdfColor.fromInt(ExplorerColors.gold.toARGB32());
+        document.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(36),
+            header: (_) => pw.Container(
+              padding: const pw.EdgeInsets.only(bottom: 10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border(bottom: pw.BorderSide(color: gold, width: 2)),
+              ),
+              child: pw.Text(
+                'MYHERITAGE EXPLORER',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            footer: (context) => pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'Page ${context.pageNumber} of ${context.pagesCount}',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey600,
+                ),
+              ),
+            ),
+            build: (_) => [
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Vendor Analytics Report',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 23,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text('Scope: ${_pdfSafe(scope)}'),
+              pw.Text('Period: ${_pdfSafe(_periodLabel)}'),
+              pw.Text(
+                'Generated: ${DateFormat.yMMMd().add_jm().format(DateTime.now())}',
+              ),
+              pw.SizedBox(height: 18),
+              pw.TableHelper.fromTextArray(
+                headers: const ['Metric', 'Value'],
+                data: [
+                  ['Campaign inventory', '$totalIssued'],
+                  ['Total claimed', '$totalClaimed'],
+                  ['Filtered redemptions', '${redemptions.length}'],
+                  ['Redemption rate', '${redemptionRate.toStringAsFixed(1)}%'],
+                  ['Peak redemption hour', _pdfSafe(peakHourLabel)],
+                ],
+                headerDecoration: pw.BoxDecoration(color: navy),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+                cellPadding: const pw.EdgeInsets.all(7),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Redemption Details',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.TableHelper.fromTextArray(
+                headers: const [
+                  'Voucher',
+                  'Redeemed at',
+                  'Method',
+                  'Points',
+                  'Claim reference',
+                ],
+                data: rows.isEmpty
+                    ? const [
+                        ['No redemption records', '', '', '', ''],
+                      ]
+                    : rows
+                          .map(
+                            (row) => row.map(_pdfSafe).toList(growable: false),
+                          )
+                          .toList(),
+                headerDecoration: pw.BoxDecoration(color: navy),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 8,
+                ),
+                cellStyle: const pw.TextStyle(fontSize: 7),
+                cellPadding: const pw.EdgeInsets.all(5),
+              ),
+            ],
+          ),
+        );
+        bytes = await document.save();
+        mimeType = 'application/pdf';
+        fileName = _exportName('pdf');
+      }
+
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'MyHeritage Explorer analytics report',
+          text: '$scope - $_periodLabel',
+          files: [XFile.fromData(bytes, mimeType: mimeType, name: fileName)],
+          fileNameOverrides: [fileName],
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Unable to export report: ${error.toString().replaceFirst('Exception: ', '')}',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => exporting = false);
     }
   }
 
@@ -236,6 +479,92 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                         onPressed: _pickCustomRange,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 18),
+                  ExplorerCard(
+                    backgroundColor: ExplorerColors.navySoft,
+                    borderColor: const Color(0xFFC8D6EA),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: ExplorerColors.navy,
+                          foregroundColor: Colors.white,
+                          child: Icon(Icons.file_download_outlined),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Export this report',
+                                style: TextStyle(
+                                  color: ExplorerColors.navy,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                'Uses the selected period and voucher filter.',
+                                style: TextStyle(
+                                  color: ExplorerColors.muted,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          enabled: !exporting,
+                          tooltip: 'Choose export format',
+                          onSelected: (format) => unawaited(
+                            _exportReport(
+                              format: format,
+                              redemptions: redemptions,
+                              totalIssued: totalIssued,
+                              totalClaimed: totalClaimed,
+                              redemptionRate: rate,
+                              peakHourLabel: peakHourLabel,
+                            ),
+                          ),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'csv',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.table_chart_outlined),
+                                title: Text('Export CSV'),
+                                subtitle: Text('Open in Excel or Sheets'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'pdf',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.picture_as_pdf_outlined),
+                                title: Text('Export PDF'),
+                                subtitle: Text('Share or print a report'),
+                              ),
+                            ),
+                          ],
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: exporting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.more_vert,
+                                    color: ExplorerColors.navy,
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 18),
                   Row(
@@ -569,7 +898,7 @@ class _VendorLineChartPainter extends CustomPainter {
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
     final fill = Paint()
-      ..color = ExplorerColors.navySoft.withOpacity(.7)
+      ..color = ExplorerColors.navySoft.withValues(alpha: .7)
       ..style = PaintingStyle.fill;
 
     final path = Path();

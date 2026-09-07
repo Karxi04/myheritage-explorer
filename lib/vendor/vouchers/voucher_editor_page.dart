@@ -207,8 +207,39 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       ),
     ),
     body: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 30),
       children: [
+        ExplorerCard(
+          backgroundColor: ExplorerColors.navySoft,
+          borderColor: const Color(0xFFC8D6EA),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.tips_and_updates_outlined,
+                color: ExplorerColors.navy,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.voucherId == null
+                      ? 'Complete the sections below to publish a clear, discoverable reward.'
+                      : 'Update the offer details. Existing claims will remain in tourist wallets.',
+                  style: const TextStyle(
+                    color: ExplorerColors.navy,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        const ExplorerSectionTitle(
+          'Offer details',
+          subtitle: 'Explain exactly what the tourist will receive.',
+        ),
+        const SizedBox(height: 10),
         TextField(
           controller: title,
           decoration: const InputDecoration(labelText: 'Voucher title'),
@@ -225,7 +256,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           maxLines: 2,
           decoration: const InputDecoration(labelText: 'Terms and conditions'),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const ExplorerSectionTitle(
+          'Cost and availability',
+          subtitle: 'Set the point price and total number of vouchers.',
+        ),
+        const SizedBox(height: 10),
         TextField(
           controller: pointCost,
           keyboardType: TextInputType.number,
@@ -239,9 +275,18 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         TextField(
           controller: inventory,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Inventory limit'),
+          decoration: const InputDecoration(
+            labelText: 'Total voucher inventory',
+            helperText: 'The maximum number of claims across all tourists.',
+          ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const ExplorerSectionTitle(
+          'Nearby discovery',
+          subtitle:
+              'Choose where this offer appears in nearby searches and alerts.',
+        ),
+        const SizedBox(height: 10),
         OutlinedButton.icon(
           onPressed: () async {
             try {
@@ -268,7 +313,11 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         const SizedBox(height: 12),
         DropdownButtonFormField<double>(
           initialValue: notificationRadiusMeters,
-          decoration: const InputDecoration(labelText: 'Nearby reward radius'),
+          decoration: const InputDecoration(
+            labelText: 'Nearby search and alert radius',
+            helperText:
+                'Tourists inside this distance can find the voucher as nearby.',
+          ),
           items: const [
             DropdownMenuItem(value: 250.0, child: Text('250 metres')),
             DropdownMenuItem(value: 500.0, child: Text('500 metres')),
@@ -279,7 +328,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           onChanged: (value) =>
               setState(() => notificationRadiusMeters = value ?? 750.0),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const ExplorerSectionTitle(
+          'Claim policy',
+          subtitle: 'Control repeat claims by the same tourist.',
+        ),
+        const SizedBox(height: 10),
         SwitchListTile(
           value: unlimitedClaimsPerTourist,
           onChanged: (value) =>
@@ -304,7 +358,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
             ),
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const ExplorerSectionTitle(
+          'Publishing schedule',
+          subtitle: 'Choose when tourists can start and stop claiming.',
+        ),
+        const SizedBox(height: 10),
         ListTile(
           tileColor: Colors.white,
           shape: RoundedRectangleBorder(
@@ -348,9 +407,20 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           },
         ),
         const SizedBox(height: 18),
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: busy ? null : save,
-          child: Text(
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  widget.voucherId == null
+                      ? Icons.publish_outlined
+                      : Icons.save_outlined,
+                ),
+          label: Text(
             busy
                 ? 'Saving...'
                 : widget.voucherId == null

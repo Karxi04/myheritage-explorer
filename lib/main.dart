@@ -9,6 +9,8 @@ import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
+String? _pendingNotificationPayload;
+bool _openingNotificationDestination = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,34 +20,53 @@ Future<void> main() async {
   SystemNotificationService.instance.init();
   MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
   runApp(const MyHeritageApp());
+  AppServices.auth.authStateChanges().listen((user) {
+    if (user != null) _openPendingNotificationDestination();
+  });
 }
 
 void _handleNotificationPayload(String? payload) {
   final value = (payload ?? '').trim();
   if (value.isEmpty) return;
+  _pendingNotificationPayload = value;
+  _openPendingNotificationDestination();
+}
 
+void _openPendingNotificationDestination() {
+  if (_openingNotificationDestination) return;
+  _openingNotificationDestination = true;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final navigator = appNavigatorKey.currentState;
-    if (navigator == null) return;
+    final value = (_pendingNotificationPayload ?? '').trim();
+    if (navigator == null ||
+        value.isEmpty ||
+        AppServices.auth.currentUser == null) {
+      _openingNotificationDestination = false;
+      return;
+    }
 
     Widget? destination;
-    if (AppServices.auth.currentUser != null) {
-      destination = switch (value) {
-        'rewards' => const RewardsPage(),
-        _ when value.startsWith('reward:') => VoucherDetailPage(
-          voucherId: value.substring('reward:'.length).trim(),
-        ),
-        'voucher_wallet' => const VoucherWalletPage(),
-        _ => null,
-      };
-    }
+    destination = switch (value) {
+      'rewards' => const RewardsPage(),
+      _ when value.startsWith('reward:') => VoucherDetailPage(
+        voucherId: value.substring('reward:'.length).trim(),
+      ),
+      'voucher_wallet' => const VoucherWalletPage(),
+      _ => null,
+    };
     final itineraryId = _itineraryIdFromNotificationPayload(value);
     if (destination == null && itineraryId.isNotEmpty) {
       destination = ItineraryDetailPage(itineraryId: itineraryId);
     }
-    if (destination == null) return;
+    if (destination == null) {
+      _pendingNotificationPayload = null;
+      _openingNotificationDestination = false;
+      return;
+    }
 
+    _pendingNotificationPayload = null;
     navigator.push(MaterialPageRoute(builder: (_) => destination!));
+    _openingNotificationDestination = false;
   });
 }
 

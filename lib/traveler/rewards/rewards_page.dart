@@ -17,6 +17,7 @@ class RewardsPage extends StatefulWidget {
 }
 
 class _RewardsPageState extends State<RewardsPage> {
+  final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
   String category = 'All';
   String sortMode = 'Recommended';
@@ -24,6 +25,23 @@ class _RewardsPageState extends State<RewardsPage> {
   bool nearbyOnly = false;
   bool loadingLocation = false;
   Position? cataloguePosition;
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearFilters() {
+    searchController.clear();
+    setState(() {
+      searchQuery = '';
+      category = 'All';
+      sortMode = 'Recommended';
+      favouritesOnly = false;
+      nearbyOnly = false;
+    });
+  }
 
   String _claimLabel({
     required int points,
@@ -314,41 +332,112 @@ class _RewardsPageState extends State<RewardsPage> {
                     );
                 }
 
+                final filtersActive =
+                    searchQuery.trim().isNotEmpty ||
+                    category != 'All' ||
+                    sortMode != 'Recommended' ||
+                    favouritesOnly ||
+                    nearbyOnly;
+
                 return ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                   children: [
                     if (widget.showPointsSummary) ...[
-                      Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.stars_rounded),
-                          ),
-                          title: const Text(
-                            'Your reward points',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: const Text(
-                            'Complete approved cultural tasks to earn more points.',
-                          ),
-                          trailing: Text(
-                            '$points pts',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
+                      ExplorerCard(
+                        backgroundColor: ExplorerColors.navy,
+                        borderColor: ExplorerColors.navy,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 46,
+                              height: 46,
+                              decoration: const BoxDecoration(
+                                color: ExplorerColors.goldSoft,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.stars_rounded,
+                                color: ExplorerColors.goldDark,
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 13),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Reward balance',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Use points to claim an available voucher.',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              '$points pts',
+                              style: const TextStyle(
+                                color: ExplorerColors.gold,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 18),
                     ],
-                    TextField(
-                      onChanged: (value) => setState(() => searchQuery = value),
-                      decoration: const InputDecoration(
-                        labelText: 'Search rewards or vendors',
-                        prefixIcon: Icon(Icons.search),
-                      ),
+                    ExplorerSectionTitle(
+                      'Find a reward',
+                      subtitle: 'Search by voucher, vendor, or category.',
+                      trailing: filtersActive
+                          ? TextButton(
+                              onPressed: _clearFilters,
+                              child: const Text('Clear filters'),
+                            )
+                          : null,
                     ),
                     const SizedBox(height: 10),
+                    TextField(
+                      controller: searchController,
+                      onChanged: (value) => setState(() => searchQuery = value),
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Search rewards or vendors',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setState(() => searchQuery = '');
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'FILTER BY',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .6,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -398,36 +487,56 @@ class _RewardsPageState extends State<RewardsPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: DropdownButton<String>(
-                        value: sortMode,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Recommended',
-                            child: Text('Recommended'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${filtered.length} ${filtered.length == 1 ? 'reward' : 'rewards'} found',
+                            style: const TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                          DropdownMenuItem(
-                            value: 'Lowest points',
-                            child: Text('Lowest points'),
+                        ),
+                        const Text(
+                          'Sort: ',
+                          style: TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 12,
                           ),
-                          DropdownMenuItem(
-                            value: 'Expiring soon',
-                            child: Text('Expiring soon'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Nearest',
-                            child: Text('Nearest to me'),
-                          ),
-                        ],
-                        onChanged: loadingLocation
-                            ? null
-                            : (value) => unawaited(
-                                _setSortMode(value ?? 'Recommended'),
+                        ),
+                        DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: sortMode,
+                            isDense: true,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'Recommended',
+                                child: Text('Recommended'),
                               ),
-                      ),
+                              DropdownMenuItem(
+                                value: 'Lowest points',
+                                child: Text('Lowest points'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Expiring soon',
+                                child: Text('Expiring soon'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Nearest',
+                                child: Text('Nearest to me'),
+                              ),
+                            ],
+                            onChanged: loadingLocation
+                                ? null
+                                : (value) => unawaited(
+                                    _setSortMode(value ?? 'Recommended'),
+                                  ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 12),
                     if (filtered.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 36),
@@ -461,122 +570,158 @@ class _RewardsPageState extends State<RewardsPage> {
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${voucher['title'] ?? 'Voucher'}',
-                                          style: const TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                          child: ExplorerCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${voucher['title'] ?? 'Voucher'}',
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      IconButton(
-                                        tooltip: favourite
-                                            ? 'Remove from favourites'
-                                            : 'Add to favourites',
-                                        onPressed: () =>
-                                            AppServices.travelerRef(
-                                              uid,
-                                            ).update({
-                                              'favoriteVoucherIds': favourite
-                                                  ? FieldValue.arrayRemove([
-                                                      doc.id,
-                                                    ])
-                                                  : FieldValue.arrayUnion([
-                                                      doc.id,
-                                                    ]),
-                                              'updatedAt':
-                                                  FieldValue.serverTimestamp(),
-                                            }),
-                                        icon: Icon(
-                                          favourite
-                                              ? Icons.favorite
-                                              : Icons.favorite_border,
-                                          color: favourite ? Colors.red : null,
+                                    ),
+                                    IconButton(
+                                      tooltip: favourite
+                                          ? 'Remove from favourites'
+                                          : 'Add to favourites',
+                                      onPressed: () =>
+                                          AppServices.travelerRef(uid).update({
+                                            'favoriteVoucherIds': favourite
+                                                ? FieldValue.arrayRemove([
+                                                    doc.id,
+                                                  ])
+                                                : FieldValue.arrayUnion([
+                                                    doc.id,
+                                                  ]),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
+                                          }),
+                                      icon: Icon(
+                                        favourite
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        color: favourite ? Colors.red : null,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.storefront_outlined,
+                                      size: 16,
+                                      color: ExplorerColors.muted,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        '${voucher['vendorName'] ?? 'Registered vendor'}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                      Chip(label: Text('$cost pts')),
-                                    ],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 7,
+                                  runSpacing: 7,
+                                  children: [
+                                    ExplorerStatusBadge(
+                                      label: '$cost POINTS',
+                                      tone: ExplorerStatusTone.warning,
+                                      icon: Icons.stars_rounded,
+                                    ),
+                                    ExplorerStatusBadge(
+                                      label:
+                                          '${voucher['inventoryRemaining'] ?? 0} LEFT',
+                                      tone: ExplorerStatusTone.success,
+                                      icon: Icons.inventory_2_outlined,
+                                    ),
+                                    if (expiry != null)
+                                      ExplorerStatusBadge(
+                                        label: expiryCountdownLabel(
+                                          expiry,
+                                        ).toUpperCase(),
+                                        tone: ExplorerStatusTone.navy,
+                                        icon: Icons.timer_outlined,
+                                      ),
+                                    if (distance != null)
+                                      ExplorerStatusBadge(
+                                        label: distance < 1000
+                                            ? '${distance.round()} M AWAY'
+                                            : '${(distance / 1000).toStringAsFixed(1)} KM AWAY',
+                                        tone: ExplorerStatusTone.neutral,
+                                        icon: Icons.near_me_outlined,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 11),
+                                Text(
+                                  '${voucher['description'] ?? ''}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: ExplorerColors.muted,
+                                    height: 1.4,
                                   ),
+                                ),
+                                if ('${voucher['vendorCategory'] ?? ''}'
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 7),
                                   Text(
-                                    'Vendor: ${voucher['vendorName'] ?? 'Registered vendor'}',
+                                    '${voucher['vendorCategory']}',
                                     style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
+                                      color: ExplorerColors.goldDark,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  ),
-                                  if ('${voucher['vendorCategory'] ?? ''}'
-                                      .trim()
-                                      .isNotEmpty)
-                                    Text(
-                                      '${voucher['vendorCategory']}',
-                                      style: const TextStyle(
-                                        color: ExplorerColors.muted,
-                                      ),
-                                    ),
-                                  if (distance != null)
-                                    Text(
-                                      distance < 1000
-                                          ? '${distance.round()} m away'
-                                          : '${(distance / 1000).toStringAsFixed(1)} km away',
-                                      style: const TextStyle(
-                                        color: ExplorerColors.muted,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  const SizedBox(height: 6),
-                                  Text('${voucher['description'] ?? ''}'),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '${voucher['inventoryRemaining'] ?? 0} remaining'
-                                    '${expiry == null ? '' : ' - ${expiryCountdownLabel(expiry)}'}',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton(
-                                          onPressed: () => Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => VoucherDetailPage(
-                                                voucherId: doc.id,
-                                              ),
-                                            ),
-                                          ),
-                                          child: const Text('View Details'),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: canClaim
-                                              ? () => _confirmClaim(
-                                                  doc.id,
-                                                  voucher,
-                                                )
-                                              : null,
-                                          child: Text(
-                                            _claimLabel(
-                                              points: points,
-                                              cost: cost,
-                                              claimedCount: claimedCount,
-                                              claimLimit: claimLimit,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                   ),
                                 ],
-                              ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => VoucherDetailPage(
+                                              voucherId: doc.id,
+                                            ),
+                                          ),
+                                        ),
+                                        child: const Text('View Details'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ElevatedButton(
+                                        onPressed: canClaim
+                                            ? () =>
+                                                  _confirmClaim(doc.id, voucher)
+                                            : null,
+                                        child: Text(
+                                          _claimLabel(
+                                            points: points,
+                                            cost: cost,
+                                            claimedCount: claimedCount,
+                                            claimLimit: claimLimit,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         );

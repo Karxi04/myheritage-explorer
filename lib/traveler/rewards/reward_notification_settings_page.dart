@@ -110,65 +110,114 @@ class RewardNotificationSettingsPage extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Control which reward alerts you receive. Background monitoring is optional and can be disabled at any time.',
-                  ),
+              ExplorerCard(
+                backgroundColor: ExplorerColors.navySoft,
+                borderColor: const Color(0xFFC8D6EA),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: ExplorerColors.navy,
+                      foregroundColor: Colors.white,
+                      child: Icon(Icons.notifications_active_outlined),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Stay updated on your rewards',
+                            style: TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${[nearby, expiry, updates].where((item) => item).length} of 3 reward alert types enabled',
+                            style: const TextStyle(
+                              color: ExplorerColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 18),
+              const ExplorerSectionTitle(
+                'Reward alerts',
+                subtitle: 'Choose the updates that are useful to you.',
               ),
               const SizedBox(height: 10),
-              SwitchListTile(
-                value: nearby,
-                title: const Text('Nearby rewards'),
-                subtitle: const Text(
-                  'Notify me when an active reward is close to my location.',
+              ExplorerCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      value: nearby,
+                      title: const Text('Nearby rewards'),
+                      subtitle: const Text(
+                        'Alert me when an active reward is within the vendor’s selected range.',
+                      ),
+                      secondary: const Icon(Icons.near_me_outlined),
+                      onChanged: (value) =>
+                          _setPreference(context, 'nearbyRewards', value),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      value: expiry,
+                      title: const Text('Expiry reminders'),
+                      subtitle: const Text(
+                        'Remind me three days and one day before expiry.',
+                      ),
+                      secondary: const Icon(Icons.timer_outlined),
+                      onChanged: (value) =>
+                          _setPreference(context, 'expiryReminders', value),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      value: updates,
+                      title: const Text('Claim and redemption updates'),
+                      subtitle: const Text(
+                        'Confirm when a voucher is claimed or redeemed.',
+                      ),
+                      secondary: const Icon(Icons.redeem_outlined),
+                      onChanged: (value) =>
+                          _setPreference(context, 'rewardUpdates', value),
+                    ),
+                  ],
                 ),
-                secondary: const Icon(Icons.near_me_outlined),
-                onChanged: (value) =>
-                    _setPreference(context, 'nearbyRewards', value),
               ),
-              SwitchListTile(
-                value: expiry,
-                title: const Text('Voucher expiry reminders'),
-                subtitle: const Text(
-                  'Remind me three days and one day before a claimed voucher expires.',
-                ),
-                secondary: const Icon(Icons.timer_outlined),
-                onChanged: (value) =>
-                    _setPreference(context, 'expiryReminders', value),
+              const SizedBox(height: 20),
+              const ExplorerSectionTitle(
+                'Background location',
+                subtitle:
+                    'Optional monitoring for nearby offers while using other apps.',
               ),
-              SwitchListTile(
-                value: updates,
-                title: const Text('Claim and redemption updates'),
-                subtitle: const Text(
-                  'Show confirmations when vouchers are claimed or redeemed.',
-                ),
-                secondary: const Icon(Icons.redeem_outlined),
-                onChanged: (value) =>
-                    _setPreference(context, 'rewardUpdates', value),
-              ),
-              const Divider(height: 30),
-              SwitchListTile(
-                value: background,
-                title: const Text('Background nearby alerts'),
-                subtitle: const Text(
-                  'Keep checking for nearby rewards while the screen is off. Android displays a persistent location notification while this is active.',
-                ),
-                secondary: const Icon(Icons.location_searching),
-                onChanged: nearby
-                    ? (value) => _setBackgroundMonitoring(context, value)
-                    : null,
-              ),
-              if (!nearby)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'Enable Nearby rewards before turning on background monitoring.',
-                    style: TextStyle(color: ExplorerColors.muted),
+              const SizedBox(height: 10),
+              ExplorerCard(
+                padding: EdgeInsets.zero,
+                child: SwitchListTile(
+                  value: background,
+                  title: const Text('Background nearby alerts'),
+                  subtitle: Text(
+                    nearby
+                        ? 'Requires “Allow all the time”. Android shows a persistent location notification while active.'
+                        : 'Turn on Nearby rewards above to enable this option.',
                   ),
+                  secondary: Icon(
+                    background
+                        ? Icons.location_searching
+                        : Icons.location_disabled_outlined,
+                  ),
+                  onChanged: nearby
+                      ? (value) => _setBackgroundMonitoring(context, value)
+                      : null,
                 ),
+              ),
             ],
           );
         },

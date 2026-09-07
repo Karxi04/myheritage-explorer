@@ -124,28 +124,67 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                     (snapshot.data?.data()?['points'] as num?)?.toInt() ?? 0;
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                  child: Card(
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.stars_rounded),
-                      ),
-                      title: const Text(
-                        'Your reward points',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      trailing: snapshot.hasData
-                          ? Text(
-                              '$points pts',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
+                  child: ExplorerCard(
+                    backgroundColor: ExplorerColors.navy,
+                    borderColor: ExplorerColors.navy,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: const BoxDecoration(
+                            color: ExplorerColors.goldSoft,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.stars_rounded,
+                            color: ExplorerColors.goldDark,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Available balance',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
-                            )
-                          : const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                              Text(
+                                'Ready to spend on rewards',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        snapshot.hasData
+                            ? Text(
+                                '$points pts',
+                                style: const TextStyle(
+                                  color: ExplorerColors.gold,
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              )
+                            : const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ],
                     ),
                   ),
                 );
@@ -187,13 +226,43 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
         final docs = allDocs.where((doc) {
           return filter == 'All' || _displayStatus(doc.data()) == filter;
         }).toList();
+        final statusCounts = <String, int>{
+          for (final item in ['Active', 'Redeemed', 'Expired'])
+            item: allDocs
+                .where((doc) => _displayStatus(doc.data()) == item)
+                .length,
+        };
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
           children: [
-            const Text(
-              'Claimed rewards and redemption history',
-              style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+            const ExplorerSectionTitle(
+              'Your vouchers',
+              subtitle:
+                  'Open an active voucher when you are ready to redeem it.',
+            ),
+            const SizedBox(height: 12),
+            const ExplorerCard(
+              backgroundColor: ExplorerColors.navySoft,
+              borderColor: Color(0xFFC8D6EA),
+              padding: EdgeInsets.all(13),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.lock_clock_outlined, color: ExplorerColors.navy),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'At the vendor, generate a temporary QR code or PIN. It stays active for 3 minutes for safer redemption.',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             SingleChildScrollView(
@@ -204,7 +273,9 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                       (item) => Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: FilterChip(
-                          label: Text(item),
+                          label: Text(
+                            '$item ${item == 'All' ? allDocs.length : statusCounts[item] ?? 0}',
+                          ),
                           selected: filter == item,
                           onSelected: (_) => setState(() => filter = item),
                         ),
@@ -254,132 +325,156 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
-                    child: ExpansionTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.confirmation_number_outlined),
-                      ),
-                      title: Text('${claim['title'] ?? 'Voucher'}'),
-                      subtitle: Text(
-                        '${claim['vendorName'] ?? 'Registered vendor'} - ${claim['pointCost'] ?? 0} points',
-                      ),
-                      trailing: ExplorerStatusBadge(
-                        label: status.toUpperCase(),
-                        tone: _statusTone(status),
-                      ),
-                      childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if ('${claim['description'] ?? ''}'.trim().isNotEmpty)
-                          Text('${claim['description']}'),
-                        if (locationLabel.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text('Vendor location: $locationLabel'),
-                        ],
-                        if ('${claim['terms'] ?? ''}'.trim().isNotEmpty) ...[
-                          const SizedBox(height: 8),
+                  child: ExplorerCard(
+                    padding: EdgeInsets.zero,
+                    child: Theme(
+                      data: Theme.of(
+                        context,
+                      ).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: ExplorerColors.goldSoft,
+                          foregroundColor: ExplorerColors.goldDark,
+                          child: Icon(Icons.confirmation_number_outlined),
+                        ),
+                        title: Text('${claim['title'] ?? 'Voucher'}'),
+                        subtitle: Text(
+                          '${claim['vendorName'] ?? 'Registered vendor'} - ${claim['pointCost'] ?? 0} points',
+                        ),
+                        trailing: ExplorerStatusBadge(
+                          label: status.toUpperCase(),
+                          tone: _statusTone(status),
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          18,
+                          0,
+                          18,
+                          18,
+                        ),
+                        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if ('${claim['description'] ?? ''}'.trim().isNotEmpty)
+                            Text('${claim['description']}'),
+                          if (locationLabel.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text('Vendor location: $locationLabel'),
+                          ],
+                          if ('${claim['terms'] ?? ''}'.trim().isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Terms: ${claim['terms']}',
+                              style: const TextStyle(
+                                color: ExplorerColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
                           Text(
-                            'Terms: ${claim['terms']}',
+                            [
+                              if (claimedAt != null)
+                                'Claimed ${DateFormat.yMMMd().add_jm().format(claimedAt)}',
+                              if (expiry != null)
+                                '${expiryCountdownLabel(expiry)} (${DateFormat.yMMMd().add_jm().format(expiry)})',
+                              if (redeemedAt != null)
+                                'Redeemed ${DateFormat.yMMMd().add_jm().format(redeemedAt)}',
+                            ].join('\n'),
                             style: const TextStyle(
                               color: ExplorerColors.muted,
-                              fontSize: 12,
+                              fontSize: 11,
+                              height: 1.45,
                             ),
                           ),
+                          const SizedBox(height: 14),
+                          if (status == 'Active' && !sessionActive)
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: startingSession
+                                    ? null
+                                    : () => _startRedemptionSession(doc.id),
+                                icon: startingSession
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.qr_code_2),
+                                label: Text(
+                                  sessionExpiry != null
+                                      ? 'Generate New 3-Minute Code'
+                                      : 'Generate 3-Minute Redemption Code',
+                                ),
+                              ),
+                            )
+                          else if (sessionActive) ...[
+                            ExplorerCard(
+                              backgroundColor: ExplorerColors.goldSoft,
+                              borderColor: ExplorerColors.gold,
+                              child: Column(
+                                children: [
+                                  const Text(
+                                    'Show this temporary code to the vendor',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: ExplorerColors.navy,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 7),
+                                  ExplorerStatusBadge(
+                                    label: _sessionCountdown(sessionExpiry),
+                                    tone: ExplorerStatusTone.danger,
+                                    icon: Icons.timer_outlined,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  QrImageView(
+                                    data: 'MHE1|${doc.id}|$sessionToken',
+                                    size: 210,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    'Or tell the vendor this 6-digit PIN',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 5),
+                                  SelectableText(
+                                    sessionPin,
+                                    style: const TextStyle(
+                                      color: ExplorerColors.navy,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 6,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  TextButton.icon(
+                                    onPressed: startingSession
+                                        ? null
+                                        : () => _startRedemptionSession(doc.id),
+                                    icon: const Icon(Icons.refresh, size: 18),
+                                    label: const Text('Replace this code'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else
+                            Center(
+                              child: Text(
+                                status == 'Redeemed'
+                                    ? 'This voucher has already been redeemed.'
+                                    : status == 'Expired'
+                                    ? 'This voucher expired before redemption.'
+                                    : 'This voucher is unavailable.',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                         ],
-                        const SizedBox(height: 10),
-                        Text(
-                          [
-                            if (claimedAt != null)
-                              'Claimed ${DateFormat.yMMMd().add_jm().format(claimedAt)}',
-                            if (expiry != null)
-                              '${expiryCountdownLabel(expiry)} (${DateFormat.yMMMd().add_jm().format(expiry)})',
-                            if (redeemedAt != null)
-                              'Redeemed ${DateFormat.yMMMd().add_jm().format(redeemedAt)}',
-                          ].join('\n'),
-                          style: const TextStyle(
-                            color: ExplorerColors.muted,
-                            fontSize: 11,
-                            height: 1.45,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        if (status == 'Active' && !sessionActive)
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: startingSession
-                                  ? null
-                                  : () => _startRedemptionSession(doc.id),
-                              icon: startingSession
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.qr_code_2),
-                              label: Text(
-                                sessionExpiry != null
-                                    ? 'Generate New 3-Minute Code'
-                                    : 'Generate 3-Minute Redemption Code',
-                              ),
-                            ),
-                          )
-                        else if (sessionActive) ...[
-                          const Center(
-                            child: Text(
-                              'Show this temporary code to the vendor.',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Center(
-                            child: ExplorerStatusBadge(
-                              label: _sessionCountdown(sessionExpiry),
-                              tone: ExplorerStatusTone.danger,
-                              icon: Icons.timer_outlined,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Center(
-                            child: QrImageView(
-                              data: 'MHE1|${doc.id}|$sessionToken',
-                              size: 220,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Center(
-                            child: Text(
-                              'Scanner not working? Give the vendor this PIN:',
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Center(
-                            child: SelectableText(
-                              sessionPin,
-                              style: const TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 6,
-                              ),
-                            ),
-                          ),
-                        ] else
-                          Center(
-                            child: Text(
-                              status == 'Redeemed'
-                                  ? 'This voucher has already been redeemed.'
-                                  : status == 'Expired'
-                                  ? 'This voucher expired before redemption.'
-                                  : 'This voucher is unavailable.',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                 );

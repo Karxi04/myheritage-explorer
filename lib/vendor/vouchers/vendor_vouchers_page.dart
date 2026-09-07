@@ -126,12 +126,26 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
               _ => true,
             };
           }).toList();
+          final activeCount = docs.where((doc) {
+            final data = doc.data();
+            final startsAt = asDate(data['startsAt']);
+            final expiry = asDate(data['expiresAt']);
+            return data['status'] == 'active' &&
+                (startsAt == null || !startsAt.isAfter(DateTime.now())) &&
+                (expiry == null || expiry.isAfter(DateTime.now())) &&
+                ((data['inventoryRemaining'] as num?)?.toInt() ?? 0) > 0;
+          }).length;
+          final totalClaims = docs.fold<int>(
+            0,
+            (total, doc) =>
+                total + ((doc.data()['claimCount'] as num?)?.toInt() ?? 0),
+          );
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 90),
             children: [
               const Text(
-                'Published Rewards Management',
+                'Voucher management',
                 style: TextStyle(
                   color: ExplorerColors.navy,
                   fontSize: 23,
@@ -141,10 +155,45 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Create, edit and monitor voucher availability.',
+                'Publish rewards, monitor availability, and open claim history.',
                 style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
               ),
               const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _VendorStat(
+                      value: '${docs.length}',
+                      label: 'PUBLISHED\nVOUCHERS',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _VendorStat(
+                      value: '$activeCount',
+                      label: 'ACTIVE\nNOW',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _VendorStat(
+                      value: '$totalClaims',
+                      label: 'TOTAL\nCLAIMS',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'FILTER BY STATUS',
+                style: TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .6,
+                ),
+              ),
+              const SizedBox(height: 7),
               SizedBox(
                 height: 34,
                 child: ListView(
@@ -213,10 +262,19 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VendorVoucherHistoryPage(
+            voucherId: doc.id,
+            voucherTitle: '${data['title'] ?? 'Voucher'}',
+          ),
+        ),
+      ),
       child: Column(
         children: [
           Container(
-            height: 92,
+            height: 72,
             decoration: BoxDecoration(
               color: active ? ExplorerColors.goldSoft : ExplorerColors.subtle,
               borderRadius: const BorderRadius.vertical(
@@ -293,6 +351,15 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      const Text(
+                        'Tap this voucher to view its claim and redemption history.',
+                        style: TextStyle(
+                          color: ExplorerColors.navy,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
                       Text(
                         '$remaining/$limit remaining - ${data['claimCount'] ?? 0} claimed'
                         '${scheduled ? ' - Starts ${DateFormat.yMMMd().format(startsAt)}' : ''}'
@@ -359,7 +426,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                     if (!archived)
                       const PopupMenuItem(
                         value: 'archive',
-                        child: Text('Delete Voucher'),
+                        child: Text('Archive Voucher'),
                       ),
                   ],
                 ),

@@ -9,7 +9,9 @@ class NearbyRewardsPage extends StatefulWidget {
 
 class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
   bool loading = true;
+  bool showMap = false;
   String? error;
+  Position? currentPosition;
   Map<String, int> claimedCounts = <String, int>{};
 
   List<({QueryDocumentSnapshot<Map<String, dynamic>> doc, double distance})>
@@ -91,6 +93,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
       setState(() {
         nearby = results;
         claimedCounts = counts;
+        currentPosition = position;
         loading = false;
       });
       unawaited(
@@ -123,6 +126,80 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
     return 'Claim for $cost points';
   }
 
+  Future<void> _openDirections(GeoPoint location) async {
+    final uri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': '${location.latitude},${location.longitude}',
+      'travelmode': 'walking',
+    });
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      showMessage(context, 'Unable to open directions.', error: true);
+    }
+  }
+
+  Widget _buildMap() {
+    final position = currentPosition!;
+    final markers = <Marker>{
+      for (final item in nearby)
+        if (item.doc.data()['location'] is GeoPoint)
+          Marker(
+            markerId: MarkerId(item.doc.id),
+            position: LatLng(
+              (item.doc.data()['location'] as GeoPoint).latitude,
+              (item.doc.data()['location'] as GeoPoint).longitude,
+            ),
+            infoWindow: InfoWindow(
+              title: '${item.doc.data()['title'] ?? 'Nearby reward'}',
+              snippet:
+                  '${item.doc.data()['vendorName'] ?? 'Vendor'} • Tap for walking directions',
+              onTap: () =>
+                  _openDirections(item.doc.data()['location'] as GeoPoint),
+            ),
+          ),
+    };
+
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(position.latitude, position.longitude),
+            zoom: 14.5,
+          ),
+          markers: markers,
+          myLocationEnabled: true,
+          myLocationButtonEnabled: true,
+          compassEnabled: true,
+          mapToolbarEnabled: false,
+        ),
+        Positioned(
+          left: 14,
+          right: 14,
+          top: 14,
+          child: ExplorerCard(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            child: Row(
+              children: [
+                const Icon(Icons.map_outlined, color: ExplorerColors.navy),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    '${nearby.length} nearby vendors • Tap a marker for walking directions',
+                    style: const TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
@@ -142,7 +219,16 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
           IconButton(
             onPressed: loading ? null : load,
             icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh nearby rewards',
           ),
+          if (!loading && error == null && nearby.isNotEmpty)
+            IconButton(
+              onPressed: () => setState(() => showMap = !showMap),
+              icon: Icon(
+                showMap ? Icons.view_list_outlined : Icons.map_outlined,
+              ),
+              tooltip: showMap ? 'Show reward list' : 'Show vendor map',
+            ),
         ],
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -160,20 +246,33 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
           }
 
           if (error != null) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(error!, textAlign: TextAlign.center),
+            return ExplorerEmptyState(
+              title: 'Unable to find nearby rewards',
+              subtitle: error,
+              icon: Icons.location_off_outlined,
+              action: FilledButton.icon(
+                onPressed: load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
               ),
             );
           }
 
           if (nearby.isEmpty) {
-            return emptyState(
-              'No nearby rewards',
-              'Move closer to a participating vendor or check the full reward catalogue.',
+            return ExplorerEmptyState(
+              title: 'No nearby rewards right now',
+              subtitle:
+                  'Your location was checked successfully. Move closer to a participating vendor or browse the full catalogue.',
+              icon: Icons.near_me_outlined,
+              action: OutlinedButton.icon(
+                onPressed: load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Check Again'),
+              ),
             );
           }
+
+          if (showMap && currentPosition != null) return _buildMap();
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
@@ -181,18 +280,61 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               if (index == 0) {
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.stars_rounded),
-                    title: const Text('Your reward points'),
-                    trailing: Text(
-                      '$points pts',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ExplorerCard(
+                      backgroundColor: ExplorerColors.navy,
+                      borderColor: ExplorerColors.navy,
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.location_searching,
+                            color: ExplorerColors.gold,
+                            size: 30,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${nearby.length} nearby ${nearby.length == 1 ? 'reward' : 'rewards'} found',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                const Text(
+                                  'Sorted from nearest to farthest',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '$points pts',
+                            style: const TextStyle(
+                              color: ExplorerColors.gold,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 18),
+                    const ExplorerSectionTitle(
+                      'Rewards within range',
+                      subtitle:
+                          'Each vendor chooses the distance for its nearby offer.',
+                    ),
+                  ],
                 );
               }
 
@@ -207,109 +349,142 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                   (claimLimit == null || claimedCount < claimLimit) &&
                   points >= cost &&
                   cost > 0;
+              final location = voucher['location'];
 
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${voucher['title'] ?? ''}',
-                              style: const TextStyle(
-                                fontSize: 19,
-                                fontWeight: FontWeight.bold,
-                              ),
+              return ExplorerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${voucher['title'] ?? ''}',
+                            style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          Chip(
-                            label: Text(
-                              item.distance < 1000
-                                  ? '${item.distance.round()} m'
-                                  : '${(item.distance / 1000).toStringAsFixed(1)} km',
-                            ),
+                        ),
+                        ExplorerStatusBadge(
+                          label: item.distance < 1000
+                              ? '${item.distance.round()} M AWAY'
+                              : '${(item.distance / 1000).toStringAsFixed(1)} KM AWAY',
+                          tone: ExplorerStatusTone.navy,
+                          icon: Icons.near_me_outlined,
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.storefront_outlined,
+                          size: 16,
+                          color: ExplorerColors.muted,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            '${voucher['vendorName'] ?? 'Registered vendor'}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                        ],
-                      ),
-                      Text(
-                        'Vendor: '
-                        '${voucher['vendorName'] ?? 'Registered vendor'}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('${voucher['description'] ?? ''}'),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        ExplorerStatusBadge(
+                          label: '$cost POINTS',
+                          tone: ExplorerStatusTone.warning,
+                          icon: Icons.stars_rounded,
+                        ),
+                        ExplorerStatusBadge(
+                          label: '${voucher['inventoryRemaining'] ?? 0} LEFT',
+                          tone: ExplorerStatusTone.success,
+                          icon: Icons.inventory_2_outlined,
+                        ),
+                      ],
+                    ),
+                    if (location is GeoPoint) ...[
                       const SizedBox(height: 4),
-                      Text('${voucher['description'] ?? ''}'),
-                      const SizedBox(height: 6),
-                      Text(
-                        '$cost points - ${voucher['inventoryRemaining'] ?? 0} remaining',
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      VoucherDetailPage(voucherId: item.doc.id),
-                                ),
-                              ),
-                              child: const Text('View Details'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: canClaim
-                                  ? () async {
-                                      try {
-                                        final receipt =
-                                            await AppServices.claimVoucher(
-                                              voucherId: item.doc.id,
-                                              voucher: voucher,
-                                            );
-
-                                        if (context.mounted) {
-                                          setState(() {
-                                            claimedCounts[item.doc.id] =
-                                                claimedCount + 1;
-                                          });
-                                          await showVoucherClaimReceipt(
-                                            context,
-                                            receipt,
-                                          );
-                                        }
-                                      } catch (exception) {
-                                        if (context.mounted) {
-                                          showMessage(
-                                            context,
-                                            exception.toString().replaceFirst(
-                                              'Exception: ',
-                                              '',
-                                            ),
-                                            error: true,
-                                          );
-                                        }
-                                      }
-                                    }
-                                  : null,
-                              child: Text(
-                                _claimLabel(
-                                  points: points,
-                                  cost: cost,
-                                  claimedCount: claimedCount,
-                                  claimLimit: claimLimit,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => _openDirections(location),
+                          icon: const Icon(Icons.directions_walk, size: 18),
+                          label: const Text('Walking Directions'),
+                        ),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    VoucherDetailPage(voucherId: item.doc.id),
+                              ),
+                            ),
+                            child: const Text('View Details'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: canClaim
+                                ? () async {
+                                    try {
+                                      final receipt =
+                                          await AppServices.claimVoucher(
+                                            voucherId: item.doc.id,
+                                            voucher: voucher,
+                                          );
+
+                                      if (context.mounted) {
+                                        setState(() {
+                                          claimedCounts[item.doc.id] =
+                                              claimedCount + 1;
+                                        });
+                                        await showVoucherClaimReceipt(
+                                          context,
+                                          receipt,
+                                        );
+                                      }
+                                    } catch (exception) {
+                                      if (context.mounted) {
+                                        showMessage(
+                                          context,
+                                          exception.toString().replaceFirst(
+                                            'Exception: ',
+                                            '',
+                                          ),
+                                          error: true,
+                                        );
+                                      }
+                                    }
+                                  }
+                                : null,
+                            child: Text(
+                              _claimLabel(
+                                points: points,
+                                cost: cost,
+                                claimedCount: claimedCount,
+                                claimLimit: claimLimit,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               );
             },

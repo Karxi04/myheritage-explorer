@@ -25,6 +25,12 @@ class VendorVoucherHistoryPage extends StatelessWidget {
     _ => ExplorerStatusTone.navy,
   };
 
+  String _shortStatus(String status) => switch (status) {
+    'Redeemed successfully' => 'REDEEMED',
+    'Expired before redemption' => 'EXPIRED',
+    _ => 'AWAITING',
+  };
+
   @override
   Widget build(BuildContext context) {
     final vendorId = AppServices.auth.currentUser!.uid;
@@ -96,6 +102,11 @@ class VendorVoucherHistoryPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 18),
+              const ExplorerSectionTitle(
+                'Activity timeline',
+                subtitle: 'Newest claims appear first.',
+              ),
+              const SizedBox(height: 10),
               if (claims.isEmpty)
                 const ExplorerEmptyState(
                   title: 'No claims for this voucher yet',
@@ -123,6 +134,29 @@ class VendorVoucherHistoryPage extends StatelessWidget {
                         children: [
                           Row(
                             children: [
+                              CircleAvatar(
+                                radius: 19,
+                                backgroundColor:
+                                    status == 'Redeemed successfully'
+                                    ? ExplorerColors.successSoft
+                                    : status == 'Expired before redemption'
+                                    ? ExplorerColors.dangerSoft
+                                    : ExplorerColors.navySoft,
+                                child: Icon(
+                                  status == 'Redeemed successfully'
+                                      ? Icons.check
+                                      : status == 'Expired before redemption'
+                                      ? Icons.timer_off_outlined
+                                      : Icons.hourglass_top_outlined,
+                                  size: 19,
+                                  color: status == 'Redeemed successfully'
+                                      ? ExplorerColors.success
+                                      : status == 'Expired before redemption'
+                                      ? ExplorerColors.danger
+                                      : ExplorerColors.navy,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   ownerLabel,
@@ -133,12 +167,20 @@ class VendorVoucherHistoryPage extends StatelessWidget {
                                 ),
                               ),
                               ExplorerStatusBadge(
-                                label: status.toUpperCase(),
+                                label: _shortStatus(status),
                                 tone: _tone(status),
                               ),
                             ],
                           ),
                           const SizedBox(height: 9),
+                          Text(
+                            status,
+                            style: const TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                           if (claimedAt != null)
                             Text(
                               'Claimed on ${DateFormat.yMMMd().add_jm().format(claimedAt)}',
