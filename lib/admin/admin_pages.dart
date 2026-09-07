@@ -16,3 +16,4 @@ part 'places/admin_places_page.dart';
 part 'cultural/admin_cultural_page.dart';
 part 'hazards/admin_hazards_page.dart';
 part 'reviews/admin_reviews_page.dart';
+part 'reports/admin_reports_page.dart';

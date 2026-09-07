@@ -547,7 +547,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               return SizedBox(
-                height: 228,
+                height: 258,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: 3,
@@ -594,7 +594,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
             }
 
             return SizedBox(
-              height: 228,
+              height: 258,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: places.length,
@@ -926,87 +926,89 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
                 fit: BoxFit.cover,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      ExplorerStatusBadge(
-                        label: '${place['category'] ?? 'Place'}',
-                        tone: ExplorerStatusTone.navy,
-                      ),
-                      const Spacer(),
-                      if (rating > 0) ...[
-                        const Icon(
-                          Icons.star_rounded,
-                          color: ExplorerColors.goldDark,
-                          size: 15,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        ExplorerStatusBadge(
+                          label: '${place['category'] ?? 'Place'}',
+                          tone: ExplorerStatusTone.navy,
                         ),
-                        const SizedBox(width: 2),
-                        Text(
-                          rating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: ExplorerColors.navy,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                        const Spacer(),
+                        if (rating > 0) ...[
+                          const Icon(
+                            Icons.star_rounded,
+                            color: ExplorerColors.goldDark,
+                            size: 15,
                           ),
+                          const SizedBox(width: 2),
+                          Text(
+                            rating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              color: ExplorerColors.navy,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${place['name']}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ExplorerColors.navy,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      reason.isEmpty ? '${place['area'] ?? ''}' : reason,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 10,
+                        height: 1.3,
+                      ),
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.place_outlined,
+                          color: ExplorerColors.muted,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '${place['state'] ?? place['area'] ?? ''}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: ExplorerColors.muted,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right,
+                          color: ExplorerColors.navy,
+                          size: 18,
                         ),
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${place['name']}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: ExplorerColors.navy,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
                     ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    reason.isEmpty ? '${place['area'] ?? ''}' : reason,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 10,
-                      height: 1.3,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.place_outlined,
-                        color: ExplorerColors.muted,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          '${place['state'] ?? place['area'] ?? ''}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ExplorerColors.muted,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: ExplorerColors.navy,
-                        size: 18,
-                      ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -1312,37 +1314,39 @@ class _RecommendationLoadingCard extends StatelessWidget {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: ExplorerColors.subtle,
-                      borderRadius: BorderRadius.circular(99),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 76,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: ExplorerColors.subtle,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: ExplorerColors.subtle,
-                      borderRadius: BorderRadius.circular(5),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: ExplorerColors.subtle,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 7),
-                  Container(
-                    width: 130,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: ExplorerColors.subtle,
-                      borderRadius: BorderRadius.circular(5),
+                    const SizedBox(height: 7),
+                    Container(
+                      width: 130,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: ExplorerColors.subtle,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

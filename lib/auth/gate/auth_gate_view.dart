@@ -93,8 +93,23 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
 
         // 1. Status Check (Inactive/Suspended)
         final String status = profile['status'] ?? 'active';
-        if (status == 'inactive' || status == 'suspended' || status == 'disabled') {
+        if (status == 'inactive') {
+          return DeactivatedAccountReactivationPage(
+            user: widget.user,
+            profile: profile,
+            role: role,
+          );
+        } else if (status == 'suspended' || status == 'disabled') {
           return const AccountDisabledPage();
+        }
+
+        // 1.5 Pending Warning Check (One-Time Warning Notice)
+        if (profile['hasPendingWarning'] == true) {
+          return _UserPendingWarningGate(
+            user: widget.user,
+            profile: profile,
+            role: role,
+          );
         }
 
         // 2. Email Verification Check
@@ -651,6 +666,176 @@ class _SecurityQuestionsSetupGateState
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserPendingWarningGate extends StatefulWidget {
+  const _UserPendingWarningGate({
+    required this.user,
+    required this.profile,
+    required this.role,
+  });
+
+  final User user;
+  final Map<String, dynamic> profile;
+  final String role;
+
+  @override
+  State<_UserPendingWarningGate> createState() =>
+      __UserPendingWarningGateState();
+}
+
+class __UserPendingWarningGateState extends State<_UserPendingWarningGate> {
+  bool _dismissing = false;
+
+  Future<void> _acknowledgeWarning() async {
+    setState(() => _dismissing = true);
+    try {
+      final ref = AppServices.profileRefForRole(widget.user.uid, widget.role);
+      await ref.update({
+        'hasPendingWarning': false,
+        'warningMessage': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) {
+        showMessage(context, 'Error acknowledging warning: $e', error: true);
+        setState(() => _dismissing = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final warningMsg = '${widget.profile['warningMessage'] ?? 'You have received an official warning notice from the moderation team.'}';
+
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+      appBar: AppBar(
+        title: const ExplorerBrand(compact: true),
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            tooltip: 'Sign Out',
+            icon: const Icon(Icons.logout),
+            onPressed: AppServices.signOut,
+          ),
+        ],
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ExplorerCard(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 38,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Administrator Warning Notice',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your account has received a formal warning notice regarding community guidelines.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(height: 1),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF8E1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFFE082)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.report_problem_outlined,
+                                size: 18, color: Colors.orange),
+                            SizedBox(width: 8),
+                            Text(
+                              'Warning Details',
+                              style: TextStyle(
+                                color: Color(0xFFE65100),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          warningMsg,
+                          style: const TextStyle(
+                            color: Color(0xFF5D4037),
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: ExplorerColors.navy,
+                      ),
+                      onPressed: _dismissing ? null : _acknowledgeWarning,
+                      icon: _dismissing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check),
+                      label: Text(_dismissing
+                          ? 'Updating...'
+                          : 'I Understand and Acknowledge'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

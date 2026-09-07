@@ -55,11 +55,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final items =
         <({String label, IconData icon, Query<Map<String, dynamic>> query})>[
           (
-            label: 'Administrators',
-            icon: Icons.admin_panel_settings_outlined,
-            query: AppServices.db.collection('admins'),
-          ),
-          (
             label: 'Travelers',
             icon: Icons.explore_outlined,
             query: AppServices.db.collection('travelers'),
@@ -109,7 +104,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                   ),
                   SizedBox(height: 6),
                   Text(
-                    'Administrators, travelers, vendors and reviews in Cloud Firestore.',
+                    'Travelers, vendors and reviews in Cloud Firestore.',
                   ),
                 ],
               ),

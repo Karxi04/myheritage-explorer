@@ -34,7 +34,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     super.initState();
 
     final requestedRole = widget.roleFilter;
-    role = const {'admin', 'traveler', 'vendor'}.contains(requestedRole)
+    role = const {'traveler', 'vendor'}.contains(requestedRole)
         ? requestedRole!
         : 'all';
   }
@@ -47,7 +47,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
   String get _roleActionLabel {
     return switch (role) {
-      'admin' => 'Check Administrator Data',
       'traveler' => 'View Traveler Records',
       'vendor' => 'Check Vendor Data',
       _ => 'View Platform Data',
@@ -56,7 +55,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
   IconData get _roleActionIcon {
     return switch (role) {
-      'admin' => Icons.admin_panel_settings_outlined,
       'traveler' => Icons.explore_outlined,
       'vendor' => Icons.fact_check_outlined,
       _ => Icons.dashboard_customize_outlined,
@@ -67,7 +65,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     setState(() => checkingRoleData = true);
     try {
       final message = switch (role) {
-        'admin' => await _administratorDataMessage(),
         'traveler' => await _travelerDataMessage(),
         'vendor' => await _vendorDataMessage(),
         _ => await _platformDataMessage(),
@@ -86,15 +83,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
     } finally {
       if (mounted) setState(() => checkingRoleData = false);
     }
-  }
-
-  Future<String> _administratorDataMessage() async {
-    final snapshot = await AppServices.db.collection('admins').get();
-    final admins = snapshot.docs.map((doc) => doc.data()).toList();
-    final active = admins
-        .where((data) => '${data['status'] ?? ''}' == 'active')
-        .length;
-    return 'Administrator data ready: $active active administrators from ${admins.length} records.';
   }
 
   Future<String> _travelerDataMessage() async {
@@ -120,27 +108,17 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
 
   Future<String> _platformDataMessage() async {
     final snapshots = await Future.wait([
-      AppServices.db.collection('admins').get(),
       AppServices.db.collection('travelers').get(),
       AppServices.db.collection('vendors').get(),
     ]);
-    return 'Platform data ready: ${snapshots[0].size} administrators, ${snapshots[1].size} travelers, and ${snapshots[2].size} vendors.';
+    return 'Platform data ready: ${snapshots[0].size} travelers and ${snapshots[1].size} vendors.';
   }
 
   List<_AdminAccountRow> _rows({
-    required QuerySnapshot<Map<String, dynamic>> admins,
     required QuerySnapshot<Map<String, dynamic>> travelers,
     required QuerySnapshot<Map<String, dynamic>> vendors,
   }) {
     return [
-      ...admins.docs.map(
-        (doc) => _AdminAccountRow(
-          id: doc.id,
-          role: 'admin',
-          reference: doc.reference,
-          data: doc.data(),
-        ),
-      ),
       ...travelers.docs.map(
         (doc) => _AdminAccountRow(
           id: doc.id,
@@ -188,7 +166,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    labelText: 'Search administrator, traveler or vendor',
+                    labelText: 'Search traveler or vendor',
                   ),
                 ),
               ),
@@ -200,10 +178,6 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: const [
                     DropdownMenuItem(value: 'all', child: Text('All roles')),
-                    DropdownMenuItem(
-                      value: 'admin',
-                      child: Text('Administrators'),
-                    ),
                     DropdownMenuItem(
                       value: 'traveler',
                       child: Text('Travelers'),
@@ -238,236 +212,225 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db.collection('admins').snapshots(),
-            builder: (context, adminSnapshot) {
-              if (!adminSnapshot.hasData) {
+            stream: AppServices.db.collection('travelers').snapshots(),
+            builder: (context, travelerSnapshot) {
+              if (!travelerSnapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
 
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db.collection('travelers').snapshots(),
-                builder: (context, travelerSnapshot) {
-                  if (!travelerSnapshot.hasData) {
+                stream: AppServices.db.collection('vendors').snapshots(),
+                builder: (context, vendorSnapshot) {
+                  if (!vendorSnapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: AppServices.db.collection('vendors').snapshots(),
-                    builder: (context, vendorSnapshot) {
-                      if (!vendorSnapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
+                  final query = search.text.trim().toLowerCase();
 
-                      final query = search.text.trim().toLowerCase();
+                  final allRows = _rows(
+                    travelers: travelerSnapshot.data!,
+                    vendors: vendorSnapshot.data!,
+                  );
+                  final roleRows = allRows.where(
+                    (row) => role == 'all' || row.role == role,
+                  );
+                  final totalForRole = roleRows.length;
+                  final rows =
+                      roleRows.where((row) {
+                        final data = row.data;
+                        final haystack =
+                            '${data['displayName'] ?? ''} '
+                                    '${data['email'] ?? ''} '
+                                    '${data['businessName'] ?? ''} '
+                                    '${data['ownerName'] ?? ''}'
+                                .toLowerCase();
 
-                      final allRows = _rows(
-                        admins: adminSnapshot.data!,
-                        travelers: travelerSnapshot.data!,
-                        vendors: vendorSnapshot.data!,
-                      );
-                      final roleRows = allRows.where(
-                        (row) => role == 'all' || row.role == role,
-                      );
-                      final totalForRole = roleRows.length;
-                      final rows =
-                          roleRows.where((row) {
-                            final data = row.data;
-                            final haystack =
-                                '${data['displayName'] ?? ''} '
-                                        '${data['email'] ?? ''} '
-                                        '${data['businessName'] ?? ''} '
-                                        '${data['ownerName'] ?? ''}'
-                                    .toLowerCase();
-
-                            return haystack.contains(query);
-                          }).toList()..sort(
-                            (
-                              first,
-                              second,
-                            ) => '${first.data['displayName'] ?? first.data['businessName'] ?? ''}'
-                                .compareTo(
-                                  '${second.data['displayName'] ?? second.data['businessName'] ?? ''}',
-                                ),
-                          );
-                      final roleLabel = switch (role) {
-                        'admin' => 'administrators',
-                        'traveler' => 'travelers',
-                        'vendor' => 'vendors',
-                        _ => 'accounts',
-                      };
-                      final countText = query.isEmpty
-                          ? 'Total $roleLabel: $totalForRole'
-                          : 'Showing ${rows.length} of $totalForRole $roleLabel';
-
-                      return SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Text(
-                                countText,
-                                style: const TextStyle(
-                                  color: ExplorerColors.navy,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                        return haystack.contains(query);
+                      }).toList()..sort(
+                        (
+                          first,
+                          second,
+                        ) => '${first.data['displayName'] ?? first.data['businessName'] ?? ''}'
+                            .compareTo(
+                              '${second.data['displayName'] ?? second.data['businessName'] ?? ''}',
                             ),
-                            Card(
-                              clipBehavior: Clip.antiAlias,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    minWidth: 1120,
-                                  ),
-                                  child: DataTable(
-                                    columnSpacing: 34,
-                                    horizontalMargin: 24,
-                                    columns: const [
-                                      DataColumn(
-                                        numeric: true,
-                                        label: Text('No.'),
-                                      ),
-                                      DataColumn(
-                                        label: Text('Name / Business'),
-                                      ),
-                                      DataColumn(label: Text('Email')),
-                                      DataColumn(label: Text('Role')),
-                                      DataColumn(label: Text('Status')),
-                                      DataColumn(
-                                        label: Text('Vendor verification'),
-                                      ),
-                                      DataColumn(label: Text('Actions')),
-                                    ],
-                                    rows: rows.asMap().entries.map((entry) {
-                                      final index = entry.key;
-                                      final row = entry.value;
-                                      final data = row.data;
-                                      final isVendor = row.role == 'vendor';
+                      );
+                  final roleLabel = switch (role) {
+                    'traveler' => 'travelers',
+                    'vendor' => 'vendors',
+                    _ => 'accounts',
+                  };
+                  final countText = query.isEmpty
+                      ? 'Total $roleLabel: $totalForRole'
+                      : 'Showing ${rows.length} of $totalForRole $roleLabel';
 
-                                      return DataRow(
-                                        cells: [
-                                          DataCell(
-                                            Text(
-                                              '${index + 1}',
-                                              style: const TextStyle(
-                                                color: ExplorerColors.navy,
-                                                fontWeight: FontWeight.w800,
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            countText,
+                            style: const TextStyle(
+                              color: ExplorerColors.navy,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                minWidth: 1120,
+                              ),
+                              child: DataTable(
+                                columnSpacing: 34,
+                                horizontalMargin: 24,
+                                columns: const [
+                                  DataColumn(
+                                    numeric: true,
+                                    label: Text('No.'),
+                                  ),
+                                  DataColumn(
+                                    label: Text('Name / Business'),
+                                  ),
+                                  DataColumn(label: Text('Email')),
+                                  DataColumn(label: Text('Role')),
+                                  DataColumn(label: Text('Status')),
+                                  DataColumn(
+                                    label: Text('Vendor verification'),
+                                  ),
+                                  DataColumn(label: Text('Actions')),
+                                ],
+                                rows: rows.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final row = entry.value;
+                                  final data = row.data;
+                                  final isVendor = row.role == 'vendor';
+
+                                  return DataRow(
+                                    cells: [
+                                      DataCell(
+                                        Text(
+                                          '${index + 1}',
+                                          style: const TextStyle(
+                                            color: ExplorerColors.navy,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          '${data['businessName'] ?? data['displayName'] ?? '-'}',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text('${data['email'] ?? '-'}'),
+                                      ),
+                                      DataCell(Text(row.role)),
+                                      DataCell(
+                                        Text('${data['status'] ?? '-'}'),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          isVendor
+                                              ? '${data['vendorStatus'] ?? '-'}'
+                                              : '-',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Wrap(
+                                          spacing: 6,
+                                          children: [
+                                            if (isVendor &&
+                                                data['vendorStatus'] ==
+                                                    'pending') ...[
+                                              IconButton(
+                                                tooltip: 'Approve vendor',
+                                                onPressed: () async {
+                                                  await row.reference.update({
+                                                    'vendorStatus':
+                                                        'verified',
+                                                    'verifiedAt':
+                                                        FieldValue.serverTimestamp(),
+                                                    'updatedAt':
+                                                        FieldValue.serverTimestamp(),
+                                                  });
+                                                  await AppServices.notify(
+                                                    userId: row.id,
+                                                    title:
+                                                        'Vendor verified',
+                                                    message:
+                                                        'Your business account has been approved.',
+                                                    type: 'vendor',
+                                                  );
+                                                },
+                                                icon: const Icon(
+                                                  Icons.verified_outlined,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Reject vendor',
+                                                onPressed: () async {
+                                                  await row.reference.update({
+                                                    'vendorStatus':
+                                                        'rejected',
+                                                    'updatedAt':
+                                                        FieldValue.serverTimestamp(),
+                                                  });
+                                                  await AppServices.notify(
+                                                    userId: row.id,
+                                                    title:
+                                                        'Vendor verification rejected',
+                                                    message:
+                                                        'Your business verification was rejected.',
+                                                    type: 'vendor',
+                                                  );
+                                                },
+                                                icon: const Icon(
+                                                  Icons.cancel_outlined,
+                                                ),
+                                              ),
+                                            ],
+                                            IconButton(
+                                              tooltip:
+                                                  data['status'] == 'active'
+                                                  ? 'Suspend'
+                                                  : 'Reactivate',
+                                              onPressed: () =>
+                                                  row.reference.update({
+                                                    'status':
+                                                        data['status'] ==
+                                                            'active'
+                                                        ? 'suspended'
+                                                        : 'active',
+                                                    'updatedAt':
+                                                        FieldValue.serverTimestamp(),
+                                                  }),
+                                              icon: Icon(
+                                                data['status'] == 'active'
+                                                    ? Icons.block
+                                                    : Icons
+                                                          .check_circle_outline,
                                               ),
                                             ),
-                                          ),
-                                          DataCell(
-                                            Text(
-                                              '${data['businessName'] ?? data['displayName'] ?? '-'}',
-                                            ),
-                                          ),
-                                          DataCell(
-                                            Text('${data['email'] ?? '-'}'),
-                                          ),
-                                          DataCell(Text(row.role)),
-                                          DataCell(
-                                            Text('${data['status'] ?? '-'}'),
-                                          ),
-                                          DataCell(
-                                            Text(
-                                              isVendor
-                                                  ? '${data['vendorStatus'] ?? '-'}'
-                                                  : '-',
-                                            ),
-                                          ),
-                                          DataCell(
-                                            Wrap(
-                                              spacing: 6,
-                                              children: [
-                                                if (isVendor &&
-                                                    data['vendorStatus'] ==
-                                                        'pending') ...[
-                                                  IconButton(
-                                                    tooltip: 'Approve vendor',
-                                                    onPressed: () async {
-                                                      await row.reference.update({
-                                                        'vendorStatus':
-                                                            'verified',
-                                                        'verifiedAt':
-                                                            FieldValue.serverTimestamp(),
-                                                        'updatedAt':
-                                                            FieldValue.serverTimestamp(),
-                                                      });
-                                                      await AppServices.notify(
-                                                        userId: row.id,
-                                                        title:
-                                                            'Vendor verified',
-                                                        message:
-                                                            'Your business account has been approved.',
-                                                        type: 'vendor',
-                                                      );
-                                                    },
-                                                    icon: const Icon(
-                                                      Icons.verified_outlined,
-                                                    ),
-                                                  ),
-                                                  IconButton(
-                                                    tooltip: 'Reject vendor',
-                                                    onPressed: () async {
-                                                      await row.reference.update({
-                                                        'vendorStatus':
-                                                            'rejected',
-                                                        'updatedAt':
-                                                            FieldValue.serverTimestamp(),
-                                                      });
-                                                      await AppServices.notify(
-                                                        userId: row.id,
-                                                        title:
-                                                            'Vendor verification rejected',
-                                                        message:
-                                                            'Your business verification was rejected.',
-                                                        type: 'vendor',
-                                                      );
-                                                    },
-                                                    icon: const Icon(
-                                                      Icons.cancel_outlined,
-                                                    ),
-                                                  ),
-                                                ],
-                                                IconButton(
-                                                  tooltip:
-                                                      data['status'] == 'active'
-                                                      ? 'Suspend'
-                                                      : 'Reactivate',
-                                                  onPressed: () =>
-                                                      row.reference.update({
-                                                        'status':
-                                                            data['status'] ==
-                                                                'active'
-                                                            ? 'suspended'
-                                                            : 'active',
-                                                        'updatedAt':
-                                                            FieldValue.serverTimestamp(),
-                                                      }),
-                                                  icon: Icon(
-                                                    data['status'] == 'active'
-                                                        ? Icons.block
-                                                        : Icons
-                                                              .check_circle_outline,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }).toList(),
                               ),
                             ),
-                          ],
+                          ),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   );
                 },
               );
