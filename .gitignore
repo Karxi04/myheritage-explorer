@@ -1,6 +1,22 @@
-# ==========================================
-# Flutter / Dart / Pub
-# ==========================================
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+Thumbs.db
+.atom/
+.buildlog/
+.history
+.svn/
+*~
+*.bak
+*.tmp
+*.old
+*.orig
+*.rej
+
+# Flutter & Dart tool files
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -8,24 +24,18 @@
 .pub/
 /build/
 /coverage/
-**/doc/api/
-**/ios/Flutter/.last_build_id
-
-# Platform Ephemeral & Auto-Generated Code
-**/ephemeral/
-**/Flutter/ephemeral/
-**/flutter/ephemeral/
-**/GeneratedPluginRegistrant.*
-**/generated_plugin_registrant.*
-**/generated_plugins.cmake
-
-# Symbolication & Obfuscation
 app.*.symbols
 app.*.map.json
 
-# ==========================================
+# Web
+/lib/generated_plugin_registrant.dart
+
+# Platform ephemeral build files
+/linux/flutter/ephemeral/
+/macos/Flutter/ephemeral/
+/windows/flutter/ephemeral/
+
 # Android
-# ==========================================
 .gradle/
 **/android/.gradle/
 /android/app/debug
@@ -37,9 +47,7 @@ app.*.map.json
 *.jks
 *.keystore
 
-# ==========================================
 # iOS / macOS
-# ==========================================
 **/Pods/
 **/DerivedData/
 **/xcuserdata/
@@ -50,86 +58,22 @@ app.*.map.json
 *.moved-aside
 *.pbxuser
 *.perspectivev3
-profile
-.sconsign.dblite
-.tags*
-Icon?
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/app.fltdefinition
+/ios/Flutter/flutter_assets/
+/ios/Flutter/Flutter.podspec
 
-# Exceptions to iOS/macOS rules
-!default.mode1v3
-!default.mode2v3
-!default.pbxuser
-!default.perspectivev3
-
-# ==========================================
-# Windows & Linux
-# ==========================================
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-x64/
-x86/
-*.[Cc]ache
-!*.[Cc]ache/
-
-# ==========================================
-# Web & Node / Firebase
-# ==========================================
-**/node_modules/
-.firebase/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-firebase-debug.log*
-.secret.local
-
-# ==========================================
-# IDEs & Editors
-# ==========================================
-# IntelliJ / Android Studio
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# VS Code
-.vscode/
-
-# Other Editors
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-
-# ==========================================
-# Environment Secrets & Credentials
-# ==========================================
+# Environment Secrets & Service Credentials
 .env
 .env.*
+.secret.local
 **/serviceAccountKey.json
 **/firebase-adminsdk-*.json
 *.pem
 *.p12
 
-# ==========================================
-# Temporary, Backup & Artifact Files
-# ==========================================
-*.bak
-*.tmp
-*.old
-*.orig
-*.rej
-*~
+# Project-specific artifacts & scratch files
 .artifacts/
 migrate_working_dir/
 obsolete_code_backup/
-*.log
-*.class
-*.pyc
+.firebase/
