@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../auth/auth_pages.dart';
+import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
 import 'admin_pages.dart';
@@ -60,7 +62,9 @@ class _AdminShellState extends State<AdminShell> {
 
   void _handleUserActivity() {
     if (_isDialogShowing) {
-      _dismissTimeoutDialog();
+      if (_countdownNotifier.value > 0) {
+        _dismissTimeoutDialog();
+      }
     } else {
       _resetInactivityTimer();
     }
@@ -92,8 +96,8 @@ class _AdminShellState extends State<AdminShell> {
         return;
       }
       if (_countdownNotifier.value <= 1) {
+        _countdownNotifier.value = 0;
         timer.cancel();
-        _kickOutUser();
       } else {
         _countdownNotifier.value--;
       }
@@ -106,90 +110,138 @@ class _AdminShellState extends State<AdminShell> {
         return ValueListenableBuilder<int>(
           valueListenable: _countdownNotifier,
           builder: (context, seconds, child) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Row(
-                children: [
-                  Icon(
-                    Icons.timer_outlined,
-                    color: ExplorerColors.gold,
-                    size: 28,
+            if (seconds == 0) {
+              return PopScope(
+                canPop: false,
+                child: AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  SizedBox(width: 10),
-                  Text(
-                    'Session Inactivity Warning',
-                    style: TextStyle(
-                      color: ExplorerColors.navy,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
+                  title: const Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 28,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        'Session Timeout',
+                        style: TextStyle(
+                          color: ExplorerColors.navy,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'You have been immobile for 30 seconds. For security reasons, you will be automatically logged out in:',
+                  content: const Text(
+                    'Your session has timed out due to inactivity. Please click OK to log in again.',
                     style: TextStyle(fontSize: 14, color: Colors.black87),
                   ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
+                  actions: [
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ExplorerColors.navy,
+                      ),
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        _kickOutUser();
+                      },
+                      child: const Text('OK'),
                     ),
-                    decoration: BoxDecoration(
-                      color: ExplorerColors.navy.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
+                  ],
+                ),
+              );
+            }
+
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: const Row(
+                  children: [
+                    Icon(
+                      Icons.timer_outlined,
+                      color: ExplorerColors.gold,
+                      size: 28,
                     ),
-                    child: Column(
-                      children: [
-                        Text(
-                          '$seconds',
-                          style: const TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.bold,
-                            color: ExplorerColors.navy,
+                    SizedBox(width: 10),
+                    Text(
+                      'Session Inactivity Warning',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'You have been immobile for 30 seconds. For security reasons, you will be automatically logged out in:',
+                      style: TextStyle(fontSize: 14, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ExplorerColors.navy.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '$seconds',
+                            style: const TextStyle(
+                              fontSize: 48,
+                              fontWeight: FontWeight.bold,
+                              color: ExplorerColors.navy,
+                            ),
                           ),
-                        ),
-                        const Text(
-                          'seconds remaining',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: ExplorerColors.navy,
+                          const Text(
+                            'seconds remaining',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: ExplorerColors.navy,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _kickOutUser();
+                    },
+                    child: const Text(
+                      'Sign Out Now',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ExplorerColors.navy,
+                    ),
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _dismissTimeoutDialog();
+                    },
+                    child: const Text('Stay Logged In'),
                   ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                    _kickOutUser();
-                  },
-                  child: const Text(
-                    'Sign Out Now',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ExplorerColors.navy,
-                  ),
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                    _dismissTimeoutDialog();
-                  },
-                  child: const Text('Stay Logged In'),
-                ),
-              ],
             );
           },
         );
@@ -211,16 +263,36 @@ class _AdminShellState extends State<AdminShell> {
     _startInactivityTimer();
   }
 
-  void _kickOutUser() {
+  Future<void> _kickOutUser() async {
     _inactivityTimer?.cancel();
     _popupCountdownTimer?.cancel();
-    if (_isDialogShowing) {
-      _isDialogShowing = false;
-      if (Navigator.of(context, rootNavigator: true).canPop()) {
-        Navigator.of(context, rootNavigator: true).pop();
+    _isDialogShowing = false;
+
+    try {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+      } else if (appNavigatorKey.currentState != null) {
+        appNavigatorKey.currentState!.popUntil((route) => route.isFirst);
       }
+    } catch (e) {
+      debugPrint('Error popping routes: $e');
     }
-    AppServices.signOut();
+
+    try {
+      await AppServices.signOut();
+    } catch (e) {
+      debugPrint('Error signing out: $e');
+    }
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(builder: (_) => const LoginPage(role: 'admin')),
+      );
+    } else if (appNavigatorKey.currentState != null) {
+      appNavigatorKey.currentState!.push(
+        MaterialPageRoute(builder: (_) => const LoginPage(role: 'admin')),
+      );
+    }
   }
 
   @override
