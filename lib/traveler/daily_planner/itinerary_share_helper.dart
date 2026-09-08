@@ -214,11 +214,22 @@ class ItineraryShareHelper {
       (total, day) => total + ((day['remainingMinutes'] as num?)?.round() ?? 0),
     );
 
+    final area = '${itinerary['area'] ?? itinerary['selectedArea'] ?? 'Penang'}';
+    final stateId = '${itinerary['stateId'] ?? ''}'.trim().isNotEmpty
+        ? '${itinerary['stateId']}'
+        : MalaysiaLocationService.inferStateIdFromArea(area);
+    final stateName = '${itinerary['stateName'] ?? ''}'.trim().isNotEmpty
+        ? '${itinerary['stateName']}'
+        : MalaysiaLocationService.getStateName(stateId);
+
     return <String, dynamic>{
       'shareId': shareId,
       'visibility': 'public',
       'title': _shortText(itinerary['title'] ?? 'Shared Penang Itinerary', 120),
-      'area': _shortText(itinerary['area'] ?? 'Penang', 80),
+      'area': _shortText(area, 80),
+      'selectedArea': _shortText(itinerary['selectedArea'] ?? area, 80),
+      'stateId': _shortText(stateId, 40),
+      'stateName': _shortText(stateName, 80),
       'availableHours': availableHours,
       'dayCount': publicDays.length,
       'startDate': _shortText(
@@ -335,10 +346,19 @@ class ItineraryShareHelper {
       Navigator.pop(context);
 
       final title = '${itinerary['title'] ?? 'My Penang Itinerary'}';
+      final uri = Uri.tryParse(link);
+      final shareCode = uri?.queryParameters['share'] ?? '';
+
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Share Itinerary'),
+          title: const Row(
+            children: [
+              Icon(Icons.share_rounded, color: ExplorerColors.navy),
+              SizedBox(width: 8),
+              Text('Share Itinerary'),
+            ],
+          ),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: Column(
@@ -346,11 +366,71 @@ class ItineraryShareHelper {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Anyone with this link can view the itinerary, including its place images.',
+                  'Share this itinerary with other travelers to let them view and clone a copy into their account.',
+                  style: TextStyle(fontSize: 13, color: ExplorerColors.muted),
                 ),
-                const SizedBox(height: 12),                Container(
+                if (shareCode.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const Text(
+                    'SHARE CODE (Enter in app > My Itineraries > 🔗):',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: ExplorerColors.goldSoft,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: ExplorerColors.gold.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        SelectableText(
+                          shareCode,
+                          style: const TextStyle(
+                            color: ExplorerColors.goldDark,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () async {
+                            await Clipboard.setData(ClipboardData(text: shareCode));
+                            if (dialogContext.mounted) {
+                              showMessage(dialogContext, 'Share code copied: $shareCode');
+                            }
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.copy_rounded, size: 18, color: ExplorerColors.goldDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                const Text(
+                  'WEB LINK:',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: ExplorerColors.subtle,
                     borderRadius: BorderRadius.circular(10),
@@ -361,8 +441,8 @@ class ItineraryShareHelper {
                     maxLines: 2,
                     style: const TextStyle(
                       color: ExplorerColors.navy,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -377,14 +457,17 @@ class ItineraryShareHelper {
                   showMessage(dialogContext, 'Short link copied.');
                 }
               },
-              icon: const Icon(Icons.copy_outlined),
+              icon: const Icon(Icons.link_rounded),
               label: const Text('Copy Link'),
             ),
             FilledButton.icon(
               onPressed: () async {
                 Navigator.pop(dialogContext);
                 await SharePlus.instance.share(
-                  ShareParams(text: '$title\n$link'),
+                  ShareParams(
+                    text:
+                        '$title\nShare Code: $shareCode\nLink: $link\n\nOpen in MyHeritage Explorer or view online.',
+                  ),
                 );
               },
               icon: const Icon(Icons.share_outlined),
