@@ -1,9 +1,8 @@
-Add ONLY these two collection names to your existing TEMPORARY DEVELOPMENT ACCESS list:
+Add 'user_reports' to your existing TEMPORARY DEVELOPMENT ACCESS list in Firebase Console:
 
-'private_chats',
-'location_requests',
+Firebase Console -> Firestore Database -> Rules
 
-Example:
+Add 'user_reports' to the collection list:
 
 match /{collection}/{document=**} {
   allow read, write: if signedIn()
@@ -24,6 +23,7 @@ match /{collection}/{document=**} {
         'hazards',
         'places',
         'place_content',
-        'weather_reminders'
+        'weather_reminders',
+        'user_reports'
       ];
 }

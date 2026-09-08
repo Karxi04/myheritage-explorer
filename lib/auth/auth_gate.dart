@@ -16,5 +16,6 @@ part 'gate/auth_gate_view.dart';
 part 'gate/email_verification_page.dart';
 part 'gate/vendor_pending_page.dart';
 part 'gate/account_disabled_page.dart';
+part 'gate/deactivated_account_reactivation_page.dart';
 part 'gate/platform_restriction_page.dart';
 part 'gate/missing_profile_page.dart';

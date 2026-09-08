@@ -606,6 +606,22 @@ class AppServices {
     await signOut();
   }
 
+  static Future<void> reactivateOwnAccount() async {
+    final user = auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No signed-in user was found.');
+    }
+
+    final profileRef = await accountRef(user.uid);
+    await profileRef.update({
+      'status': 'active',
+      'deletionRequested': false,
+      'lastReactivatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   static Future<void> notify({
     required String userId,
     required String title,

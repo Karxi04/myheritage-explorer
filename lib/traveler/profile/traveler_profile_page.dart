@@ -56,6 +56,34 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
   }
 
   Future<void> deactivateAccount({required bool deletionRequested}) async {
+    // Check 72-hour reactivation cooldown
+    final rawReactivatedAt = widget.profile['lastReactivatedAt'];
+    DateTime? reactivatedAt;
+    if (rawReactivatedAt is Timestamp) {
+      reactivatedAt = rawReactivatedAt.toDate();
+    } else if (rawReactivatedAt is String) {
+      reactivatedAt = DateTime.tryParse(rawReactivatedAt);
+    }
+
+    if (reactivatedAt != null) {
+      final now = DateTime.now();
+      final cooldownEnd = reactivatedAt.add(const Duration(hours: 72));
+      if (now.isBefore(cooldownEnd)) {
+        final remaining = cooldownEnd.difference(now);
+        final hours = remaining.inHours;
+        final minutes = remaining.inMinutes.remainder(60);
+        final timeStr = hours > 0
+            ? '$hours hour${hours == 1 ? '' : 's'} and $minutes minute${minutes == 1 ? '' : 's'}'
+            : '$minutes minute${minutes == 1 ? '' : 's'}';
+        showMessage(
+          context,
+          'Account deactivation is on a 72-hour cooldown after reactivation. Remaining cooldown: $timeStr.',
+          error: true,
+        );
+        return;
+      }
+    }
+
     if (deletionRequested) {
       final keywordConfirmed = await confirmDeletionKeyword(context);
       if (!keywordConfirmed || !mounted) {
@@ -74,7 +102,7 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
         builder: (_) => AlertDialog(
           title: const Text('Deactivate Account?'),
           content: const Text(
-            'Deactivating your account is temporary. Your profile, itineraries and rewards will be hidden until an administrator reactivates your account.',
+            'Deactivating your account is temporary. Your profile, itineraries and rewards will be hidden until you log back in and reactivate your account.',
           ),
           actions: [
             TextButton(
@@ -120,13 +148,7 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
         title: const ExplorerBrand(compact: true),
-        leading: Builder(
-          builder: (context) => IconButton(
-            tooltip: 'Menu',
-            onPressed: () {},
-            icon: const Icon(Icons.menu),
-          ),
-        ),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             tooltip: 'Notifications',
@@ -218,17 +240,8 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          const Text(
-            'SETTINGS & PREFERENCES',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .6,
-            ),
-          ),
-          const SizedBox(height: 8),
+          // SECTION 1: ACCOUNT & PRIVACY
+          _sectionHeader('ACCOUNT & PRIVACY'),
           ExplorerCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -249,6 +262,66 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
                   },
                 ),
                 _divider(),
+                _settingsTile(
+                  icon: widget.profile['isProfileHidden'] == true
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  title: widget.profile['isProfileHidden'] == true
+                      ? 'Profile Privacy (Hidden)'
+                      : 'Profile Privacy (Visible)',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _ProfileInformationPage(
+                          profile: widget.profile,
+                        ),
+                      ),
+                    );
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // SECTION 2: EXPLORE & COMMUNITY
+          _sectionHeader('EXPLORE & COMMUNITY'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _settingsTile(
+                  icon: Icons.person_search_outlined,
+                  title: 'Search Users',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const UserSearchPage(),
+                    ),
+                  ),
+                ),
+                _divider(),
+                _settingsTile(
+                  icon: Icons.storefront_outlined,
+                  title: 'Search Vendors',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const VendorSearchPage(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // SECTION 3: REWARDS & SAFETY
+          _sectionHeader('REWARDS & SAFETY'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
                 _settingsTile(
                   icon: Icons.account_balance_wallet_outlined,
                   title: 'Voucher Wallet',
@@ -273,17 +346,9 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          const Text(
-            'ACCOUNT MAINTENANCE',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .6,
-            ),
-          ),
-          const SizedBox(height: 8),
+
+          // SECTION 4: SECURITY & LOGIN
+          _sectionHeader('SECURITY & LOGIN'),
           ExplorerCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -356,7 +421,16 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
                   title: 'Logout',
                   onTap: AppServices.signOut,
                 ),
-                _divider(),
+              ],
+            ),
+          ),
+
+          // SECTION 5: DANGER ZONE
+          _sectionHeader('DANGER ZONE'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
                 _settingsTile(
                   icon: Icons.pause_circle_outline,
                   title: 'Deactivate Account',
@@ -375,6 +449,21 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: ExplorerColors.muted,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .6,
+        ),
       ),
     );
   }
@@ -479,6 +568,7 @@ class _ProfileInformationPageState
   late final Set<String> interests;
   late String budget;
   late String pace;
+  late bool isProfileHidden;
   bool busy = false;
 
   @override
@@ -491,6 +581,7 @@ class _ProfileInformationPageState
         Set<String>.from(widget.profile['travelInterests'] ?? const []);
     budget = '${widget.profile['budgetPreference'] ?? 'Medium'}';
     pace = '${widget.profile['travelPace'] ?? 'Balanced'}';
+    isProfileHidden = widget.profile['isProfileHidden'] == true;
     
     // Reload user to get latest email if it was verified/changed
     AppServices.auth.currentUser?.reload().then((_) {
@@ -520,6 +611,7 @@ class _ProfileInformationPageState
         'travelInterests': interests.toList(),
         'budgetPreference': budget,
         'travelPace': pace,
+        'isProfileHidden': isProfileHidden,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       await AppServices.auth.currentUser!.updateDisplayName(cleanedName);
@@ -527,6 +619,7 @@ class _ProfileInformationPageState
       widget.profile['travelInterests'] = interests.toList();
       widget.profile['budgetPreference'] = budget;
       widget.profile['travelPace'] = pace;
+      widget.profile['isProfileHidden'] = isProfileHidden;
 
       if (mounted) {
         showMessage(context, 'Profile updated.');
@@ -699,6 +792,31 @@ class _ProfileInformationPageState
                   onChanged: (value) =>
                       setState(() => pace = value ?? pace),
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Hide Profile from Search',
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Turn off profile viewing by other people. When enabled, your profile will show as hidden when others search for your name.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                  value: isProfileHidden,
+                  activeColor: ExplorerColors.navy,
+                  onChanged: (val) =>
+                      setState(() => isProfileHidden = val),
+                ),
+                const Divider(),
                 const SizedBox(height: 18),
                 ExplorerCard(
                   backgroundColor: ExplorerColors.successSoft,

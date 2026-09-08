@@ -85,3 +85,5 @@ part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
 part 'notifications/notifications_page.dart';
 part 'profile/traveler_profile_page.dart';
+part 'profile/user_search_page.dart';
+part 'profile/vendor_search_page.dart';
