@@ -26,7 +26,17 @@ class _SafetyPageState extends State<SafetyPage> {
   );
   void _safeNavigation() => Navigator.push(
     context,
-    MaterialPageRoute(builder: (_) => const SafeNavigationPage()),
+    MaterialPageRoute(
+      builder: (_) => SafeNavigationPage(
+        onViewHazard: (navigationContext, hazard) {
+          Navigator.of(navigationContext).push(
+            MaterialPageRoute<void>(
+              builder: (_) => HazardDetailPage(hazardId: hazard.id),
+            ),
+          );
+        },
+      ),
+    ),
   );
   Future<void> _preview(HazardReport report) async {
     final open = await showModalBottomSheet<bool>(

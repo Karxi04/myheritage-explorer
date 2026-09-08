@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:geolocator/geolocator.dart';
@@ -17,7 +18,11 @@ import '../../../services/hazard_report_service.dart';
 import '../../../services/location_service.dart';
 import '../../../services/place_geocoding_service.dart';
 import '../../../services/safe_routing_service.dart';
+import 'debug_navigation_simulator.dart';
+import 'destination_search_page.dart';
+import 'hazard_proximity_controller.dart';
 import 'navigation_session_controller.dart';
+import 'reroute_coordinator.dart';
 import 'route_progress_engine.dart';
 
 typedef SafeNavigationLocationLoader = Future<Position> Function();
@@ -33,6 +38,8 @@ typedef SafeNavigationMultiStopCalculator =
       required List<NavigationStop> stops,
       required List<HazardReport> hazards,
     });
+typedef SafeNavigationHazardViewer =
+    void Function(BuildContext context, HazardReport hazard);
 
 enum SafeNavigationStatus {
   gettingLocation,
@@ -54,7 +61,11 @@ class SafeNavigationPage extends StatefulWidget {
     this.geocodingService,
     this.locationService,
     this.navigationController,
+    this.hazardProximityController,
+    this.rerouteCoordinator,
     this.hazardReports,
+    this.onViewHazard,
+    this.enableDebugSimulator = kDebugMode && enableNavigationDebug,
   });
 
   final SafeNavigationLocationLoader? locationLoader;
@@ -64,7 +75,11 @@ class SafeNavigationPage extends StatefulWidget {
   final PlaceGeocodingService? geocodingService;
   final LocationService? locationService;
   final NavigationSessionController? navigationController;
+  final HazardProximityController? hazardProximityController;
+  final RerouteCoordinator? rerouteCoordinator;
   final Stream<List<HazardReport>>? hazardReports;
+  final SafeNavigationHazardViewer? onViewHazard;
+  final bool enableDebugSimulator;
 
   @override
   State<SafeNavigationPage> createState() => _SafeNavigationPageState();
@@ -81,6 +96,11 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   late final PlaceGeocodingService _geocodingService;
   late final NavigationSessionController _navigationController;
   late final bool _ownsNavigationController;
+  late final HazardProximityController _hazardProximityController;
+  late final bool _ownsHazardProximityController;
+  late final RerouteCoordinator _rerouteCoordinator;
+  late final bool _ownsRerouteCoordinator;
+  late final DebugNavigationSimulator _debugSimulator;
   StreamSubscription<List<HazardReport>>? _hazardSubscription;
 
   SafeNavigationStatus _status = SafeNavigationStatus.gettingLocation;
@@ -132,6 +152,22 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
 
     _hazardReports =
         widget.hazardReports ?? HazardReportService().watchVerifiedReports();
+    _ownsHazardProximityController = widget.hazardProximityController == null;
+    _hazardProximityController =
+        widget.hazardProximityController ??
+        HazardProximityController(navigationController: _navigationController);
+    _hazardProximityController.addListener(_onHazardProximityChanged);
+    _ownsRerouteCoordinator = widget.rerouteCoordinator == null;
+    _rerouteCoordinator =
+        widget.rerouteCoordinator ??
+        RerouteCoordinator(
+          navigationController: _navigationController,
+          calculateRoute: _calculateReroute,
+        );
+    _rerouteCoordinator.addListener(_onRerouteChanged);
+    _debugSimulator = DebugNavigationSimulator(
+      enabledOverride: widget.enableDebugSimulator,
+    );
     _listenForHazards();
     _getCurrentLocation();
   }
@@ -139,13 +175,35 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   @visibleForTesting
   NavigationSessionController get navigationController => _navigationController;
 
+  @visibleForTesting
+  RerouteCoordinator get rerouteCoordinator => _rerouteCoordinator;
+
+  @visibleForTesting
+  DebugNavigationSimulator get debugSimulator => _debugSimulator;
+
   void _onNavigationChanged() {
     if (!mounted) return;
-    setState(() {});
     final navigation = _navigationController.state;
+    setState(() {
+      if (navigation.isNavigating && navigation.route != null) {
+        _route = navigation.route;
+      }
+    });
     if (navigation.isFollowingUser &&
         navigation.currentPosition != _lastFollowedPosition) {
       _followCurrentPosition();
+    }
+  }
+
+  void _onHazardProximityChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onRerouteChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_rerouteCoordinator.state.status == RerouteStatus.succeeded) {
+      _followCurrentPosition(force: true);
     }
   }
 
@@ -238,6 +296,8 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     _hazardSubscription = _hazardReports.listen(
       (reports) {
         if (!mounted) return;
+        _hazardProximityController.updateHazards(reports);
+        _rerouteCoordinator.updateHazards(reports);
         setState(() {
           _activeHazards = HazardMapService.activeReports(reports);
           _hazardsLoaded = true;
@@ -246,6 +306,8 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
       },
       onError: (Object error) {
         if (!mounted) return;
+        _hazardProximityController.clearHazards();
+        _rerouteCoordinator.updateHazards(const []);
         setState(() {
           _activeHazards = const [];
           _hazardsLoaded = false;
@@ -474,6 +536,32 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     }
   }
 
+  Future<SafeRoute> _calculateReroute({
+    required LatLng start,
+    required List<NavigationStop> stops,
+    required List<HazardReport> hazards,
+  }) async {
+    if (widget.multiStopRouteCalculator case final multiCalculator?) {
+      return multiCalculator(start: start, stops: stops, hazards: hazards);
+    }
+    final legacyCalculator = widget.routeCalculator;
+    if (stops.length == 1 && legacyCalculator != null) {
+      return legacyCalculator(
+        start: start,
+        destination: stops.single.location,
+        hazards: hazards,
+      );
+    }
+    final service =
+        widget.routingService ??
+        (_ownedRoutingService ??= SafeRoutingService());
+    return service.calculateSafeRoute(
+      start: start,
+      stops: stops,
+      hazards: hazards,
+    );
+  }
+
   void _fitRouteWhenReady(SafeRoute route) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_mapReady || route.geometry.isEmpty) return;
@@ -532,13 +620,13 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   };
 
   Future<void> _openSearchSheet(BuildContext context) async {
-    final selectedStop = await showModalBottomSheet<NavigationStop>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _DestinationSearchSheet(
-        geocodingService: _geocodingService,
-        proximity: _start,
+    final proximity = _navigationController.state.currentPosition ?? _start;
+    final selectedStop = await Navigator.of(context).push<NavigationStop>(
+      MaterialPageRoute(
+        builder: (searchContext) => DestinationSearchPage(
+          geocodingService: _geocodingService,
+          proximity: proximity,
+        ),
       ),
     );
     if (selectedStop != null && mounted) {
@@ -549,6 +637,12 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   @override
   void dispose() {
     _hazardSubscription?.cancel();
+    _rerouteCoordinator.removeListener(_onRerouteChanged);
+    if (_ownsRerouteCoordinator) _rerouteCoordinator.dispose();
+    _hazardProximityController.removeListener(_onHazardProximityChanged);
+    if (_ownsHazardProximityController) {
+      _hazardProximityController.dispose();
+    }
     _navigationController.removeListener(_onNavigationChanged);
     if (_ownsNavigationController) _navigationController.dispose();
     _ownedGeocodingService?.dispose();
@@ -562,15 +656,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     final navigation = _navigationController.state;
     final hazardMarkers = _hazardMapService.buildHazardMarkers(
       reports: _activeHazards,
-      onTap: (hazard) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${hazard.category}: ${hazard.severity} severity verified hazard',
-            ),
-          ),
-        );
-      },
+      onTap: _viewHazard,
     );
     final startMarker = navigation.isNavigating
         ? null
@@ -661,162 +747,374 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
       child: Scaffold(
         backgroundColor: ExplorerColors.background,
         appBar: AppBar(title: const Text('Safe Navigation')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: Column(
-            children: [
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: fm.FlutterMap(
-                        key: const ValueKey('safe-navigation-map'),
-                        mapController: _mapController,
-                        options: fm.MapOptions(
-                          initialCenter:
-                              _start ?? HazardMapService.defaultCenter,
-                          initialZoom: HazardMapService.defaultZoom,
-                          onMapReady: () {
-                            _mapReady = true;
-                            final route = _route;
-                            if (route != null) {
-                              _fitRouteWhenReady(route);
-                            } else if (_start case final start?) {
-                              _mapController.move(start, 14);
-                            }
-                          },
-                          onTap: (_, point) {
-                            if (!navigation.isNavigating) {
-                              _selectDestination(point);
-                            }
-                          },
-                          onPositionChanged: (_, hasGesture) {
-                            if (hasGesture && navigation.isNavigating) {
-                              _navigationController.disableFollowing();
-                            }
-                          },
-                          interactionOptions: const fm.InteractionOptions(
-                            flags:
-                                fm.InteractiveFlag.all &
-                                ~fm.InteractiveFlag.rotate,
-                          ),
-                        ),
-                        children: [
-                          fm.TileLayer(
-                            urlTemplate: HazardMapService.osmTileUrl,
-                            userAgentPackageName: 'com.myheritage.explorer',
-                          ),
-                          fm.CircleLayer(
-                            circles: _hazardMapService.buildDangerZoneCircles(
-                              reports: _activeHazards,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1200),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: fm.FlutterMap(
+                          key: const ValueKey('safe-navigation-map'),
+                          mapController: _mapController,
+                          options: fm.MapOptions(
+                            initialCenter:
+                                _start ?? HazardMapService.defaultCenter,
+                            initialZoom: HazardMapService.defaultZoom,
+                            onMapReady: () {
+                              _mapReady = true;
+                              final route = _route;
+                              if (route != null) {
+                                _fitRouteWhenReady(route);
+                              } else if (_start case final start?) {
+                                _mapController.move(start, 14);
+                              }
+                            },
+                            onTap: (_, point) {
+                              if (!navigation.isNavigating) {
+                                _selectDestination(point);
+                              }
+                            },
+                            onPositionChanged: (_, hasGesture) {
+                              if (hasGesture && navigation.isNavigating) {
+                                _navigationController.disableFollowing();
+                              }
+                            },
+                            interactionOptions: const fm.InteractionOptions(
+                              flags:
+                                  fm.InteractiveFlag.all &
+                                  ~fm.InteractiveFlag.rotate,
                             ),
                           ),
-                          if (_route case final route?)
-                            fm.PolylineLayer(
-                              key: const ValueKey(
-                                'safe-navigation-route-layer',
+                          children: [
+                            fm.TileLayer(
+                              urlTemplate: HazardMapService.osmTileUrl,
+                              userAgentPackageName: 'com.myheritage.explorer',
+                            ),
+                            fm.CircleLayer(
+                              circles: _hazardMapService.buildDangerZoneCircles(
+                                reports: _activeHazards,
                               ),
-                              polylines: [
-                                fm.Polyline(
-                                  points: route.geometry,
-                                  color: ExplorerColors.navy,
-                                  strokeWidth: 6,
-                                  borderColor: Colors.white,
-                                  borderStrokeWidth: 2,
+                            ),
+                            if (_route case final route?)
+                              fm.PolylineLayer(
+                                key: const ValueKey(
+                                  'safe-navigation-route-layer',
+                                ),
+                                polylines: [
+                                  fm.Polyline(
+                                    points: route.geometry,
+                                    color: ExplorerColors.navy,
+                                    strokeWidth: 6,
+                                    borderColor: Colors.white,
+                                    borderStrokeWidth: 2,
+                                  ),
+                                ],
+                              ),
+                            fm.MarkerLayer(markers: markers),
+                            const fm.RichAttributionWidget(
+                              alignment: fm.AttributionAlignment.bottomLeft,
+                              showFlutterMapAttribution: false,
+                              attributions: [
+                                fm.TextSourceAttribution(
+                                  'OpenStreetMap contributors',
                                 ),
                               ],
                             ),
-                          fm.MarkerLayer(markers: markers),
-                          const fm.RichAttributionWidget(
-                            alignment: fm.AttributionAlignment.bottomLeft,
-                            showFlutterMapAttribution: false,
-                            attributions: [
-                              fm.TextSourceAttribution(
-                                'OpenStreetMap contributors',
-                              ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      right: 12,
-                      child: navigation.isNavigating
-                          ? _buildManeuverHud(navigation)
-                          : Align(
-                              alignment: Alignment.topLeft,
-                              child: Material(
-                                color: Colors.white.withValues(alpha: .94),
-                                elevation: 2,
-                                borderRadius: BorderRadius.circular(10),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  child: Text(
-                                    _activeHazards.isEmpty
-                                        ? 'Tap the map to choose a destination'
-                                        : '${_activeHazards.length} verified hazard zone${_activeHazards.length == 1 ? '' : 's'} shown',
-                                    style: const TextStyle(
-                                      color: ExplorerColors.navy,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        right: 12,
+                        child: navigation.isNavigating
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (navigation.isSimulatedLocation) ...[
+                                    _buildSimulatedGpsBadge(),
+                                    const SizedBox(height: 8),
+                                  ],
+                                  _buildManeuverHud(navigation),
+                                  if (_rerouteCoordinator.state.status !=
+                                      RerouteStatus.idle) ...[
+                                    const SizedBox(height: 8),
+                                    _buildRerouteBanner(
+                                      _rerouteCoordinator.state,
+                                    ),
+                                  ],
+                                  if (_hazardProximityController.prominentAlert
+                                      case final alert?) ...[
+                                    const SizedBox(height: 8),
+                                    _buildProminentHazardAlert(alert),
+                                  ],
+                                ],
+                              )
+                            : Align(
+                                alignment: Alignment.topLeft,
+                                child: Material(
+                                  color: Colors.white.withValues(alpha: .94),
+                                  elevation: 2,
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 7,
+                                    ),
+                                    child: Text(
+                                      _activeHazards.isEmpty
+                                          ? 'Tap the map to choose a destination'
+                                          : '${_activeHazards.length} verified hazard zone${_activeHazards.length == 1 ? '' : 's'} shown',
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
+                      ),
+                      if (widget.enableDebugSimulator &&
+                          navigation.isNavigating)
+                        Positioned(
+                          left: 14,
+                          bottom: 14,
+                          child: FloatingActionButton.small(
+                            key: const ValueKey(
+                              'safe-navigation-debug-simulator-toggle',
                             ),
-                    ),
-                    if (navigation.isNavigating)
-                      Positioned(
-                        right: 14,
-                        bottom: 14,
-                        child: FloatingActionButton.small(
-                          key: const ValueKey(
-                            'safe-navigation-recenter-button',
-                          ),
-                          heroTag: 'safe-navigation-recenter',
-                          onPressed: _recenterNavigation,
-                          backgroundColor: navigation.isFollowingUser
-                              ? ExplorerColors.navy
-                              : Colors.white,
-                          foregroundColor: navigation.isFollowingUser
-                              ? Colors.white
-                              : ExplorerColors.navy,
-                          tooltip: navigation.isFollowingUser
-                              ? 'Following current location'
-                              : 'Recenter and follow',
-                          child: Icon(
-                            navigation.isFollowingUser
-                                ? Icons.gps_fixed
-                                : Icons.gps_not_fixed,
+                            heroTag: 'safe-navigation-debug-simulator',
+                            onPressed: () => _openDebugSimulatorSheet(context),
+                            backgroundColor: Colors.amber.shade800,
+                            foregroundColor: Colors.white,
+                            tooltip: 'GPS Simulator',
+                            child: const Icon(Icons.developer_mode),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              SafeArea(
-                top: false,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 330),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-                    child: _buildControls(context),
+                      if (navigation.isNavigating)
+                        Positioned(
+                          right: 14,
+                          bottom: 14,
+                          child: FloatingActionButton.small(
+                            key: const ValueKey(
+                              'safe-navigation-recenter-button',
+                            ),
+                            heroTag: 'safe-navigation-recenter',
+                            onPressed: _recenterNavigation,
+                            backgroundColor: navigation.isFollowingUser
+                                ? ExplorerColors.navy
+                                : Colors.white,
+                            foregroundColor: navigation.isFollowingUser
+                                ? Colors.white
+                                : ExplorerColors.navy,
+                            tooltip: navigation.isFollowingUser
+                                ? 'Following current location'
+                                : 'Recenter and follow',
+                            child: Icon(
+                              navigation.isFollowingUser
+                                  ? Icons.gps_fixed
+                                  : Icons.gps_not_fixed,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+                SafeArea(
+                  top: false,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 330),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+                      child: _buildControls(context),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  void _viewHazard(HazardReport hazard) {
+    _hazardProximityController.dismissProminentAlert();
+    final viewer = widget.onViewHazard;
+    if (viewer != null) {
+      viewer(context, hazard);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Hazard details are unavailable here.')),
+    );
+  }
+
+  Widget _buildRerouteBanner(RerouteState reroute) {
+    final failed = reroute.status == RerouteStatus.failed;
+    final succeeded = reroute.status == RerouteStatus.succeeded;
+    final color = failed
+        ? ExplorerColors.warning
+        : succeeded
+        ? ExplorerColors.success
+        : ExplorerColors.navy;
+    return Material(
+      key: const ValueKey('safe-navigation-reroute-banner'),
+      color: Colors.white.withValues(alpha: .97),
+      elevation: 5,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            if (reroute.isRerouting)
+              SizedBox(
+                key: const ValueKey('safe-navigation-rerouting-progress'),
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: color,
+                ),
+              )
+            else
+              Icon(
+                succeeded ? Icons.check_circle_outline : Icons.warning_amber,
+                color: color,
+                size: 20,
+              ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                reroute.message ?? 'Rerouting…',
+                key: const ValueKey('safe-navigation-reroute-message'),
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProminentHazardAlert(HazardProximity proximity) {
+    final hazard = proximity.hazard;
+    final inside = proximity.state == HazardZoneState.inside;
+    final title = inside
+        ? 'YOU ARE INSIDE A ${hazard.severity.toUpperCase()} SEVERITY HAZARD AREA'
+        : '${hazard.severity.toUpperCase()} SEVERITY ${hazard.category.toUpperCase()} HAZARD AHEAD';
+    final action = inside
+        ? 'Leave the area if it is safe to do so.'
+        : proximity.isOnCurrentRoute
+        ? 'Hazard exposure on your current route.'
+        : 'Rerouting recommended.';
+    return Material(
+      key: const ValueKey('safe-navigation-prominent-hazard-alert'),
+      color: inside ? ExplorerColors.danger : const Color(0xFFFFF4D6),
+      elevation: 7,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: inside ? Colors.white : ExplorerColors.danger,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    key: const ValueKey(
+                      'safe-navigation-prominent-hazard-title',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: inside ? Colors.white : ExplorerColors.danger,
+                      fontSize: 13,
+                      height: 1.15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hazard.category,
+              style: TextStyle(
+                color: inside ? Colors.white : ExplorerColors.navy,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+            if (hazard.description.trim().isNotEmpty)
+              Text(
+                hazard.description.trim(),
+                key: const ValueKey(
+                  'safe-navigation-prominent-hazard-description',
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: inside ? Colors.white : ExplorerColors.text,
+                  fontSize: 12,
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              '${proximity.distanceMeters.round()} m away · $action',
+              key: const ValueKey('safe-navigation-prominent-hazard-action'),
+              style: TextStyle(
+                color: inside ? Colors.white : ExplorerColors.navy,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  key: const ValueKey('safe-navigation-view-hazard-button'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: inside
+                        ? Colors.white
+                        : ExplorerColors.navy,
+                  ),
+                  onPressed: () => _viewHazard(hazard),
+                  child: const Text('View Hazard'),
+                ),
+                TextButton(
+                  key: const ValueKey('safe-navigation-dismiss-hazard-button'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: inside
+                        ? Colors.white
+                        : ExplorerColors.navy,
+                  ),
+                  onPressed: _hazardProximityController.dismissProminentAlert,
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   bool get _isStartInsideHazard {
     final start = _start;
@@ -831,6 +1129,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   Widget _buildManeuverHud(NavigationSessionState navigation) {
     final progress = navigation.progress;
     final isArrival = progress?.arrival != NavigationArrival.none;
+    final hazard = _hazardProximityController.primaryProximity;
     return Material(
       key: const ValueKey('safe-navigation-maneuver-hud'),
       color: isArrival ? ExplorerColors.success : ExplorerColors.navy,
@@ -838,51 +1137,87 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              _maneuverIcon(progress?.maneuver),
-              key: const ValueKey('safe-navigation-maneuver-icon'),
-              color: Colors.white,
-              size: 44,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    progress?.instruction ?? 'Continue on route',
-                    key: const ValueKey('safe-navigation-next-instruction'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      height: 1.15,
-                      fontWeight: FontWeight.w800,
-                    ),
+            Row(
+              children: [
+                Icon(
+                  _maneuverIcon(progress?.maneuver),
+                  key: const ValueKey('safe-navigation-maneuver-icon'),
+                  color: Colors.white,
+                  size: 44,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        progress?.instruction ?? 'Continue on route',
+                        key: const ValueKey('safe-navigation-next-instruction'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          height: 1.15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (!isArrival) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          progress == null
+                              ? 'Waiting for a GPS fix…'
+                              : _formatDistance(
+                                  progress.distanceToManeuverMeters,
+                                ),
+                          key: const ValueKey(
+                            'safe-navigation-distance-to-maneuver',
+                          ),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  if (!isArrival) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      progress == null
-                          ? 'Waiting for a GPS fix…'
-                          : _formatDistance(progress.distanceToManeuverMeters),
-                      key: const ValueKey(
-                        'safe-navigation-distance-to-maneuver',
-                      ),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
+            if (hazard != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const ValueKey(
+                  'safe-navigation-persistent-hazard-indicator',
+                ),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .16),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  hazard.state == HazardZoneState.inside
+                      ? '⚠ Inside ${hazard.hazard.severity} Hazard Area'
+                      : '⚠ ${hazard.hazard.severity} Hazard Ahead',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1299,6 +1634,264 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     );
   }
 
+  void _openDebugSimulatorSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _buildDebugSimulatorSheet(sheetContext),
+    );
+  }
+
+  Widget _buildSimulatedGpsBadge() => Container(
+    key: const ValueKey('safe-navigation-simulated-gps-badge'),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: Colors.amber.shade900,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: const [
+        BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 2)),
+      ],
+    ),
+    child: const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.developer_mode, size: 16, color: Colors.white),
+        SizedBox(width: 6),
+        Text(
+          'SIMULATED GPS',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+            letterSpacing: 1.0,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildDebugSimulatorSheet(BuildContext sheetContext) {
+    final isSimulating = _navigationController.state.isSimulatedLocation;
+    return Material(
+      key: const ValueKey('safe-navigation-debug-simulator-panel'),
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.developer_mode,
+                    color: Colors.amber.shade900,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'GPS Simulator (Debug Mode)',
+                      style: TextStyle(
+                        color: Colors.amber.shade900,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  if (isSimulating) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade900,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'SIMULATING',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                  ),
+                ],
+              ),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-on-route-button',
+                    ),
+                    onPressed: _simulateOnRoute,
+                    icon: const Icon(Icons.navigation_outlined, size: 16),
+                    label: const Text('Simulate On-Route (+25m)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-off-route-80m-button',
+                    ),
+                    onPressed: _simulateOffRoute80mSingle,
+                    icon: const Icon(Icons.warning_amber_rounded, size: 16),
+                    label: const Text('Off-Route 80m (Suspect)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-off-route-80m-confirmed-button',
+                    ),
+                    onPressed: _simulateOffRoute80mConfirmed,
+                    icon: const Icon(Icons.alt_route_rounded, size: 16),
+                    label: const Text('Off-Route 80m (Confirmed Reroute)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-off-route-150m-button',
+                    ),
+                    onPressed: _simulateOffRoute150mConfirmed,
+                    icon: const Icon(Icons.trending_up_rounded, size: 16),
+                    label: const Text('Off-Route 150m (Confirmed Reroute)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-approaching-hazard-button',
+                    ),
+                    onPressed: _simulateApproachingHazard,
+                    icon: const Icon(Icons.crisis_alert_rounded, size: 16),
+                    label: const Text('Simulate Approaching Hazard'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-simulate-inside-hazard-button',
+                    ),
+                    onPressed: _simulateInsideHazard,
+                    icon: const Icon(Icons.dangerous_outlined, size: 16),
+                    label: const Text('Simulate Inside Hazard'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.brown.shade900,
+                      side: BorderSide(color: Colors.amber.shade700),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    key: const ValueKey(
+                      'safe-navigation-restore-real-gps-button',
+                    ),
+                    onPressed: _restoreRealGps,
+                    icon: const Icon(Icons.restore, size: 16),
+                    label: const Text('Restore Real GPS'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.amber.shade800,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _simulateOnRoute() {
+    final result = _debugSimulator.simulateOnRoute(
+      controller: _navigationController,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  void _simulateOffRoute80mSingle() {
+    final result = _debugSimulator.simulateOffRouteSingle(
+      controller: _navigationController,
+      distanceMeters: 80.0,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  Future<void> _simulateOffRoute80mConfirmed() async {
+    final result = await _debugSimulator.simulateOffRouteConfirmed(
+      controller: _navigationController,
+      distanceMeters: 80.0,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  Future<void> _simulateOffRoute150mConfirmed() async {
+    final result = await _debugSimulator.simulateOffRouteConfirmed(
+      controller: _navigationController,
+      distanceMeters: 150.0,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  void _simulateApproachingHazard() {
+    final result = _debugSimulator.simulateApproachingHazard(
+      controller: _navigationController,
+      hazards: _activeHazards,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  void _simulateInsideHazard() {
+    final result = _debugSimulator.simulateInsideHazard(
+      controller: _navigationController,
+      hazards: _activeHazards,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  void _restoreRealGps() {
+    final result = _debugSimulator.restoreRealGps(
+      controller: _navigationController,
+    );
+    _showSimulatorFeedback(result.message);
+  }
+
+  void _showSimulatorFeedback(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+
   static IconData _navigationIssueIcon(NavigationLocationIssue? issue) =>
       switch (issue) {
         NavigationLocationIssue.permissionDenied ||
@@ -1665,261 +2258,4 @@ class _SummaryValue extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _DestinationSearchSheet extends StatefulWidget {
-  const _DestinationSearchSheet({
-    required this.geocodingService,
-    required this.proximity,
-  });
-
-  final PlaceGeocodingService geocodingService;
-  final LatLng? proximity;
-
-  @override
-  State<_DestinationSearchSheet> createState() =>
-      _DestinationSearchSheetState();
-}
-
-class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
-  final _searchController = TextEditingController();
-  Timer? _debounceTimer;
-  int _searchRequestId = 0;
-  bool _searching = false;
-  List<NavigationStop> _searchResults = const [];
-  String? _searchError;
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _executeSearch(String rawQuery) async {
-    final query = rawQuery.trim();
-    if (query.length < 2) {
-      _searchRequestId++;
-      if (mounted) {
-        setState(() {
-          _searching = false;
-          _searchResults = const [];
-          _searchError = null;
-        });
-      }
-      return;
-    }
-    final currentRequestId = ++_searchRequestId;
-    if (mounted) {
-      setState(() {
-        _searching = true;
-        _searchError = null;
-      });
-    }
-    try {
-      final results = await widget.geocodingService.searchPlaces(
-        query,
-        proximity: widget.proximity,
-      );
-      if (!mounted || currentRequestId != _searchRequestId) return;
-      setState(() {
-        _searching = false;
-        _searchResults = results;
-        if (results.isEmpty) {
-          _searchError = 'No places found for "$query".';
-        }
-      });
-    } catch (_) {
-      if (!mounted || currentRequestId != _searchRequestId) return;
-      setState(() {
-        _searching = false;
-        _searchError =
-            'Search failed. Check your connection or try again.';
-      });
-    }
-  }
-
-  void _onQueryChanged(String value) {
-    _debounceTimer?.cancel();
-    final query = value.trim();
-    if (query.length < 2) {
-      _searchRequestId++;
-      if (mounted) {
-        setState(() {
-          _searching = false;
-          _searchResults = const [];
-          _searchError = null;
-        });
-      }
-      return;
-    }
-    _debounceTimer = Timer(const Duration(milliseconds: 350), () {
-      if (mounted) _executeSearch(value);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.75,
-        ),
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          MediaQuery.of(context).viewInsets.bottom + 16,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.search, color: ExplorerColors.navy),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Search and Add Stop',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: ExplorerColors.navy,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const ValueKey('safe-navigation-search-input'),
-                    controller: _searchController,
-                    autofocus: true,
-                    textInputAction: TextInputAction.search,
-                    onChanged: _onQueryChanged,
-                    onSubmitted: (value) {
-                      _debounceTimer?.cancel();
-                      _executeSearch(value);
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Search place name or address in Malaysia…',
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: _searching
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  key: ValueKey(
-                                    'safe-navigation-search-loading',
-                                  ),
-                                ),
-                              ),
-                            )
-                          : (_searchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 18),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _onQueryChanged('');
-                                  },
-                                )
-                              : null),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  key: const ValueKey('safe-navigation-search-submit'),
-                  onPressed: _searching
-                      ? null
-                      : () {
-                          _debounceTimer?.cancel();
-                          _executeSearch(_searchController.text);
-                        },
-                  child: _searching
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Search'),
-                ),
-              ],
-            ),
-            if (_searchError != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _searchError!,
-                key: const ValueKey('safe-navigation-search-error'),
-                style: const TextStyle(
-                  color: ExplorerColors.danger,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: _searchResults.length,
-                separatorBuilder: (context, index) =>
-                    const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final place = _searchResults[index];
-                  return ListTile(
-                    key: ValueKey('safe-navigation-search-result-$index'),
-                    leading: const Icon(
-                      Icons.location_on_outlined,
-                      color: ExplorerColors.navy,
-                    ),
-                    title: Text(
-                      place.displayName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    subtitle: place.address != null
-                        ? Text(
-                            place.address!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.of(context).pop(place);
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

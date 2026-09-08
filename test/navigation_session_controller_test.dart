@@ -7,6 +7,7 @@ import 'package:myheritage_explorer/models/navigation_stop.dart';
 import 'package:myheritage_explorer/models/safe_route.dart';
 import 'package:myheritage_explorer/services/location_service.dart';
 import 'package:myheritage_explorer/traveler/safety/navigation/navigation_session_controller.dart';
+import 'package:myheritage_explorer/traveler/safety/navigation/route_progress_engine.dart';
 
 void main() {
   const origin = LatLng(6.1257, 100.3665);
@@ -169,6 +170,110 @@ void main() {
       );
       expect(() => controller.state.stops.clear(), throwsUnsupportedError);
     });
+
+    test('minor GPS backward noise does not reverse route progress', () async {
+      await controller.start(route: route(), stops: stops());
+      positions.add(position(latitude: 6.1302, longitude: 100.3702));
+      final forward = controller.state.progress!.geometryProgress;
+
+      positions.add(position(latitude: 6.13015, longitude: 100.37015));
+
+      expect(
+        controller.state.progress!.geometryProgress,
+        closeTo(forward, 1e-9),
+      );
+    });
+
+    test('missing RouteStep data still publishes safe progress', () async {
+      await controller.start(route: route(), stops: stops());
+      positions.add(position());
+
+      expect(controller.state.progress, isNotNull);
+      expect(controller.state.progress!.activeStepIndex, isNull);
+      expect(controller.state.progress!.currentRoadName, 'Unnamed road');
+    });
+
+    test(
+      'intermediate stop remains locked until explicitly continued',
+      () async {
+        const middle = LatLng(6.13, 100.37);
+        const orderedStops = [
+          NavigationStop(id: 'middle', location: middle, displayName: 'Stop 1'),
+          NavigationStop(
+            id: 'final',
+            location: destination,
+            displayName: 'Final Stop',
+            isDestination: true,
+          ),
+        ];
+        const legOneStep = RouteStep(
+          instruction: 'Continue to Stop 1',
+          roadName: 'First Road',
+          distanceMeters: 700,
+          durationSeconds: 180,
+          maneuverType: 6,
+          startGeometryIndex: 0,
+          endGeometryIndex: 1,
+        );
+        const legTwoStep = RouteStep(
+          instruction: 'Continue to Final Stop',
+          roadName: 'Second Road',
+          distanceMeters: 1100,
+          durationSeconds: 240,
+          maneuverType: 6,
+          startGeometryIndex: 1,
+          endGeometryIndex: 2,
+        );
+        final multiRoute = SafeRoute(
+          geometry: const [origin, middle, destination],
+          distanceMeters: 1800,
+          durationSeconds: 420,
+          steps: const [legOneStep, legTwoStep],
+          legs: [
+            RouteLeg(
+              startStopName: 'Current Location',
+              endStopName: 'Stop 1',
+              startLocation: origin,
+              endLocation: middle,
+              distanceMeters: 700,
+              durationSeconds: 180,
+              steps: const [legOneStep],
+            ),
+            RouteLeg(
+              startStopName: 'Stop 1',
+              endStopName: 'Final Stop',
+              startLocation: middle,
+              endLocation: destination,
+              distanceMeters: 1100,
+              durationSeconds: 240,
+              steps: const [legTwoStep],
+            ),
+          ],
+        );
+        await controller.start(route: multiRoute, stops: orderedStops);
+
+        positions.add(
+          position(latitude: middle.latitude, longitude: middle.longitude),
+        );
+        expect(
+          controller.state.progress!.arrival,
+          NavigationArrival.intermediateStop,
+        );
+
+        positions.add(
+          position(
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+          ),
+        );
+        expect(controller.state.progress!.currentLegIndex, 0);
+        expect(controller.state.progress!.nextStop, orderedStops.first);
+
+        controller.continueToNextStop();
+        expect(controller.state.progress!.currentLegIndex, 1);
+        expect(controller.state.progress!.nextStop, orderedStops.last);
+      },
+    );
   });
 
   group('heading stability', () {
@@ -349,6 +454,10 @@ void main() {
       expect(calls, 1);
       expect(
         controller.state.currentLocationLabel,
+        'Jalan Sultan Badlishah, Alor Setar',
+      );
+      expect(
+        controller.state.progress!.currentRoadName,
         'Jalan Sultan Badlishah, Alor Setar',
       );
     });

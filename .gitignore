@@ -67,3 +67,6 @@ android/local.properties
 android/key.properties
 *.jks
 *.keystore
+
+# Local credentials
+ors_secrets.json

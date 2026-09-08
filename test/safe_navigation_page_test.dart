@@ -13,6 +13,7 @@ import 'package:myheritage_explorer/models/safe_route.dart';
 import 'package:myheritage_explorer/services/location_service.dart';
 import 'package:myheritage_explorer/services/place_geocoding_service.dart';
 import 'package:myheritage_explorer/services/safe_routing_service.dart';
+import 'package:myheritage_explorer/traveler/safety/navigation/hazard_proximity_controller.dart';
 import 'package:myheritage_explorer/traveler/safety/navigation/navigation_session_controller.dart';
 import 'package:myheritage_explorer/traveler/safety/navigation/safe_navigation_page.dart';
 
@@ -90,7 +91,9 @@ void main() {
     SafeNavigationMultiStopCalculator? multiStopRouteCalculator,
     PlaceGeocodingService? geocodingService,
     NavigationSessionController? navigationController,
+    HazardProximityController? hazardProximityController,
     Stream<List<HazardReport>>? hazards,
+    SafeNavigationHazardViewer? onViewHazard,
     double textScale = 1,
   }) async {
     await tester.pumpWidget(
@@ -109,7 +112,9 @@ void main() {
           multiStopRouteCalculator: multiStopRouteCalculator,
           geocodingService: geocodingService,
           navigationController: navigationController,
+          hazardProximityController: hazardProximityController,
           hazardReports: hazards ?? Stream.value(const []),
+          onViewHazard: onViewHazard,
         ),
       ),
     );
@@ -1078,7 +1083,7 @@ void main() {
     });
 
     testWidgets(
-      'query under 2 characters clears results and does not query API',
+      'one-character query triggers search and clearing text resets results without extra request',
       (tester) async {
         int apiCallCount = 0;
         final mockClient = MockClient((request) async {
@@ -1117,14 +1122,15 @@ void main() {
         final searchInput = find.byKey(
           const ValueKey('safe-navigation-search-input'),
         );
-        await tester.enterText(searchInput, 'Pe');
+        // 1-character query 'P' triggers search after debounce
+        await tester.enterText(searchInput, 'P');
         await tester.pump(const Duration(milliseconds: 400));
         await tester.pumpAndSettle();
         expect(apiCallCount, 1);
         expect(find.text('Penang Hill'), findsOneWidget);
 
-        // Backspace down to 1 character
-        await tester.enterText(searchInput, 'P');
+        // Clearing query to empty
+        await tester.enterText(searchInput, '');
         await tester.pump(const Duration(milliseconds: 400));
         await tester.pumpAndSettle();
 
@@ -1134,53 +1140,52 @@ void main() {
       },
     );
 
-    testWidgets(
-      'shows no-result notice and friendly error on failure',
-      (tester) async {
-        final mockClient = MockClient((request) async {
-          final query = request.url.queryParameters['text'] ?? '';
-          if (query == 'error') {
-            throw Exception('Simulated network failure');
-          }
-          if (query == 'empty') {
-            return http.Response(
-              jsonEncode({'type': 'FeatureCollection', 'features': []}),
-              200,
-            );
-          }
-          return http.Response('{}', 200);
-        });
-        final geocoding = PlaceGeocodingService(
-          client: mockClient,
-          apiKey: 'test-key',
-        );
+    testWidgets('shows no-result notice and friendly error on failure', (
+      tester,
+    ) async {
+      final mockClient = MockClient((request) async {
+        final query = request.url.queryParameters['text'] ?? '';
+        if (query == 'error') {
+          return http.Response('Server error', 500);
+        }
+        if (query == 'empty') {
+          return http.Response(
+            jsonEncode({'type': 'FeatureCollection', 'features': []}),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      });
+      final geocoding = PlaceGeocodingService(
+        client: mockClient,
+        apiKey: 'test-key',
+      );
 
-        await pumpPage(tester, geocodingService: geocoding);
-        await tester.tap(
-          find.byKey(const ValueKey('safe-navigation-add-stop-button')),
-        );
-        await tester.pumpAndSettle();
+      await pumpPage(tester, geocodingService: geocoding);
+      await tester.tap(
+        find.byKey(const ValueKey('safe-navigation-add-stop-button')),
+      );
+      await tester.pumpAndSettle();
 
-        final searchInput = find.byKey(
-          const ValueKey('safe-navigation-search-input'),
-        );
+      final searchInput = find.byKey(
+        const ValueKey('safe-navigation-search-input'),
+      );
 
-        // Test no-result notice
-        await tester.enterText(searchInput, 'empty');
-        await tester.pump(const Duration(milliseconds: 400));
-        await tester.pumpAndSettle();
-        expect(find.text('No places found for "empty".'), findsOneWidget);
+      // Test no-result notice
+      await tester.enterText(searchInput, 'empty');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text('No matching places found.'), findsOneWidget);
 
-        // Test error notice
-        await tester.enterText(searchInput, 'error');
-        await tester.pump(const Duration(milliseconds: 400));
-        await tester.pumpAndSettle();
-        expect(
-          find.text('No places found for "error".'),
-          findsOneWidget,
-        );
-      },
-    );
+      // Test error notice
+      await tester.enterText(searchInput, 'error');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Unable to search places right now. Try again.'),
+        findsWidgets,
+      );
+    });
 
     testWidgets(
       'selecting suggestion creates NavigationStop, adds to list, and closes search sheet',
@@ -1247,48 +1252,45 @@ void main() {
   });
 
   group('Review Area 2: end navigation confirmation', () {
-    testWidgets(
-      'explicit End Navigation button prompts confirmation dialog',
-      (tester) async {
-        final positions = StreamController<Position>(sync: true);
-        final navigationController = NavigationSessionController(
-          ensureLocationAccess: () async {},
-          positionStream: () => positions.stream,
-        );
-        addTearDown(() async {
-          navigationController.dispose();
-          await positions.close();
-        });
+    testWidgets('explicit End Navigation button prompts confirmation dialog', (
+      tester,
+    ) async {
+      final positions = StreamController<Position>(sync: true);
+      final navigationController = NavigationSessionController(
+        ensureLocationAccess: () async {},
+        positionStream: () => positions.stream,
+      );
+      addTearDown(() async {
+        navigationController.dispose();
+        await positions.close();
+      });
 
-        await pumpPage(tester, navigationController: navigationController);
-        await selectDestination(tester);
-        await calculate(tester);
+      await pumpPage(tester, navigationController: navigationController);
+      await selectDestination(tester);
+      await calculate(tester);
 
-        final startAction = find.byKey(
-          const ValueKey('safe-navigation-start-navigation'),
-        );
-        await tester.ensureVisible(startAction);
-        await tester.tap(startAction);
-        await tester.pump();
-        expect(navigationController.state.isNavigating, isTrue);
+      final startAction = find.byKey(
+        const ValueKey('safe-navigation-start-navigation'),
+      );
+      await tester.ensureVisible(startAction);
+      await tester.tap(startAction);
+      await tester.pump();
+      expect(navigationController.state.isNavigating, isTrue);
 
-        final endAction = find.byKey(
-          const ValueKey('safe-navigation-end-navigation'),
-        );
-        await tester.ensureVisible(endAction);
-        await tester.tap(endAction);
-        await tester.pumpAndSettle();
+      final endAction = find.byKey(
+        const ValueKey('safe-navigation-end-navigation'),
+      );
+      await tester.ensureVisible(endAction);
+      await tester.tap(endAction);
+      await tester.pumpAndSettle();
 
-        // Dialog appears and navigation remains active while dialog is shown
-        expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
-          findsOneWidget,
-        );
-        expect(navigationController.state.isNavigating, isTrue);
-      },
-    );
+      // Dialog appears and navigation remains active while dialog is shown
+      expect(
+        find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
+        findsOneWidget,
+      );
+      expect(navigationController.state.isNavigating, isTrue);
+    });
 
     testWidgets(
       'Keep Navigating dismisses dialog and preserves active session',
@@ -1330,9 +1332,7 @@ void main() {
 
         // Dialog dismissed, navigation still active
         expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
+          find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
           findsNothing,
         );
         expect(navigationController.state.isNavigating, isTrue);
@@ -1343,58 +1343,55 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Confirming End Navigation ends session cleanly',
-      (tester) async {
-        final positions = StreamController<Position>(sync: true);
-        final navigationController = NavigationSessionController(
-          ensureLocationAccess: () async {},
-          positionStream: () => positions.stream,
-        );
-        addTearDown(() async {
-          navigationController.dispose();
-          await positions.close();
-        });
+    testWidgets('Confirming End Navigation ends session cleanly', (
+      tester,
+    ) async {
+      final positions = StreamController<Position>(sync: true);
+      final navigationController = NavigationSessionController(
+        ensureLocationAccess: () async {},
+        positionStream: () => positions.stream,
+      );
+      addTearDown(() async {
+        navigationController.dispose();
+        await positions.close();
+      });
 
-        await pumpPage(tester, navigationController: navigationController);
-        await selectDestination(tester);
-        await calculate(tester);
+      await pumpPage(tester, navigationController: navigationController);
+      await selectDestination(tester);
+      await calculate(tester);
 
-        final startAction = find.byKey(
-          const ValueKey('safe-navigation-start-navigation'),
-        );
-        await tester.ensureVisible(startAction);
-        await tester.tap(startAction);
-        await tester.pump();
+      final startAction = find.byKey(
+        const ValueKey('safe-navigation-start-navigation'),
+      );
+      await tester.ensureVisible(startAction);
+      await tester.tap(startAction);
+      await tester.pump();
 
-        final endAction = find.byKey(
-          const ValueKey('safe-navigation-end-navigation'),
-        );
-        await tester.ensureVisible(endAction);
-        await tester.tap(endAction);
-        await tester.pumpAndSettle();
+      final endAction = find.byKey(
+        const ValueKey('safe-navigation-end-navigation'),
+      );
+      await tester.ensureVisible(endAction);
+      await tester.tap(endAction);
+      await tester.pumpAndSettle();
 
-        final confirmEnd = find.byKey(
-          const ValueKey('safe-navigation-confirm-end-button'),
-        );
-        expect(confirmEnd, findsOneWidget);
-        await tester.tap(confirmEnd);
-        await tester.pumpAndSettle();
+      final confirmEnd = find.byKey(
+        const ValueKey('safe-navigation-confirm-end-button'),
+      );
+      expect(confirmEnd, findsOneWidget);
+      await tester.tap(confirmEnd);
+      await tester.pumpAndSettle();
 
-        // Dialog dismissed, navigation ended
-        expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
-          findsNothing,
-        );
-        expect(navigationController.state.isNavigating, isFalse);
-        expect(
-          find.byKey(const ValueKey('safe-navigation-start-navigation')),
-          findsOneWidget,
-        );
-      },
-    );
+      // Dialog dismissed, navigation ended
+      expect(
+        find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
+        findsNothing,
+      );
+      expect(navigationController.state.isNavigating, isFalse);
+      expect(
+        find.byKey(const ValueKey('safe-navigation-start-navigation')),
+        findsOneWidget,
+      );
+    });
 
     testWidgets(
       'Android back/PopScope shows confirmation when navigating, Keep Navigating prevents pop',
@@ -1426,9 +1423,7 @@ void main() {
 
         // Confirmation dialog appears
         expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
+          find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
           findsOneWidget,
         );
 
@@ -1440,9 +1435,7 @@ void main() {
 
         // Dialog gone, page still present, navigation still active
         expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
+          find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
           findsNothing,
         );
         expect(find.text('Safe Navigation'), findsOneWidget);
@@ -1450,58 +1443,223 @@ void main() {
       },
     );
 
+    testWidgets('Repeated end actions do not stack duplicate dialogs', (
+      tester,
+    ) async {
+      final positions = StreamController<Position>(sync: true);
+      final navigationController = NavigationSessionController(
+        ensureLocationAccess: () async {},
+        positionStream: () => positions.stream,
+      );
+      addTearDown(() async {
+        navigationController.dispose();
+        await positions.close();
+      });
+
+      await pumpPage(tester, navigationController: navigationController);
+      await selectDestination(tester);
+      await calculate(tester);
+
+      final startAction = find.byKey(
+        const ValueKey('safe-navigation-start-navigation'),
+      );
+      await tester.ensureVisible(startAction);
+      await tester.tap(startAction);
+      await tester.pump();
+
+      final endAction = find.byKey(
+        const ValueKey('safe-navigation-end-navigation'),
+      );
+      await tester.ensureVisible(endAction);
+      // Repeated taps do not stack multiple dialogs
+      await tester.tap(endAction);
+      await tester.tap(endAction, warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      // Exactly one dialog is present
+      expect(
+        find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
+        findsOneWidget,
+      );
+
+      // System back dismisses dialog safely while keeping navigation active
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('safe-navigation-end-confirmation-dialog')),
+        findsNothing,
+      );
+      expect(navigationController.state.isNavigating, isTrue);
+    });
+  });
+
+  group('Step 5: proactive hazard bodyguard UI', () {
+    late StreamController<Position> positions;
+    late NavigationSessionController navigationController;
+    late HazardProximityController proximityController;
+    var distanceMeters = 550.0;
+
+    setUp(() {
+      positions = StreamController<Position>.broadcast(sync: true);
+      navigationController = NavigationSessionController(
+        ensureLocationAccess: () async {},
+        positionStream: () => positions.stream,
+      );
+      distanceMeters = 550;
+      proximityController = HazardProximityController(
+        navigationController: navigationController,
+        distanceCalculator: (_, _) => distanceMeters,
+      );
+    });
+
+    tearDown(() async {
+      proximityController.dispose();
+      navigationController.dispose();
+      await positions.close();
+    });
+
+    Future<void> beginNavigation(
+      WidgetTester tester, {
+      SafeNavigationRouteCalculator? calculator,
+      SafeNavigationHazardViewer? viewer,
+    }) async {
+      await pumpPage(
+        tester,
+        navigationController: navigationController,
+        hazardProximityController: proximityController,
+        hazards: Stream.value([hazard()]),
+        routeCalculator: calculator,
+        onViewHazard: viewer,
+      );
+      await selectDestination(tester);
+      await calculate(tester);
+      final startAction = find.byKey(
+        const ValueKey('safe-navigation-start-navigation'),
+      );
+      await tester.ensureVisible(startAction);
+      await tester.tap(startAction);
+      await tester.pump();
+    }
+
     testWidgets(
-      'Repeated end actions do not stack duplicate dialogs',
+      'prominent alert auto-dismisses after three seconds while indicator remains',
       (tester) async {
-        final positions = StreamController<Position>(sync: true);
-        final navigationController = NavigationSessionController(
-          ensureLocationAccess: () async {},
-          positionStream: () => positions.stream,
+        await beginNavigation(tester);
+
+        expect(
+          find.byKey(const ValueKey('safe-navigation-prominent-hazard-alert')),
+          findsOneWidget,
         );
-        addTearDown(() async {
-          navigationController.dispose();
-          await positions.close();
-        });
-
-        await pumpPage(tester, navigationController: navigationController);
-        await selectDestination(tester);
-        await calculate(tester);
-
-        final startAction = find.byKey(
-          const ValueKey('safe-navigation-start-navigation'),
-        );
-        await tester.ensureVisible(startAction);
-        await tester.tap(startAction);
-        await tester.pump();
-
-        final endAction = find.byKey(
-          const ValueKey('safe-navigation-end-navigation'),
-        );
-        await tester.ensureVisible(endAction);
-        // Repeated taps do not stack multiple dialogs
-        await tester.tap(endAction);
-        await tester.tap(endAction, warnIfMissed: false);
-        await tester.pumpAndSettle();
-
-        // Exactly one dialog is present
         expect(
           find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
+            const ValueKey('safe-navigation-persistent-hazard-indicator'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Rerouting recommended.'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 3));
+
+        expect(
+          find.byKey(const ValueKey('safe-navigation-prominent-hazard-alert')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(
+            const ValueKey('safe-navigation-persistent-hazard-indicator'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'Dismiss keeps indicator and inside escalation can alert again',
+      (tester) async {
+        await beginNavigation(tester);
+        await tester.tap(
+          find.byKey(const ValueKey('safe-navigation-dismiss-hazard-button')),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey('safe-navigation-prominent-hazard-alert')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(
+            const ValueKey('safe-navigation-persistent-hazard-indicator'),
           ),
           findsOneWidget,
         );
 
-        // System back dismisses dialog safely while keeping navigation active
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
+        distanceMeters = 100;
+        positions.add(position());
+        await tester.pump();
+
+        expect(find.textContaining('YOU ARE INSIDE A HIGH'), findsOneWidget);
+        expect(find.text('⚠ Inside High Hazard Area'), findsOneWidget);
         expect(
-          find.byKey(
-            const ValueKey('safe-navigation-end-confirmation-dialog'),
-          ),
-          findsNothing,
+          find.textContaining('Leave the area if it is safe to do so.'),
+          findsOneWidget,
         );
-        expect(navigationController.state.isNavigating, isTrue);
+        proximityController.dismissProminentAlert();
       },
     );
+
+    testWidgets('route exposure wording uses crossedHazardIds', (tester) async {
+      await beginNavigation(
+        tester,
+        calculator:
+            ({required start, required destination, required hazards}) async =>
+                route(crossedHazardIds: const ['verified-hazard']),
+      );
+
+      expect(
+        find.textContaining('Hazard exposure on your current route.'),
+        findsOneWidget,
+      );
+      proximityController.dismissProminentAlert();
+    });
+
+    testWidgets('View Hazard delegates to the existing details integration', (
+      tester,
+    ) async {
+      HazardReport? viewed;
+      await beginNavigation(tester, viewer: (_, report) => viewed = report);
+
+      await tester.tap(
+        find.byKey(const ValueKey('safe-navigation-view-hazard-button')),
+      );
+      await tester.pump();
+
+      expect(viewed?.id, 'verified-hazard');
+      expect(proximityController.prominentAlert, isNull);
+      expect(proximityController.primaryProximity, isNotNull);
+    });
+
+    testWidgets('ending navigation clears hazard UI and timer', (tester) async {
+      await beginNavigation(tester);
+      final endAction = find.byKey(
+        const ValueKey('safe-navigation-end-navigation'),
+      );
+      await tester.ensureVisible(endAction);
+      await tester.tap(endAction);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('safe-navigation-confirm-end-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(proximityController.primaryProximity, isNull);
+      expect(proximityController.prominentAlert, isNull);
+      expect(proximityController.hasProminentTimer, isFalse);
+      expect(
+        find.byKey(
+          const ValueKey('safe-navigation-persistent-hazard-indicator'),
+        ),
+        findsNothing,
+      );
+    });
   });
 }

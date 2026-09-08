@@ -29,6 +29,12 @@ class PlaceGeocodingService {
       'https://api.geoapify.com/v1/geocode/search';
   static const String _reverseBaseUrl =
       'https://api.geoapify.com/v1/geocode/reverse';
+  static const String _placesBaseUrl = 'https://api.geoapify.com/v2/places';
+
+  bool _lastSearchFailed = false;
+
+  /// Whether the most recent [searchPlaces] call failed due to network or API error.
+  bool get lastSearchFailed => _lastSearchFailed;
 
   /// Searches for places or addresses matching [query].
   ///
@@ -42,6 +48,7 @@ class PlaceGeocodingService {
   }) async {
     final trimmedQuery = query.trim();
     if (trimmedQuery.isEmpty || _apiKey.isEmpty) {
+      _lastSearchFailed = false;
       return const [];
     }
 
@@ -69,6 +76,74 @@ class PlaceGeocodingService {
         debugPrint(
           '[PlaceGeocodingService] search returned HTTP ${response.statusCode}',
         );
+        _lastSearchFailed = true;
+        return const [];
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        _lastSearchFailed = true;
+        return const [];
+      }
+      final features = decoded['features'];
+      if (features is! List) {
+        _lastSearchFailed = true;
+        return const [];
+      }
+
+      final results = <NavigationStop>[];
+      for (var index = 0; index < features.length; index++) {
+        final feature = features[index];
+        if (feature is! Map<String, dynamic>) continue;
+        final stop = _stopFromFeature(feature, fallbackIndex: index);
+        if (stop != null) {
+          results.add(stop);
+        }
+      }
+      _lastSearchFailed = false;
+      return results;
+    } catch (e) {
+      debugPrint('[PlaceGeocodingService] searchPlaces failed: $e');
+      _lastSearchFailed = true;
+      return const [];
+    }
+  }
+
+  /// Searches for nearby points of interest (POIs) around [proximity].
+  ///
+  /// Restricts search to tourism, heritage, commercial, catering, and leisure
+  /// places within [radiusMeters] (default 5,000 m). Returns up to [limit] places.
+  Future<List<NavigationStop>> searchNearbyPlaces(
+    LatLng proximity, {
+    int radiusMeters = 5000,
+    int limit = 30,
+  }) async {
+    if (_apiKey.isEmpty ||
+        !SafetyConfig.validCoordinates(
+          proximity.latitude,
+          proximity.longitude,
+        )) {
+      return const [];
+    }
+
+    final queryParams = <String, String>{
+      'categories':
+          'tourism,heritage,commercial,catering,leisure,entertainment,healthcare',
+      'filter':
+          'circle:${proximity.longitude},${proximity.latitude},$radiusMeters',
+      'bias': 'proximity:${proximity.longitude},${proximity.latitude}',
+      'limit': limit.clamp(1, 50).toString(),
+      'apiKey': _apiKey,
+    };
+
+    final uri = Uri.parse(_placesBaseUrl).replace(queryParameters: queryParams);
+
+    try {
+      final response = await _client.get(uri).timeout(_timeout);
+      if (response.statusCode != 200) {
+        debugPrint(
+          '[PlaceGeocodingService] searchNearbyPlaces returned HTTP ${response.statusCode}',
+        );
         return const [];
       }
 
@@ -88,7 +163,7 @@ class PlaceGeocodingService {
       }
       return results;
     } catch (e) {
-      debugPrint('[PlaceGeocodingService] searchPlaces failed: $e');
+      debugPrint('[PlaceGeocodingService] searchNearbyPlaces failed: $e');
       return const [];
     }
   }

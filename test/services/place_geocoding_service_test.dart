@@ -131,6 +131,133 @@ void main() {
     });
   });
 
+  group('PlaceGeocodingService - searchNearbyPlaces', () {
+    test(
+      'returns parsed NavigationStop list on successful places response',
+      () async {
+        final mockClient = MockClient((request) async {
+          expect(request.url.host, 'api.geoapify.com');
+          expect(request.url.path, '/v2/places');
+          expect(
+            request.url.queryParameters['categories'],
+            'tourism,heritage,commercial,catering,leisure,entertainment,healthcare',
+          );
+          expect(
+            request.url.queryParameters['filter'],
+            'circle:100.3678,6.1248,5000',
+          );
+          expect(
+            request.url.queryParameters['bias'],
+            'proximity:100.3678,6.1248',
+          );
+          expect(request.url.queryParameters['limit'], '30');
+          expect(request.url.queryParameters['apiKey'], 'test-geo-key');
+
+          return http.Response(
+            jsonEncode({
+              'type': 'FeatureCollection',
+              'features': [
+                {
+                  'type': 'Feature',
+                  'properties': {
+                    'place_id': 'poi-gurney',
+                    'name': 'Gurney Paragon',
+                    'formatted': '163D Persiaran Gurney, George Town, Penang',
+                    'lat': 5.4345,
+                    'lon': 100.3090,
+                  },
+                },
+              ],
+            }),
+            200,
+          );
+        });
+
+        final service = PlaceGeocodingService(
+          client: mockClient,
+          apiKey: 'test-geo-key',
+        );
+
+        final results = await service.searchNearbyPlaces(alorSetar);
+
+        expect(results, hasLength(1));
+        final stop = results.first;
+        expect(stop.id, 'poi-gurney');
+        expect(stop.displayName, 'Gurney Paragon');
+        expect(stop.address, '163D Persiaran Gurney, George Town, Penang');
+        expect(stop.location.latitude, 5.4345);
+        expect(stop.location.longitude, 100.3090);
+      },
+    );
+
+    test(
+      'returns empty list without network call when API key is empty',
+      () async {
+        var callCount = 0;
+        final mockClient = MockClient((_) async {
+          callCount++;
+          return http.Response('{}', 200);
+        });
+
+        final service = PlaceGeocodingService(client: mockClient, apiKey: '');
+        final results = await service.searchNearbyPlaces(alorSetar);
+
+        expect(results, isEmpty);
+        expect(callCount, 0);
+      },
+    );
+
+    test(
+      'returns empty list without network call when coordinates are invalid',
+      () async {
+        var callCount = 0;
+        final mockClient = MockClient((_) async {
+          callCount++;
+          return http.Response('{}', 200);
+        });
+
+        final service = PlaceGeocodingService(
+          client: mockClient,
+          apiKey: 'test-geo-key',
+        );
+        final results = await service.searchNearbyPlaces(
+          const LatLng(999.0, 999.0),
+        );
+
+        expect(results, isEmpty);
+        expect(callCount, 0);
+      },
+    );
+
+    test('returns empty list gracefully on HTTP error', () async {
+      final mockClient = MockClient(
+        (_) async => http.Response('Server Error', 500),
+      );
+      final service = PlaceGeocodingService(
+        client: mockClient,
+        apiKey: 'test-geo-key',
+      );
+
+      final results = await service.searchNearbyPlaces(alorSetar);
+
+      expect(results, isEmpty);
+    });
+
+    test('returns empty list gracefully on client exception', () async {
+      final mockClient = MockClient(
+        (_) async => throw http.ClientException('Connection failed'),
+      );
+      final service = PlaceGeocodingService(
+        client: mockClient,
+        apiKey: 'test-geo-key',
+      );
+
+      final results = await service.searchNearbyPlaces(alorSetar);
+
+      expect(results, isEmpty);
+    });
+  });
+
   group('PlaceGeocodingService - reverseGeocode', () {
     test('resolves place name and address on successful response', () async {
       final mockClient = MockClient((request) async {

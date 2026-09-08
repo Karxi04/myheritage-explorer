@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../models/navigation_stop.dart';
 import '../../../models/safe_route.dart';
 import '../../../services/location_service.dart';
+import 'route_progress_engine.dart';
 
 typedef NavigationAccessCheck = Future<void> Function();
 typedef NavigationPositionStream = Stream<Position> Function();
@@ -38,6 +40,8 @@ class NavigationSessionState {
     Iterable<NavigationStop> stops = const [],
     this.locationIssue,
     this.locationMessage,
+    this.progress,
+    this.isSimulatedLocation = false,
   }) : stops = List<NavigationStop>.unmodifiable(stops);
 
   final LatLng? currentPosition;
@@ -58,6 +62,10 @@ class NavigationSessionState {
   final List<NavigationStop> stops;
   final NavigationLocationIssue? locationIssue;
   final String? locationMessage;
+  final NavigationProgress? progress;
+
+  /// Whether [currentPosition] was provided by a debug simulation harness.
+  final bool isSimulatedLocation;
 
   NavigationSessionState copyWith({
     LatLng? currentPosition,
@@ -82,6 +90,10 @@ class NavigationSessionState {
     bool clearLocationIssue = false,
     String? locationMessage,
     bool clearLocationMessage = false,
+    NavigationProgress? progress,
+    bool clearProgress = false,
+    bool? isSimulatedLocation,
+    bool clearSimulatedLocation = false,
   }) => NavigationSessionState(
     currentPosition: clearCurrentPosition
         ? null
@@ -107,6 +119,10 @@ class NavigationSessionState {
     locationMessage: clearLocationMessage
         ? null
         : locationMessage ?? this.locationMessage,
+    progress: clearProgress ? null : progress ?? this.progress,
+    isSimulatedLocation: clearSimulatedLocation
+        ? false
+        : isSimulatedLocation ?? this.isSimulatedLocation,
   );
 }
 
@@ -124,10 +140,14 @@ class NavigationSessionController extends ChangeNotifier {
     this.geocodeInterval = const Duration(minutes: 1),
     this.headingSmoothing = 0.35,
     this.stationarySpeedThreshold = 0.5,
+    this.backwardNoiseToleranceMeters = 30,
+    this.reverseTravelHeadingThresholdDegrees = 120,
+    RouteProgressEngine progressEngine = const RouteProgressEngine(),
     DateTime Function()? now,
   }) : _ensureLocationAccess = ensureLocationAccess,
        _positionStream = positionStream,
        _reverseGeocoder = reverseGeocoder,
+       _progressEngine = progressEngine,
        _now = now ?? DateTime.now;
 
   factory NavigationSessionController.fromLocationService(
@@ -143,12 +163,15 @@ class NavigationSessionController extends ChangeNotifier {
   final NavigationAccessCheck _ensureLocationAccess;
   final NavigationPositionStream _positionStream;
   final NavigationReverseGeocoder? _reverseGeocoder;
+  final RouteProgressEngine _progressEngine;
   final DateTime Function() _now;
   final double poorAccuracyThresholdMeters;
   final double geocodeDistanceMeters;
   final Duration geocodeInterval;
   final double headingSmoothing;
   final double stationarySpeedThreshold;
+  final double backwardNoiseToleranceMeters;
+  final double reverseTravelHeadingThresholdDegrees;
 
   NavigationSessionState _state = NavigationSessionState();
   NavigationSessionState get state => _state;
@@ -159,6 +182,17 @@ class NavigationSessionController extends ChangeNotifier {
   bool _geocodeInFlight = false;
   bool _disposed = false;
   int _sessionGeneration = 0;
+  double? _acceptedProgressMeters;
+  int _minimumLegIndex = 0;
+  bool _isSimulatingLocation = false;
+  Position? _latestRealPosition;
+
+  /// Whether the session is currently receiving simulated GPS positions for debugging.
+  bool get isSimulatingLocation => _isSimulatingLocation;
+
+  /// The most recent live GPS position received from the real location stream.
+  @visibleForTesting
+  Position? get latestRealPosition => _latestRealPosition;
 
   @visibleForTesting
   bool get hasActiveSubscription => _positionSubscription != null;
@@ -171,14 +205,22 @@ class NavigationSessionController extends ChangeNotifier {
     if (_disposed || _state.isNavigating || _state.isStarting) return false;
 
     final generation = ++_sessionGeneration;
+    _acceptedProgressMeters = null;
+    _minimumLegIndex = 0;
+    _isSimulatingLocation = false;
+    _latestRealPosition = null;
     _setState(
-      _state.copyWith(
-        isStarting: true,
-        route: route,
-        stops: stops,
-        currentPosition: initialPosition,
-        clearLocationIssue: true,
-        clearLocationMessage: true,
+      _withProgress(
+        _state.copyWith(
+          isStarting: true,
+          route: route,
+          stops: stops,
+          currentPosition: initialPosition,
+          clearLocationIssue: true,
+          clearLocationMessage: true,
+          clearSimulatedLocation: true,
+        ),
+        initialPosition,
       ),
     );
 
@@ -198,7 +240,7 @@ class NavigationSessionController extends ChangeNotifier {
         ),
       );
       _positionSubscription = stream.listen(
-        _handlePosition,
+        _onPositionStreamReceived,
         onError: _handleStreamError,
         cancelOnError: false,
       );
@@ -235,6 +277,10 @@ class NavigationSessionController extends ChangeNotifier {
     _lastGeocodedPosition = null;
     _lastGeocodedAt = null;
     _geocodeInFlight = false;
+    _acceptedProgressMeters = null;
+    _minimumLegIndex = 0;
+    _isSimulatingLocation = false;
+    _latestRealPosition = null;
     _setState(NavigationSessionState(route: _state.route, stops: _state.stops));
     await subscription?.cancel();
   }
@@ -251,7 +297,81 @@ class NavigationSessionController extends ChangeNotifier {
     }
   }
 
-  void _handlePosition(Position position) {
+  /// Acknowledges an intermediate arrival before progress moves to the next leg.
+  void continueToNextStop() {
+    final progress = _state.progress;
+    final route = _state.route;
+    if (!_state.isNavigating ||
+        route == null ||
+        progress?.arrival != NavigationArrival.intermediateStop) {
+      return;
+    }
+    _minimumLegIndex = math.min(
+      progress!.currentLegIndex + 1,
+      math.max(0, _state.stops.length - 1),
+    );
+    _setState(_withProgress(_state, _state.currentPosition));
+  }
+
+  /// Atomically swaps guidance after a reroute without touching the live GPS
+  /// subscription, follow mode, heading, or location error state.
+  bool replaceRoute({
+    required SafeRoute route,
+    required Iterable<NavigationStop> remainingStops,
+  }) {
+    if (_disposed || !_state.isNavigating || route.geometry.isEmpty) {
+      return false;
+    }
+    final stops = List<NavigationStop>.unmodifiable(remainingStops);
+    if (stops.isEmpty) return false;
+    _acceptedProgressMeters = null;
+    _minimumLegIndex = 0;
+    _setState(
+      _withProgress(
+        _state.copyWith(route: route, stops: stops, clearProgress: true),
+        _state.currentPosition,
+        heading: _state.currentHeading,
+        speed: _state.speed,
+      ),
+    );
+    return true;
+  }
+
+  void _onPositionStreamReceived(Position position) {
+    _latestRealPosition = position;
+    if (_isSimulatingLocation) {
+      return;
+    }
+    _handlePosition(position, isSimulated: false);
+  }
+
+  /// Feeds a synthetic GPS position to the navigation session for debug testing.
+  ///
+  /// Live GPS positions from the background location stream will continue to be
+  /// tracked in [_latestRealPosition], but will not update navigation state until
+  /// [restoreRealGps] is called.
+  void simulatePosition(Position position) {
+    if (_disposed || !_state.isNavigating) return;
+    _isSimulatingLocation = true;
+    _handlePosition(position, isSimulated: true);
+  }
+
+  /// Restores live GPS tracking after a debug simulation session.
+  ///
+  /// If a recent real position was received while simulated positions were active,
+  /// it is immediately applied to navigation state.
+  void restoreRealGps() {
+    if (_disposed || !_state.isNavigating) return;
+    _isSimulatingLocation = false;
+    final realPos = _latestRealPosition;
+    if (realPos != null) {
+      _handlePosition(realPos, isSimulated: false);
+    } else {
+      _setState(_state.copyWith(clearSimulatedLocation: true));
+    }
+  }
+
+  void _handlePosition(Position position, {bool isSimulated = false}) {
     if (_disposed || !_state.isNavigating) return;
     final point = LatLng(position.latitude, position.longitude);
     if (!position.latitude.isFinite ||
@@ -278,22 +398,28 @@ class NavigationSessionController extends ChangeNotifier {
         accuracy == null || accuracy > poorAccuracyThresholdMeters;
 
     _setState(
-      _state.copyWith(
-        currentPosition: point,
-        currentHeading: headingUpdate.$1,
-        displayHeading: headingUpdate.$2,
+      _withProgress(
+        _state.copyWith(
+          currentPosition: point,
+          currentHeading: headingUpdate.$1,
+          displayHeading: headingUpdate.$2,
+          speed: speed,
+          accuracy: accuracy,
+          clearAccuracy: accuracy == null,
+          timestamp: position.timestamp,
+          isSimulatedLocation: isSimulated || _isSimulatingLocation,
+          locationIssue: hasPoorAccuracy
+              ? NavigationLocationIssue.poorAccuracy
+              : null,
+          clearLocationIssue: !hasPoorAccuracy,
+          locationMessage: hasPoorAccuracy
+              ? 'Location accuracy is currently low.'
+              : null,
+          clearLocationMessage: !hasPoorAccuracy,
+        ),
+        point,
+        heading: headingUpdate.$1,
         speed: speed,
-        accuracy: accuracy,
-        clearAccuracy: accuracy == null,
-        timestamp: position.timestamp,
-        locationIssue: hasPoorAccuracy
-            ? NavigationLocationIssue.poorAccuracy
-            : null,
-        clearLocationIssue: !hasPoorAccuracy,
-        locationMessage: hasPoorAccuracy
-            ? 'Location accuracy is currently low.'
-            : null,
-        clearLocationMessage: !hasPoorAccuracy,
       ),
     );
     _maybeReverseGeocode(point);
@@ -325,6 +451,132 @@ class NavigationSessionController extends ChangeNotifier {
   static double _normalizeHeading(double heading) =>
       (heading % 360 + 360) % 360;
 
+  NavigationSessionState _withProgress(
+    NavigationSessionState base,
+    LatLng? point, {
+    double? heading,
+    double speed = 0,
+  }) {
+    final route = base.route;
+    if (point == null || route == null || route.geometry.isEmpty) {
+      return base.copyWith(clearProgress: true);
+    }
+    final pendingArrival = base.progress;
+    if (pendingArrival?.arrival == NavigationArrival.intermediateStop &&
+        pendingArrival!.currentLegIndex == _minimumLegIndex) {
+      return base.copyWith(progress: pendingArrival);
+    }
+    var calculated = _progressEngine.calculate(
+      route: route,
+      stops: base.stops,
+      gps: point,
+      minimumLegIndex: _minimumLegIndex,
+    );
+    if (calculated == null) return base.copyWith(clearProgress: true);
+
+    final previous = _acceptedProgressMeters;
+    final proposed = calculated.projection.distanceAlongGeometryMeters;
+    if (previous != null && proposed < previous) {
+      final backward = previous - proposed;
+      final reversed =
+          backward > backwardNoiseToleranceMeters &&
+          speed >= stationarySpeedThreshold &&
+          _headingOpposesSegment(route, calculated, heading);
+      if (!reversed) {
+        final guardedPoint = _pointAtDistance(route.geometry, previous);
+        final guarded = _progressEngine.calculate(
+          route: route,
+          stops: base.stops,
+          gps: guardedPoint,
+          minimumLegIndex: _minimumLegIndex,
+        );
+        if (guarded != null) calculated = guarded;
+      }
+    }
+    _acceptedProgressMeters = calculated.projection.distanceAlongGeometryMeters;
+
+    final geocodedRoad =
+        calculated.currentRoadName == 'Unnamed road' &&
+            _usableLabel(base.currentLocationLabel) &&
+            !_looksLikeCoordinates(base.currentLocationLabel!)
+        ? base.currentLocationLabel!.trim()
+        : null;
+    if (geocodedRoad != null) {
+      calculated = NavigationProgress(
+        projection: calculated.projection,
+        geometryProgress: calculated.geometryProgress,
+        activeStepIndex: calculated.activeStepIndex,
+        maneuverStepIndex: calculated.maneuverStepIndex,
+        maneuver: calculated.maneuver,
+        instruction: calculated.instruction,
+        currentRoadName: geocodedRoad,
+        distanceToManeuverMeters: calculated.distanceToManeuverMeters,
+        remainingDistanceMeters: calculated.remainingDistanceMeters,
+        remainingDurationSeconds: calculated.remainingDurationSeconds,
+        currentLegIndex: calculated.currentLegIndex,
+        nextStop: calculated.nextStop,
+        finalDestination: calculated.finalDestination,
+        arrival: calculated.arrival,
+        isLikelyOffRoute: calculated.isLikelyOffRoute,
+      );
+    }
+    return base.copyWith(progress: calculated);
+  }
+
+  bool _headingOpposesSegment(
+    SafeRoute route,
+    NavigationProgress progress,
+    double? heading,
+  ) {
+    if (heading == null || route.geometry.length < 2) return false;
+    final index = progress.projection.segmentIndex.clamp(
+      0,
+      route.geometry.length - 2,
+    );
+    final bearing = _bearing(route.geometry[index], route.geometry[index + 1]);
+    return shortestHeadingDelta(bearing, heading).abs() >=
+        reverseTravelHeadingThresholdDegrees;
+  }
+
+  static double _bearing(LatLng from, LatLng to) {
+    final lat1 = from.latitude * math.pi / 180;
+    final lat2 = to.latitude * math.pi / 180;
+    final dLon = (to.longitude - from.longitude) * math.pi / 180;
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x =
+        math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    return _normalizeHeading(math.atan2(y, x) * 180 / math.pi);
+  }
+
+  static LatLng _pointAtDistance(List<LatLng> geometry, double distance) {
+    final cumulative = RouteProgressEngine.cumulativeGeometryDistances(
+      geometry,
+    );
+    if (geometry.isEmpty) return const LatLng(0, 0);
+    if (distance <= 0 || geometry.length == 1) return geometry.first;
+    if (distance >= cumulative.last) return geometry.last;
+    for (var index = 1; index < geometry.length; index++) {
+      if (cumulative[index] < distance) continue;
+      final segment = cumulative[index] - cumulative[index - 1];
+      final fraction = segment <= 0
+          ? 0.0
+          : (distance - cumulative[index - 1]) / segment;
+      return LatLng(
+        geometry[index - 1].latitude +
+            (geometry[index].latitude - geometry[index - 1].latitude) *
+                fraction,
+        geometry[index - 1].longitude +
+            (geometry[index].longitude - geometry[index - 1].longitude) *
+                fraction,
+      );
+    }
+    return geometry.last;
+  }
+
+  static bool _looksLikeCoordinates(String value) =>
+      RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(value.trim());
+
   void _maybeReverseGeocode(LatLng point) {
     final geocoder = _reverseGeocoder;
     if (geocoder == null || _geocodeInFlight) return;
@@ -352,10 +604,13 @@ class NavigationSessionController extends ChangeNotifier {
             return;
           }
           _setState(
-            _state.copyWith(
-              currentLocationLabel: _usableLabel(label)
-                  ? label!.trim()
-                  : _formatCoordinates(point),
+            _withProgress(
+              _state.copyWith(
+                currentLocationLabel: _usableLabel(label)
+                    ? label!.trim()
+                    : _formatCoordinates(point),
+              ),
+              _state.currentPosition,
             ),
           );
         })
@@ -366,7 +621,10 @@ class NavigationSessionController extends ChangeNotifier {
             return;
           }
           _setState(
-            _state.copyWith(currentLocationLabel: _formatCoordinates(point)),
+            _withProgress(
+              _state.copyWith(currentLocationLabel: _formatCoordinates(point)),
+              _state.currentPosition,
+            ),
           );
         })
         .whenComplete(() {

@@ -79,6 +79,12 @@ abstract final class SafetyConfig {
   static const double mediumSeverityRadiusMeters = 300;
   static const double highSeverityRadiusMeters = 500;
 
+  /// Extra distance outside a danger zone where navigation warnings begin.
+  /// These buffers do not change the actual hazard danger radii.
+  static const double lowSeverityApproachBufferMeters = 50;
+  static const double mediumSeverityApproachBufferMeters = 100;
+  static const double highSeverityApproachBufferMeters = 100;
+
   /// Largest radius used when explaining nearby-hazard checks to travelers.
   static const double detectionRadiusMeters = highSeverityRadiusMeters;
 
@@ -87,6 +93,42 @@ abstract final class SafetyConfig {
     'Medium' => mediumSeverityRadiusMeters,
     _ => lowSeverityRadiusMeters,
   };
+
+  static double approachBufferForSeverity(String severity) =>
+      switch (severity) {
+        'High' => highSeverityApproachBufferMeters,
+        'Medium' => mediumSeverityApproachBufferMeters,
+        _ => lowSeverityApproachBufferMeters,
+      };
+
+  static double warningRadiusForSeverity(String severity) =>
+      dangerRadiusForSeverity(severity) + approachBufferForSeverity(severity);
+
+  /// Duration of the large, non-blocking in-navigation hazard alert.
+  static const Duration navigationHazardAlertDuration = Duration(seconds: 3);
+
+  /// Allows a still-relevant navigation warning to be repeated periodically.
+  static const Duration navigationHazardAlertCooldown = Duration(minutes: 5);
+
+  /// A GPS fix must be at least this far from the route before it can count as
+  /// off-route. Detection also accounts for the fix's reported accuracy.
+  static const double navigationOffRouteDistanceMeters = 75;
+
+  /// Hysteresis boundary used to clear an off-route excursion.
+  static const double navigationOffRouteRecoveryDistanceMeters = 40;
+
+  /// Consecutive, meaningfully moving fixes required before rerouting.
+  static const int navigationOffRouteConsecutiveFixes = 3;
+  static const Duration navigationOffRouteMinimumDuration = Duration(
+    seconds: 5,
+  );
+  static const double navigationOffRouteMinimumMovementMeters = 15;
+
+  /// Fixes less precise than this are never allowed to initiate a reroute.
+  static const double navigationRerouteMaximumAccuracyMeters = 50;
+
+  /// Prevents repeated provider calls when a reroute fails or GPS oscillates.
+  static const Duration navigationRerouteCooldown = Duration(seconds: 20);
 
   /// Safety margin beyond hazard boundaries when generating escape points.
   static const double escapeSafetyMarginMeters = 40;
