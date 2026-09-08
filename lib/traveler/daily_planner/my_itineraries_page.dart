@@ -39,6 +39,88 @@ class _MyItinerariesPageState extends State<MyItinerariesPage> {
     }
   }
 
+  void _openImportDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.link_rounded, color: ExplorerColors.navy),
+            SizedBox(width: 8),
+            Text('Open Shared Itinerary'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter a 9-character share code or paste a shared itinerary link to preview and save a copy to your account:',
+              style: TextStyle(fontSize: 13, color: ExplorerColors.muted),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: 'e.g. 3N8KP2R9X or https://.../?share=...',
+                prefixIcon: const Icon(Icons.qr_code_rounded, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              textCapitalization: TextCapitalization.characters,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(dialogContext);
+
+              String shareId = text;
+              final uri = Uri.tryParse(text);
+              if (uri != null && uri.hasAuthority) {
+                final queryShare = (uri.queryParameters['share'] ??
+                        uri.queryParameters['id'])
+                    ?.trim();
+                if (queryShare != null && queryShare.isNotEmpty) {
+                  shareId = queryShare;
+                } else {
+                  final segments = uri.pathSegments
+                      .where((s) => s.isNotEmpty)
+                      .toList();
+                  final idx = segments.indexWhere((s) =>
+                      s == 'share' || s == 'shared-itinerary');
+                  if (idx >= 0 && idx + 1 < segments.length) {
+                    shareId = segments[idx + 1];
+                  }
+                }
+              }
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SharedItineraryPage(shareId: shareId),
+                ),
+              );
+            },
+            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+            label: const Text('Open'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
@@ -55,6 +137,13 @@ class _MyItinerariesPageState extends State<MyItinerariesPage> {
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
               ),
+              actions: [
+                IconButton(
+                  tooltip: 'Open / Import Shared Itinerary',
+                  icon: const Icon(Icons.link_rounded, color: ExplorerColors.navy),
+                  onPressed: () => _openImportDialog(context),
+                ),
+              ],
             ),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

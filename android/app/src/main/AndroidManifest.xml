@@ -56,8 +56,11 @@
                 <data
                     android:scheme="myheritage"
                     android:host="shared-itinerary" />
+                <data
+                    android:scheme="myheritage"
+                    android:host="share" />
             </intent-filter>
-            <intent-filter>
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
