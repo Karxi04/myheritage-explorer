@@ -18,6 +18,7 @@ import '../../../services/location_service.dart';
 import '../../../services/place_geocoding_service.dart';
 import '../../../services/safe_routing_service.dart';
 import 'navigation_session_controller.dart';
+import 'route_progress_engine.dart';
 
 typedef SafeNavigationLocationLoader = Future<Position> Function();
 typedef SafeNavigationRouteCalculator =
@@ -94,6 +95,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   bool _hazardsLoaded = false;
   bool _mapReady = false;
   LatLng? _lastFollowedPosition;
+  bool _showingEndConfirmation = false;
 
   @override
   void initState() {
@@ -177,6 +179,47 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   Future<void> _endNavigation() async {
     await _navigationController.end();
     _lastFollowedPosition = null;
+  }
+
+  Future<bool> _confirmEndNavigation(BuildContext context) async {
+    if (!mounted || _showingEndConfirmation) return false;
+    if (!_navigationController.state.isNavigating) return true;
+    _showingEndConfirmation = true;
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          key: const ValueKey('safe-navigation-end-confirmation-dialog'),
+          title: const Text('End Navigation?'),
+          content: const Text(
+            'Are you sure you want to end active navigation? Your current route guidance and live tracking will stop.',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('safe-navigation-keep-navigating-button'),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Keep Navigating'),
+            ),
+            FilledButton(
+              key: const ValueKey('safe-navigation-confirm-end-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ExplorerColors.danger,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('End Navigation'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        await _endNavigation();
+        return true;
+      }
+      return false;
+    } finally {
+      _showingEndConfirmation = false;
+    }
   }
 
   void _recenterNavigation() {
@@ -489,174 +532,18 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   };
 
   Future<void> _openSearchSheet(BuildContext context) async {
-    final searchController = TextEditingController();
-    var searching = false;
-    var searchResults = <NavigationStop>[];
-    String? searchError;
-
-    await showModalBottomSheet<void>(
+    final selectedStop = await showModalBottomSheet<NavigationStop>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) {
-          Future<void> doSearch() async {
-            final query = searchController.text.trim();
-            if (query.isEmpty) return;
-            setSheetState(() {
-              searching = true;
-              searchError = null;
-            });
-            try {
-              final results = await _geocodingService.searchPlaces(
-                query,
-                proximity: _start,
-              );
-              setSheetState(() {
-                searching = false;
-                searchResults = results;
-                if (results.isEmpty) {
-                  searchError = 'No places found for "$query".';
-                }
-              });
-            } catch (e) {
-              setSheetState(() {
-                searching = false;
-                searchError = 'Search failed. Check your connection.';
-              });
-            }
-          }
-
-          return Container(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
-            ),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            padding: EdgeInsets.fromLTRB(
-              16,
-              16,
-              16,
-              MediaQuery.of(sheetContext).viewInsets.bottom + 16,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.search, color: ExplorerColors.navy),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Search and Add Stop',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: ExplorerColors.navy,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const ValueKey('safe-navigation-search-input'),
-                        controller: searchController,
-                        autofocus: true,
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (_) => doSearch(),
-                        decoration: InputDecoration(
-                          hintText: 'Search place name or address in Malaysia…',
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      key: const ValueKey('safe-navigation-search-submit'),
-                      onPressed: searching ? null : doSearch,
-                      child: searching
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text('Search'),
-                    ),
-                  ],
-                ),
-                if (searchError != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    searchError!,
-                    style: const TextStyle(
-                      color: ExplorerColors.warning,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: searchResults.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final place = searchResults[index];
-                      return ListTile(
-                        key: ValueKey('safe-navigation-search-result-$index'),
-                        leading: const Icon(
-                          Icons.location_on_outlined,
-                          color: ExplorerColors.navy,
-                        ),
-                        title: Text(
-                          place.displayName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                        subtitle: place.address != null
-                            ? Text(
-                                place.address!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12),
-                              )
-                            : null,
-                        onTap: () {
-                          _addStop(place);
-                          Navigator.of(sheetContext).pop();
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
+      builder: (sheetContext) => _DestinationSearchSheet(
+        geocodingService: _geocodingService,
+        proximity: _start,
       ),
     );
+    if (selectedStop != null && mounted) {
+      _addStop(selectedStop);
+    }
   }
 
   @override
@@ -762,9 +649,18 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
         ),
     ];
 
-    return Scaffold(
-      backgroundColor: ExplorerColors.background,
-      appBar: AppBar(title: const Text('Safe Navigation')),
+    return PopScope(
+      canPop: !navigation.isNavigating,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final confirmed = await _confirmEndNavigation(context);
+        if (confirmed && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: ExplorerColors.background,
+        appBar: AppBar(title: const Text('Safe Navigation')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1200),
@@ -848,32 +744,32 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
                       top: 12,
                       left: 12,
                       right: 12,
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: Material(
-                          color: Colors.white.withValues(alpha: .94),
-                          elevation: 2,
-                          borderRadius: BorderRadius.circular(10),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 7,
-                            ),
-                            child: Text(
-                              navigation.isNavigating
-                                  ? 'Navigation Active · ${_formatDistance(navigation.route!.distanceMeters)} · ${_formatDuration(navigation.route!.durationSeconds)}'
-                                  : _activeHazards.isEmpty
-                                  ? 'Tap the map to choose a destination'
-                                  : '${_activeHazards.length} verified hazard zone${_activeHazards.length == 1 ? '' : 's'} shown',
-                              style: const TextStyle(
-                                color: ExplorerColors.navy,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                      child: navigation.isNavigating
+                          ? _buildManeuverHud(navigation)
+                          : Align(
+                              alignment: Alignment.topLeft,
+                              child: Material(
+                                color: Colors.white.withValues(alpha: .94),
+                                elevation: 2,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  child: Text(
+                                    _activeHazards.isEmpty
+                                        ? 'Tap the map to choose a destination'
+                                        : '${_activeHazards.length} verified hazard zone${_activeHazards.length == 1 ? '' : 's'} shown',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.navy,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
                     ),
                     if (navigation.isNavigating)
                       Positioned(
@@ -918,8 +814,9 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   bool get _isStartInsideHazard {
     final start = _start;
@@ -929,6 +826,67 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
       final hazardPoint = LatLng(hazard.latitude, hazard.longitude);
       return SafeRoutingService.distanceMeters(start, hazardPoint) <= radius;
     });
+  }
+
+  Widget _buildManeuverHud(NavigationSessionState navigation) {
+    final progress = navigation.progress;
+    final isArrival = progress?.arrival != NavigationArrival.none;
+    return Material(
+      key: const ValueKey('safe-navigation-maneuver-hud'),
+      color: isArrival ? ExplorerColors.success : ExplorerColors.navy,
+      elevation: 5,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(
+              _maneuverIcon(progress?.maneuver),
+              key: const ValueKey('safe-navigation-maneuver-icon'),
+              color: Colors.white,
+              size: 44,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    progress?.instruction ?? 'Continue on route',
+                    key: const ValueKey('safe-navigation-next-instruction'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      height: 1.15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (!isArrival) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      progress == null
+                          ? 'Waiting for a GPS fix…'
+                          : _formatDistance(progress.distanceToManeuverMeters),
+                      key: const ValueKey(
+                        'safe-navigation-distance-to-maneuver',
+                      ),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildControls(BuildContext context) {
@@ -1199,11 +1157,23 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     SafeRoute route,
     NavigationSessionState navigation,
   ) {
+    final progress = navigation.progress;
     final point = navigation.currentPosition;
-    final locationValue =
+    final currentRoad =
+        progress?.currentRoadName ??
         navigation.currentLocationLabel ??
         _startPlaceName ??
-        (point == null ? 'Waiting for a GPS fix…' : _formatCoordinates(point));
+        (point == null ? 'Waiting for a GPS fix…' : 'Unnamed road');
+    final remainingDistance =
+        progress?.remainingDistanceMeters ?? route.distanceMeters;
+    final remainingDuration =
+        progress?.remainingDurationSeconds ?? route.durationSeconds;
+    final nextStop =
+        progress?.nextStop ??
+        (navigation.stops.isEmpty ? null : navigation.stops.first);
+    final finalDestination =
+        progress?.finalDestination ??
+        (navigation.stops.isEmpty ? null : navigation.stops.last);
     return ExplorerCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1223,7 +1193,8 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
                 ),
               ),
               Text(
-                '${_formatDistance(route.distanceMeters)} · ${_formatDuration(route.durationSeconds)}',
+                '${_formatDistance(remainingDistance)} · ${_formatDuration(remainingDuration)} ETA',
+                key: const ValueKey('safe-navigation-remaining-summary'),
                 style: const TextStyle(
                   color: ExplorerColors.navy,
                   fontSize: 12,
@@ -1234,10 +1205,53 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
           ),
           const SizedBox(height: 12),
           _LocationRow(
-            icon: Icons.my_location,
-            label: 'Current Location',
-            value: locationValue,
+            icon: Icons.signpost_outlined,
+            label: 'Current road',
+            value: currentRoad,
           ),
+          const SizedBox(height: 10),
+          _LocationRow(
+            icon: Icons.flag_outlined,
+            label: navigation.stops.length > 1 ? 'Next stop' : 'Destination',
+            value: nextStop?.displayName ?? 'Destination',
+          ),
+          if (navigation.stops.length > 1 &&
+              finalDestination != null &&
+              finalDestination != nextStop) ...[
+            const SizedBox(height: 8),
+            _LocationRow(
+              icon: Icons.sports_score_outlined,
+              label: 'Final destination',
+              value: finalDestination.displayName,
+            ),
+          ],
+          const SizedBox(height: 12),
+          LinearProgressIndicator(
+            key: const ValueKey('safe-navigation-route-progress'),
+            value: progress?.geometryProgress ?? 0,
+            minHeight: 7,
+            borderRadius: BorderRadius.circular(99),
+            backgroundColor: ExplorerColors.border,
+            color: ExplorerColors.success,
+          ),
+          if (route.crossedHazardIds.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const _InlineMessage(
+              key: ValueKey('safe-navigation-active-hazard-warning'),
+              icon: Icons.warning_amber_rounded,
+              message: 'Hazard exposure on current route',
+              color: ExplorerColors.warning,
+            ),
+          ],
+          if (progress?.isLikelyOffRoute == true) ...[
+            const SizedBox(height: 10),
+            const _InlineMessage(
+              key: ValueKey('safe-navigation-off-route-notice'),
+              icon: Icons.route_outlined,
+              message: 'You may be away from the planned route.',
+              color: ExplorerColors.warning,
+            ),
+          ],
           if (navigation.accuracy case final accuracy?) ...[
             const SizedBox(height: 6),
             Text(
@@ -1255,12 +1269,24 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
               color: ExplorerColors.warning,
             ),
           ],
+          if (progress?.arrival == NavigationArrival.intermediateStop) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const ValueKey('safe-navigation-continue-next-stop'),
+                onPressed: _navigationController.continueToNextStop,
+                icon: const Icon(Icons.next_plan_outlined),
+                label: const Text('Continue to Next Stop'),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               key: const ValueKey('safe-navigation-end-navigation'),
-              onPressed: _endNavigation,
+              onPressed: () => _confirmEndNavigation(context),
               style: FilledButton.styleFrom(
                 backgroundColor: ExplorerColors.danger,
               ),
@@ -1283,6 +1309,25 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
         NavigationLocationIssue.temporarilyUnavailable ||
         NavigationLocationIssue.streamError ||
         null => Icons.location_searching,
+      };
+
+  static IconData _maneuverIcon(NavigationManeuver? maneuver) =>
+      switch (maneuver) {
+        NavigationManeuver.turnLeft => Icons.turn_left_rounded,
+        NavigationManeuver.turnRight => Icons.turn_right_rounded,
+        NavigationManeuver.slightLeft => Icons.turn_slight_left_rounded,
+        NavigationManeuver.slightRight => Icons.turn_slight_right_rounded,
+        NavigationManeuver.sharpLeft => Icons.turn_sharp_left_rounded,
+        NavigationManeuver.sharpRight => Icons.turn_sharp_right_rounded,
+        NavigationManeuver.keepLeft => Icons.fork_left_rounded,
+        NavigationManeuver.keepRight => Icons.fork_right_rounded,
+        NavigationManeuver.roundabout ||
+        NavigationManeuver.exitRoundabout => Icons.roundabout_right_rounded,
+        NavigationManeuver.uTurn => Icons.u_turn_left_rounded,
+        NavigationManeuver.arrive => Icons.flag_rounded,
+        NavigationManeuver.continueStraight ||
+        NavigationManeuver.depart => Icons.straight_rounded,
+        NavigationManeuver.unknown || null => Icons.navigation_rounded,
       };
 
   Widget _buildStopTile(int index, NavigationStop stop) {
@@ -1620,4 +1665,261 @@ class _SummaryValue extends StatelessWidget {
       ],
     ),
   );
+}
+
+class _DestinationSearchSheet extends StatefulWidget {
+  const _DestinationSearchSheet({
+    required this.geocodingService,
+    required this.proximity,
+  });
+
+  final PlaceGeocodingService geocodingService;
+  final LatLng? proximity;
+
+  @override
+  State<_DestinationSearchSheet> createState() =>
+      _DestinationSearchSheetState();
+}
+
+class _DestinationSearchSheetState extends State<_DestinationSearchSheet> {
+  final _searchController = TextEditingController();
+  Timer? _debounceTimer;
+  int _searchRequestId = 0;
+  bool _searching = false;
+  List<NavigationStop> _searchResults = const [];
+  String? _searchError;
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _executeSearch(String rawQuery) async {
+    final query = rawQuery.trim();
+    if (query.length < 2) {
+      _searchRequestId++;
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _searchResults = const [];
+          _searchError = null;
+        });
+      }
+      return;
+    }
+    final currentRequestId = ++_searchRequestId;
+    if (mounted) {
+      setState(() {
+        _searching = true;
+        _searchError = null;
+      });
+    }
+    try {
+      final results = await widget.geocodingService.searchPlaces(
+        query,
+        proximity: widget.proximity,
+      );
+      if (!mounted || currentRequestId != _searchRequestId) return;
+      setState(() {
+        _searching = false;
+        _searchResults = results;
+        if (results.isEmpty) {
+          _searchError = 'No places found for "$query".';
+        }
+      });
+    } catch (_) {
+      if (!mounted || currentRequestId != _searchRequestId) return;
+      setState(() {
+        _searching = false;
+        _searchError =
+            'Search failed. Check your connection or try again.';
+      });
+    }
+  }
+
+  void _onQueryChanged(String value) {
+    _debounceTimer?.cancel();
+    final query = value.trim();
+    if (query.length < 2) {
+      _searchRequestId++;
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _searchResults = const [];
+          _searchError = null;
+        });
+      }
+      return;
+    }
+    _debounceTimer = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) _executeSearch(value);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.search, color: ExplorerColors.navy),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Search and Add Stop',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('safe-navigation-search-input'),
+                    controller: _searchController,
+                    autofocus: true,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _onQueryChanged,
+                    onSubmitted: (value) {
+                      _debounceTimer?.cancel();
+                      _executeSearch(value);
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Search place name or address in Malaysia…',
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: _searching
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  key: ValueKey(
+                                    'safe-navigation-search-loading',
+                                  ),
+                                ),
+                              ),
+                            )
+                          : (_searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _onQueryChanged('');
+                                  },
+                                )
+                              : null),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const ValueKey('safe-navigation-search-submit'),
+                  onPressed: _searching
+                      ? null
+                      : () {
+                          _debounceTimer?.cancel();
+                          _executeSearch(_searchController.text);
+                        },
+                  child: _searching
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Search'),
+                ),
+              ],
+            ),
+            if (_searchError != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _searchError!,
+                key: const ValueKey('safe-navigation-search-error'),
+                style: const TextStyle(
+                  color: ExplorerColors.danger,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _searchResults.length,
+                separatorBuilder: (context, index) =>
+                    const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final place = _searchResults[index];
+                  return ListTile(
+                    key: ValueKey('safe-navigation-search-result-$index'),
+                    leading: const Icon(
+                      Icons.location_on_outlined,
+                      color: ExplorerColors.navy,
+                    ),
+                    title: Text(
+                      place.displayName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: place.address != null
+                        ? Text(
+                            place.address!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.of(context).pop(place);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
