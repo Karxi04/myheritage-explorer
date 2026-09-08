@@ -24,6 +24,10 @@ class _SafetyPageState extends State<SafetyPage> {
     context,
     MaterialPageRoute(builder: (_) => const MyHazardReportsPage()),
   );
+  void _safeNavigation() => Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const SafeNavigationPage()),
+  );
   Future<void> _preview(HazardReport report) async {
     final open = await showModalBottomSheet<bool>(
       context: context,
@@ -117,6 +121,15 @@ class _SafetyPageState extends State<SafetyPage> {
                 onPressed: _create,
                 icon: const Icon(Icons.add_alert_outlined),
                 label: const Text('Report a Hazard'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _safeNavigation,
+                icon: const Icon(Icons.route_outlined),
+                label: const Text('Safe Navigation'),
               ),
             ),
             const SizedBox(height: 16),

@@ -88,6 +88,9 @@ abstract final class SafetyConfig {
     _ => lowSeverityRadiusMeters,
   };
 
+  /// Safety margin beyond hazard boundaries when generating escape points.
+  static const double escapeSafetyMarginMeters = 40;
+
   /// A hazard can alert again after this interval while the app is active.
   static const Duration alertCooldown = Duration(minutes: 30);
 

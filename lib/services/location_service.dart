@@ -5,10 +5,15 @@ import '../core/safety_config.dart';
 class LocationService {
   const LocationService();
 
-  Future<Position> getCurrentPosition() async {
+  /// Verifies that a continuous location listener can be started.
+  ///
+  /// This is intentionally shared by one-shot and streaming consumers so the
+  /// app presents the same recoverable permission/service failures everywhere.
+  Future<void> ensureLocationAccess() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const LocationAccessException(
         'Turn on location services, then try again.',
+        code: LocationAccessFailure.servicesDisabled,
       );
     }
     var permission = await Geolocator.checkPermission();
@@ -18,13 +23,19 @@ class LocationService {
     if (permission == LocationPermission.deniedForever) {
       throw const LocationAccessException(
         'Allow location access in your device settings, then return and retry.',
+        code: LocationAccessFailure.deniedForever,
       );
     }
     if (permission == LocationPermission.denied) {
       throw const LocationAccessException(
-        'Location access is needed to place your report and confirm nearby hazards.',
+        'Location access is needed to use location features.',
+        code: LocationAccessFailure.denied,
       );
     }
+  }
+
+  Future<Position> getCurrentPosition() async {
+    await ensureLocationAccess();
     final position = await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -77,8 +88,21 @@ class LocationService {
 }
 
 class LocationAccessException implements Exception {
-  const LocationAccessException(this.message);
+  const LocationAccessException(
+    this.message, {
+    this.code = LocationAccessFailure.unavailable,
+  });
+
   final String message;
+  final LocationAccessFailure code;
+
   @override
   String toString() => message;
+}
+
+enum LocationAccessFailure {
+  denied,
+  deniedForever,
+  servicesDisabled,
+  unavailable,
 }

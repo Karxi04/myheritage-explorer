@@ -52,6 +52,7 @@ import '../widgets/duplicate_hazard_warning_sheet.dart';
 import '../widgets/evidence_picker_card.dart';
 import '../widgets/hazard_evidence_image.dart';
 import '../widgets/safety_loading_state.dart';
+import 'safety/navigation/safe_navigation_page.dart';
 
 import 'daily_planner/models/itinerary_model.dart';
 import 'daily_planner/models/travel_preferences_model.dart';
