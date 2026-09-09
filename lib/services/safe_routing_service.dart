@@ -99,10 +99,9 @@ class SafeRoutingService {
 
   String get apiKey => _apiKey;
 
-  static final Uri endpoint = Uri.parse(
-    'https://api.heigit.org/openrouteservice/v2/directions/'
-    'driving-car/geojson',
-  );
+  static const String endpointUrl =
+      'https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson';
+  static final Uri endpoint = Uri.parse(endpointUrl);
 
   static const int hazardPolygonSegments = 16;
   static const double _earthRadiusMeters = 6371008.8;
@@ -480,8 +479,7 @@ class SafeRoutingService {
   }
 
   static bool _isRetryableRouteFailure(SafeRoutingException error) =>
-      error.code == SafeRoutingFailureCode.noRoute ||
-      error.code == SafeRoutingFailureCode.invalidRequest;
+      error.code == SafeRoutingFailureCode.noRoute;
 
   static SafeRoute _routePrefixThrough({
     required SafeRoute route,
@@ -643,14 +641,23 @@ class SafeRoutingService {
     required RouteRiskLevel riskLevel,
     required List<HazardReport> allActiveHazards,
   }) async {
-    final endpointStr = '${endpoint.host}${endpoint.path}';
+    final endpointStr = endpoint.toString();
     final keyConfigured = _apiKey.isNotEmpty;
-    final keyLength = _apiKey.length;
+    final destPoint = waypoints.isNotEmpty
+        ? waypoints.last
+        : (stops.isNotEmpty ? stops.last.location : null);
+    final startStr =
+        '${start.latitude.toStringAsFixed(6)},${start.longitude.toStringAsFixed(6)}';
+    final destStr = destPoint != null
+        ? '${destPoint.latitude.toStringAsFixed(6)},${destPoint.longitude.toStringAsFixed(6)}'
+        : 'none';
+
+    debugPrint(
+      '[SafeRouting] endpoint=$endpointStr start=($startStr) dest=($destStr) '
+      'hazards=${allActiveHazards.length} avoid_polygons=${avoidHazards.length}',
+    );
 
     if (!keyConfigured) {
-      debugPrint('[SafeRouting] keyConfigured=false');
-      debugPrint('[SafeRouting] keyLength=0');
-      debugPrint('[SafeRouting] endpoint=$endpointStr');
       debugPrint('[SafeRouting] failure=missingApiKey');
       throw const SafeRoutingException(
         code: SafeRoutingFailureCode.missingApiKey,
@@ -679,9 +686,6 @@ class SafeRoutingService {
 
     final encodedBody = jsonEncode(requestBody);
     if (utf8.encode(encodedBody).length > _maxRequestBytes) {
-      debugPrint('[SafeRouting] keyConfigured=$keyConfigured');
-      debugPrint('[SafeRouting] keyLength=$keyLength');
-      debugPrint('[SafeRouting] endpoint=$endpointStr');
       debugPrint('[SafeRouting] failure=requestTooLarge');
       throw SafeRoutingException(
         code: SafeRoutingFailureCode.requestTooLarge,
@@ -705,18 +709,12 @@ class SafeRoutingService {
           )
           .timeout(_timeout);
     } on TimeoutException {
-      debugPrint('[SafeRouting] keyConfigured=$keyConfigured');
-      debugPrint('[SafeRouting] keyLength=$keyLength');
-      debugPrint('[SafeRouting] endpoint=$endpointStr');
       debugPrint('[SafeRouting] failure=timeout');
       throw const SafeRoutingException(
         code: SafeRoutingFailureCode.timeout,
         message: 'OpenRouteService did not respond before the timeout.',
       );
     } on http.ClientException {
-      debugPrint('[SafeRouting] keyConfigured=$keyConfigured');
-      debugPrint('[SafeRouting] keyLength=$keyLength');
-      debugPrint('[SafeRouting] endpoint=$endpointStr');
       debugPrint('[SafeRouting] failure=networkFailure');
       throw const SafeRoutingException(
         code: SafeRoutingFailureCode.networkFailure,
@@ -724,12 +722,20 @@ class SafeRoutingService {
       );
     }
 
+    debugPrint('[SafeRouting] HTTP=${response.statusCode}');
     if (response.statusCode != 200) {
-      final exception = _exceptionForHttpStatus(response.statusCode);
-      debugPrint('[SafeRouting] keyConfigured=$keyConfigured');
-      debugPrint('[SafeRouting] keyLength=$keyLength');
-      debugPrint('[SafeRouting] endpoint=$endpointStr');
-      debugPrint('[SafeRouting] HTTP=${response.statusCode}');
+      final orsError = _parseOrsError(response.body);
+      if (orsError != null) {
+        final code = orsError.code == null ? 'unknown' : '${orsError.code}';
+        final message = orsError.message == null
+            ? 'unavailable'
+            : _safeLogText(orsError.message!);
+        debugPrint('[SafeRouting] ORS error code=$code message=$message');
+      }
+      final exception = _exceptionForHttpStatus(
+        response.statusCode,
+        orsErrorCode: orsError?.code,
+      );
       debugPrint('[SafeRouting] failure=${exception.code.name}');
       throw exception;
     }
@@ -743,9 +749,11 @@ class SafeRoutingService {
         riskLevel: riskLevel,
         allActiveHazards: allActiveHazards,
       );
-    } on SafeRoutingException {
+    } on SafeRoutingException catch (error) {
+      debugPrint('[SafeRouting] failure=${error.code.name}');
       rethrow;
     } on Object {
+      debugPrint('[SafeRouting] failure=malformedResponse');
       throw const SafeRoutingException(
         code: SafeRoutingFailureCode.malformedResponse,
         message: 'OpenRouteService returned an invalid route response.',
@@ -1101,8 +1109,19 @@ class SafeRoutingService {
     );
   }
 
-  static SafeRoutingException _exceptionForHttpStatus(int statusCode) {
+  static SafeRoutingException _exceptionForHttpStatus(
+    int statusCode, {
+    int? orsErrorCode,
+  }) {
     if (statusCode == 400) {
+      if (_isOrsNoRouteErrorCode(orsErrorCode)) {
+        return SafeRoutingException(
+          code: SafeRoutingFailureCode.noRoute,
+          message:
+              'OpenRouteService could not find a route between the points.',
+          statusCode: statusCode,
+        );
+      }
       return SafeRoutingException(
         code: SafeRoutingFailureCode.invalidRequest,
         message: 'OpenRouteService rejected the routing request.',
@@ -1126,9 +1145,25 @@ class SafeRoutingService {
       );
     }
     if (statusCode == 404) {
+      if (_isOrsNoRouteErrorCode(orsErrorCode)) {
+        return SafeRoutingException(
+          code: SafeRoutingFailureCode.noRoute,
+          message:
+              'OpenRouteService could not find a route between the points.',
+          statusCode: statusCode,
+        );
+      }
       return SafeRoutingException(
-        code: SafeRoutingFailureCode.noRoute,
-        message: 'No road route is available for the requested points.',
+        code: SafeRoutingFailureCode.providerFailure,
+        message:
+            'OpenRouteService returned 404 for the configured Directions endpoint.',
+        statusCode: statusCode,
+      );
+    }
+    if (statusCode == 413) {
+      return SafeRoutingException(
+        code: SafeRoutingFailureCode.requestTooLarge,
+        message: 'OpenRouteService rejected the request as too large.',
         statusCode: statusCode,
       );
     }
@@ -1144,6 +1179,48 @@ class SafeRoutingService {
       message: 'OpenRouteService returned HTTP $statusCode.',
       statusCode: statusCode,
     );
+  }
+
+  static bool _isOrsNoRouteErrorCode(int? code) => code == 2009 || code == 2016;
+
+  static _OrsErrorDetails? _parseOrsError(String responseBody) {
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is! Map) return null;
+      final root = Map<String, dynamic>.from(decoded);
+      final rawError = root['error'];
+      if (rawError is String) {
+        return _OrsErrorDetails(message: rawError);
+      }
+      if (rawError is! Map) return null;
+      final error = Map<String, dynamic>.from(rawError);
+      final rawCode = error['code'];
+      final code = rawCode is int
+          ? rawCode
+          : rawCode is num
+          ? rawCode.toInt()
+          : int.tryParse('$rawCode');
+      final rawMessage = error['message'];
+      final message = rawMessage is String && rawMessage.trim().isNotEmpty
+          ? rawMessage.trim()
+          : null;
+      if (code == null && message == null) return null;
+      return _OrsErrorDetails(code: code, message: message);
+    } on Object {
+      return null;
+    }
+  }
+
+  String _safeLogText(String value) {
+    var sanitized = value.replaceAll(RegExp(r'[\r\n\t]+'), ' ').trim();
+    if (_apiKey.isNotEmpty) {
+      sanitized = sanitized.replaceAll(_apiKey, '[redacted]');
+    }
+    const maxLength = 240;
+    if (sanitized.length > maxLength) {
+      return '${sanitized.substring(0, maxLength)}...';
+    }
+    return sanitized;
   }
 
   static SafeRoute _parseRoute(
@@ -1321,4 +1398,11 @@ class SafeRoutingService {
     final normalized = (longitude + 540) % 360 - 180;
     return normalized == -180 ? 180 : normalized;
   }
+}
+
+class _OrsErrorDetails {
+  const _OrsErrorDetails({this.code, this.message});
+
+  final int? code;
+  final String? message;
 }

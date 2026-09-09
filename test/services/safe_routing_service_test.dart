@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -283,7 +284,12 @@ void main() {
     test('request uses the driving-car GeoJSON endpoint and headers', () async {
       await requestFor([hazard()]);
 
+      expect(
+        SafeRoutingService.endpointUrl,
+        'https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson',
+      );
       expect(capturedRequest.url, SafeRoutingService.endpoint);
+      expect(capturedRequest.url.toString(), SafeRoutingService.endpointUrl);
       expect(capturedRequest.url.path, contains('/driving-car/geojson'));
       expect(capturedRequest.headers['Authorization'], 'test-key');
       expect(capturedRequest.headers['Content-Type'], 'application/json');
@@ -496,8 +502,85 @@ void main() {
       );
     });
 
-    test('HTTP 404 returns no-route failure', () async {
-      final service = serviceReturning(statusCode: 404, body: '{}');
+    test('generic HTTP 404 without ORS error code returns provider failure', () async {
+      final service = serviceReturning(
+        statusCode: 404,
+        body: '{"error":{"message":"Endpoint not found"}}',
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        ),
+        throwsA(
+          isA<SafeRoutingException>()
+              .having(
+                (error) => error.code,
+                'code',
+                SafeRoutingFailureCode.providerFailure,
+              )
+              .having((error) => error.statusCode, 'statusCode', 404),
+        ),
+      );
+    });
+
+    test('HTTP 404 with ORS error code 2009 maps to noRoute', () async {
+      final service = serviceReturning(
+        statusCode: 404,
+        body:
+            '{"error":{"code":2009,"message":"Route could not be found - Unable to find a route between points"}}',
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        ),
+        throwsA(
+          isA<SafeRoutingException>()
+              .having(
+                (error) => error.code,
+                'code',
+                SafeRoutingFailureCode.noRoute,
+              )
+              .having((error) => error.statusCode, 'statusCode', 404),
+        ),
+      );
+    });
+
+    test('HTTP 404 with ORS error code 2016 maps to noRoute', () async {
+      final service = serviceReturning(
+        statusCode: 404,
+        body:
+            '{"error":{"code":2016,"message":"Could not find point 0 within a radius of 350.0 meters"}}',
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        ),
+        throwsA(
+          isA<SafeRoutingException>()
+              .having(
+                (error) => error.code,
+                'code',
+                SafeRoutingFailureCode.noRoute,
+              )
+              .having((error) => error.statusCode, 'statusCode', 404),
+        ),
+      );
+    });
+
+    test('a genuine ORS no-route code maps to no-route', () async {
+      final service = serviceReturning(
+        statusCode: 400,
+        body: '{"error":{"code":2009,"message":"Route could not be found"}}',
+      );
 
       await expectLater(
         service.calculateSafeRoute(
@@ -946,7 +1029,7 @@ void main() {
           longitude: start.longitude,
         );
 
-        final service = serviceReturning(statusCode: 404, body: '{}');
+        final service = serviceReturning(body: '{"features":[]}');
 
         await expectLater(
           service.calculateSafeRoute(
@@ -973,7 +1056,7 @@ void main() {
         longitude: start.longitude,
       );
 
-      final service = serviceReturning(statusCode: 404, body: '{}');
+      final service = serviceReturning(body: '{"features":[]}');
 
       try {
         await service.calculateSafeRoute(
@@ -1045,7 +1128,7 @@ void main() {
           final service = serviceReturning(
             handler: (request, count) async {
               if (count <= SafeRoutingService.escapeBearingOffsets.length) {
-                return http.Response('{}', 404);
+                return http.Response('{"features":[]}', 200);
               }
               if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
                 return roadRoute([start, inside, exit, destination]);
@@ -1076,6 +1159,65 @@ void main() {
     }
 
     test(
+      'start inside High hazard succeeds when radial points return HTTP 404 with code 2009',
+      () async {
+        final containing = hazard(
+          id: 'start-high-2009',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final bearing = SafeRoutingService.initialBearingDegrees(
+          start,
+          destination,
+        );
+        final inside = SafeRoutingService.computeDestinationPoint(
+          start,
+          SafetyConfig.dangerRadiusForSeverity('High') / 2,
+          bearing,
+        );
+        final exit = SafeRoutingService.computeDestinationPoint(
+          start,
+          SafetyConfig.dangerRadiusForSeverity('High') + 60,
+          bearing,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            if (count <= SafeRoutingService.escapeBearingOffsets.length) {
+              return http.Response(
+                '{"error":{"code":2009,"message":"Route could not be found - Unable to find a route between points"}}',
+                404,
+              );
+            }
+            if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
+              return roadRoute([start, inside, exit, destination]);
+            }
+            return roadRoute([exit, destination]);
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(result.escapeHazardIds, [containing.id]);
+        expect(result.riskLevel, RouteRiskLevel.hazardFree);
+        expect(
+          SafeRoutingService.firstCompleteExitIndex(
+            geometry: result.geometry,
+            containingHazards: [containing],
+          ),
+          greaterThan(0),
+        );
+        expect(result.geometry.last, destination);
+      },
+    );
+
+    test(
       'provider snap directly outside still retains the real start',
       () async {
         final containing = hazard(
@@ -1097,7 +1239,9 @@ void main() {
             SafeRoutingService.escapeBearingOffsets.length + 1;
         final service = serviceReturning(
           handler: (request, count) async {
-            if (count < firstFallbackRequest) return http.Response('{}', 404);
+            if (count < firstFallbackRequest) {
+              return http.Response('{"features":[]}', 200);
+            }
             return roadRoute([snappedExit, destination]);
           },
         );
@@ -1140,7 +1284,7 @@ void main() {
       final service = serviceReturning(
         handler: (request, count) async {
           if (count <= SafeRoutingService.escapeBearingOffsets.length) {
-            return http.Response('{}', 404);
+            return http.Response('{"features":[]}', 200);
           }
           if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
             return roadRoute([start, exit, destination]);
@@ -1219,7 +1363,7 @@ void main() {
         final service = serviceReturning(
           handler: (request, count) async {
             if (count <= SafeRoutingService.escapeBearingOffsets.length) {
-              return http.Response('{}', 404);
+              return http.Response('{"features":[]}', 200);
             }
             if (count == firstFallbackRequest ||
                 count == firstFallbackRequest + 2) {
@@ -1264,7 +1408,9 @@ void main() {
           SafeRoutingService.escapeBearingOffsets.length + 1;
       final service = serviceReturning(
         handler: (request, count) async {
-          if (count <= firstFallbackRequest) return http.Response('{}', 404);
+          if (count <= firstFallbackRequest) {
+            return http.Response('{"features":[]}', 200);
+          }
           if (count == firstFallbackRequest + 1) {
             return roadRoute([start, exit, destination]);
           }
@@ -1314,7 +1460,7 @@ void main() {
       final service = serviceReturning(
         handler: (request, count) async {
           if (count < firstFallbackRequest + 2) {
-            return http.Response('{}', 404);
+            return http.Response('{"features":[]}', 200);
           }
           if (count == firstFallbackRequest + 2) {
             return roadRoute([start, exit, destination]);
@@ -1354,7 +1500,9 @@ void main() {
             SafeRoutingService.escapeBearingOffsets.length + 1;
         final service = serviceReturning(
           handler: (request, count) async {
-            if (count <= firstFallbackRequest) return http.Response('{}', 404);
+            if (count <= firstFallbackRequest) {
+              return http.Response('{"features":[]}', 200);
+            }
             if (count == firstFallbackRequest + 1) {
               return roadRoute([start, exit, destination]);
             }
@@ -1408,7 +1556,9 @@ void main() {
           SafeRoutingService.escapeBearingOffsets.length + 1;
       final service = serviceReturning(
         handler: (request, count) async {
-          if (count < firstFallbackRequest) return http.Response('{}', 404);
+          if (count < firstFallbackRequest) {
+            return http.Response('{"features":[]}', 200);
+          }
           if (count == firstFallbackRequest) {
             return roadRoute([start, exit, firstStop]);
           }
@@ -2152,7 +2302,7 @@ void main() {
     );
 
     test(
-      'Progressive fallback: Level 2 succeeds when Level 1 returns 404 (Low hazards crossed)',
+      'Progressive fallback: Level 2 succeeds after a genuine no-route response (Low hazards crossed)',
       () async {
         final high = hazard(
           id: 'h-1',
@@ -2176,8 +2326,8 @@ void main() {
         final service = serviceReturning(
           handler: (request, count) async {
             if (count == 1) {
-              // Level 1: fails with 404 (no route avoiding all hazards)
-              return http.Response('{}', 404);
+              // Level 1: ORS produced no route while avoiding all hazards.
+              return http.Response('{"features":[]}', 200);
             }
             // Level 2: succeeds avoiding High and Medium
             return http.Response(
@@ -2210,7 +2360,7 @@ void main() {
     );
 
     test(
-      'Progressive fallback: Level 3 succeeds when Level 1 and 2 return 404',
+      'Progressive fallback: Level 3 succeeds after two genuine no-route responses',
       () async {
         final high = hazard(
           id: 'h-1',
@@ -2234,7 +2384,7 @@ void main() {
         final service = serviceReturning(
           handler: (request, count) async {
             if (count == 1 || count == 2) {
-              return http.Response('{}', 404);
+              return http.Response('{"features":[]}', 200);
             }
             // Level 3: succeeds avoiding High only
             return http.Response(
@@ -2290,7 +2440,7 @@ void main() {
         final service = serviceReturning(
           handler: (request, count) async {
             if (count <= 3) {
-              return http.Response('{}', 404);
+              return http.Response('{"features":[]}', 200);
             }
             // Level 4: succeeds without avoid_polygons
             return http.Response(
@@ -2318,6 +2468,219 @@ void main() {
         expect(lastReqBody.containsKey('options'), isFalse);
       },
     );
+
+    test(
+      'Progressive fallback: Level 2 succeeds when Level 1 returns HTTP 404 with ORS code 2009',
+      () async {
+        final high = hazard(
+          id: 'h-1',
+          severity: 'High',
+          latitude: 5.43,
+          longitude: 100.34,
+        );
+        final medium = hazard(
+          id: 'm-1',
+          severity: 'Medium',
+          latitude: 5.435,
+          longitude: 100.345,
+        );
+        final low = hazard(
+          id: 'l-1',
+          severity: 'Low',
+          latitude: 5.44,
+          longitude: 100.35,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            if (count == 1) {
+              return http.Response(
+                '{"error":{"code":2009,"message":"Route could not be found - Unable to find a route between points"}}',
+                404,
+              );
+            }
+            return http.Response(
+              routeResponse(
+                coordinates: [
+                  [start.longitude, start.latitude],
+                  [destination.longitude, destination.latitude],
+                ],
+              ),
+              200,
+            );
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [high, medium, low],
+        );
+
+        expect(requestCount, 2);
+        expect(result.riskLevel, RouteRiskLevel.lowRisk);
+        final options =
+            jsonDecode(capturedRequests[1].body)['options']
+                as Map<String, dynamic>;
+        final avoidPoly = options['avoid_polygons'] as Map<String, dynamic>;
+        expect(avoidPoly['coordinates'], hasLength(2));
+      },
+    );
+
+    test(
+      'Progressive fallback: Level 4 succeeds when Levels 1-3 return HTTP 404 with ORS code 2016',
+      () async {
+        final high = hazard(
+          id: 'h-1',
+          severity: 'High',
+          latitude: 5.43,
+          longitude: 100.34,
+        );
+        final medium = hazard(
+          id: 'm-1',
+          severity: 'Medium',
+          latitude: 5.435,
+          longitude: 100.345,
+        );
+        final low = hazard(
+          id: 'l-1',
+          severity: 'Low',
+          latitude: 5.44,
+          longitude: 100.35,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            if (count <= 3) {
+              return http.Response(
+                '{"error":{"code":2016,"message":"Could not find point within 350.0 meters"}}',
+                404,
+              );
+            }
+            return http.Response(
+              routeResponse(
+                coordinates: [
+                  [start.longitude, start.latitude],
+                  [destination.longitude, destination.latitude],
+                ],
+              ),
+              200,
+            );
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [high, medium, low],
+        );
+
+        expect(requestCount, 4);
+        expect(result.riskLevel, RouteRiskLevel.unavoidableExposure);
+        final lastReqBody =
+            jsonDecode(capturedRequests[3].body) as Map<String, dynamic>;
+        expect(lastReqBody.containsKey('options'), isFalse);
+      },
+    );
+
+    for (final failure in <(int, SafeRoutingFailureCode)>[
+      (400, SafeRoutingFailureCode.invalidRequest),
+      (401, SafeRoutingFailureCode.unauthorized),
+      (403, SafeRoutingFailureCode.unauthorized),
+      (404, SafeRoutingFailureCode.providerFailure),
+      (413, SafeRoutingFailureCode.requestTooLarge),
+      (429, SafeRoutingFailureCode.rateLimited),
+      (500, SafeRoutingFailureCode.providerUnavailable),
+      (503, SafeRoutingFailureCode.providerUnavailable),
+    ]) {
+      test('HTTP ${failure.$1} never weakens hazard avoidance', () async {
+        final service = serviceReturning(
+          statusCode: failure.$1,
+          body: '{"error":{"message":"provider error"}}',
+        );
+
+        await expectLater(
+          service.calculateSafeRoute(
+            start: start,
+            destination: destination,
+            hazards: [
+              hazard(id: 'h', severity: 'High'),
+              hazard(id: 'm', severity: 'Medium'),
+              hazard(id: 'l', severity: 'Low'),
+            ],
+          ),
+          throwsA(
+            isA<SafeRoutingException>().having(
+              (error) => error.code,
+              'code',
+              failure.$2,
+            ),
+          ),
+        );
+        expect(requestCount, 1);
+        final polygons =
+            (capturedBody()['options']
+                    as Map<String, dynamic>)['avoid_polygons']
+                as Map<String, dynamic>;
+        expect(polygons['coordinates'], hasLength(3));
+      });
+    }
+
+    test('network failure never weakens hazard avoidance', () async {
+      requestCount = 0;
+      final service = SafeRoutingService(
+        apiKey: 'test-key',
+        client: MockClient((request) async {
+          requestCount++;
+          throw http.ClientException('offline', request.url);
+        }),
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [hazard(severity: 'Low')],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (error) => error.code,
+            'code',
+            SafeRoutingFailureCode.networkFailure,
+          ),
+        ),
+      );
+      expect(requestCount, 1);
+    });
+
+    test('timeout never weakens hazard avoidance', () async {
+      requestCount = 0;
+      final pendingResponse = Completer<http.Response>();
+      final service = SafeRoutingService(
+        apiKey: 'test-key',
+        timeout: const Duration(milliseconds: 10),
+        client: MockClient((request) {
+          requestCount++;
+          return pendingResponse.future;
+        }),
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [hazard(severity: 'Low')],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (error) => error.code,
+            'code',
+            SafeRoutingFailureCode.timeout,
+          ),
+        ),
+      );
+      expect(requestCount, 1);
+    });
 
     test(
       'geometrically determines crossedHazardIds along final route polyline',
