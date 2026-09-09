@@ -191,11 +191,11 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   final searchField = ExplorerSearchField(
                     controller: search,
                     hintText: 'Search review, place or user...',
-                    width: 340,
+                    width: effectiveSearchWidth,
                     onChanged: (_) => setState(() => pageLimit = 50),
-                  ),
-                  SizedBox(
-                    width: 200,
+                  );
+                  final filterDropdown = SizedBox(
+                    width: effectiveDropdownWidth,
                     child: DropdownButtonFormField<String>(
                       isExpanded: true,
                       initialValue: filter,
@@ -224,8 +224,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                     tone: docs.isEmpty
                         ? ExplorerStatusTone.success
                         : ExplorerStatusTone.warning,
-                  ),
-                  FilledButton.icon(
+                  );
+                  final syncButton = FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: ExplorerColors.navy,
                     ),
