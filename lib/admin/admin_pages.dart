@@ -5,8 +5,6 @@ import 'package:intl/intl.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
-import '../traveler/traveler_pages.dart';
-import '../traveler/daily_planner/models/place_model.dart';
 import '../traveler/daily_planner/services/malaysia_location_service.dart';
 import '../traveler/daily_planner/services/place_repository.dart';
 

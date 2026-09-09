@@ -2404,10 +2404,6 @@ if (selectedNames.contains(candidateName) ||
         if (travelMinutes + visitMinutes + bufferMinutes > remaining) continue;
 
         // Opening hours verification based on estimated visit time
-        final currentDayMinute =
-            (preferredStartMinutes ?? 9 * 60) +
-            (availableMinutes - remaining) +
-            travelMinutes;
         final window = ItinerarySchedulePlanner._openingWindow(
           '${candidate['openingHours'] ?? ''}',
         );
@@ -4276,9 +4272,9 @@ int get tripDays {
         });
       }
 
-      final tripArea = area.text.trim().isEmpty
-          ? activeHub.name
-          : area.text.trim();
+      final tripArea = selectedArea.trim().isEmpty
+          ? selectedStateName
+          : selectedArea.trim();
       final tripTitle = tripDays > 1
           ? '$selectedStateName $tripDays-Day Tour'
           : '$selectedArea Cultural Day';
@@ -4394,20 +4390,7 @@ int get tripDays {
 
   @override
   void dispose() {
-    area.dispose();
     super.dispose();
-  }
-
-  String _extractShortArea(String fullAddress) {
-    if (fullAddress.isEmpty) return area.text.trim();
-    final parts = fullAddress.split(',');
-    if (parts.length >= 2) {
-      final town = parts[parts.length - 2]
-          .replaceAll(RegExp(r'\d+'), '')
-          .trim();
-      if (town.isNotEmpty && town.length < 24) return town;
-    }
-    return parts.first.trim();
   }
 
   @override
@@ -4498,43 +4481,6 @@ int get tripDays {
                             onChanged: (v) {
                               if (v != null) _onStateChanged(v);
                             },
-                          )
-                        : null,
-                  ),
-                ),
-                if (showSuggestions && suggestions.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: ExplorerColors.goldSoft),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      itemCount: suggestions.length,
-                      separatorBuilder: (_, __) => const Divider(
-                        height: 1,
-                        color: ExplorerColors.goldSoft,
-                      ),
-                      itemBuilder: (context, index) {
-                        final sub = suggestions[index];
-                        return ListTile(
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          leading: const Icon(
-                            Icons.place,
-                            size: 18,
-                            color: ExplorerColors.navy,
                           ),
                         ],
                       ),
@@ -4612,13 +4558,7 @@ if (availableAreas.isNotEmpty) ...[
       }).toList(),
     ),
   ),
-]
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ],
+],
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(10),

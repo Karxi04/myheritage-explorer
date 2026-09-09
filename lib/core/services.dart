@@ -858,17 +858,6 @@ class AppServices {
       if (reminderTime.isAfter(current)) return reminderTime;
     }
 
-// Benji: Schedule notification
-    final notifId = itineraryId.hashCode.abs().remainder(100000);
-    await SystemNotificationService.instance.scheduleTripReminder(
-      id: notifId,
-      title: '✈️ Upcoming Trip: $title ($area)',
-      body:
-          'Your trip to $area starts tomorrow ($formattedDate)! Check your itinerary & today\'s weather forecast.',
-      reminderTime: reminderDate,
-      payload: 'itinerary:$itineraryId',
-    );
-
     return null;
   }
 
@@ -881,6 +870,7 @@ class AppServices {
       tripStartDate.year,
       tripStartDate.month,
       tripStartDate.day,
+    );
     final reminderDate = DateTime(
       reminderTime.year,
       reminderTime.month,
