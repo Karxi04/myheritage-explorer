@@ -708,8 +708,14 @@ class _ClaimedVoucherDirectionsPageState
     extends State<_ClaimedVoucherDirectionsPage> {
   Position? travelerPosition;
   GoogleMapController? mapController;
+  List<LatLng> routePoints = const [];
+  List<_VoucherWalkingStep> routeSteps = const [];
   bool loadingPosition = true;
+  bool loadingRoute = false;
   String? positionError;
+  String? routeError;
+  double? routeDistanceMeters;
+  int? routeMinutes;
 
   LatLng get vendorLatLng =>
       LatLng(widget.vendorLocation.latitude, widget.vendorLocation.longitude);
@@ -721,14 +727,21 @@ class _ClaimedVoucherDirectionsPageState
   }
 
   Future<void> _loadTravelerPosition() async {
+    if (!loadingPosition) {
+      setState(() {
+        loadingPosition = true;
+        positionError = null;
+      });
+    }
     try {
       final position = await determinePosition();
       if (!mounted) return;
       setState(() {
         travelerPosition = position;
         loadingPosition = false;
+        positionError = null;
       });
-      _fitMapToRoute();
+      await _loadWalkingRoute(position);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -743,25 +756,28 @@ class _ClaimedVoucherDirectionsPageState
     final traveler = travelerPosition;
     if (controller == null || traveler == null) return;
 
-    final travelerLatLng = LatLng(traveler.latitude, traveler.longitude);
-    final latitudeDifference = (travelerLatLng.latitude - vendorLatLng.latitude)
-        .abs();
-    final longitudeDifference =
-        (travelerLatLng.longitude - vendorLatLng.longitude).abs();
+    final points = routePoints.length >= 2
+        ? routePoints
+        : [LatLng(traveler.latitude, traveler.longitude), vendorLatLng];
+    var south = points.first.latitude;
+    var north = points.first.latitude;
+    var west = points.first.longitude;
+    var east = points.first.longitude;
+    for (final point in points.skip(1)) {
+      south = min(south, point.latitude);
+      north = max(north, point.latitude);
+      west = min(west, point.longitude);
+      east = max(east, point.longitude);
+    }
+
     final CameraUpdate cameraUpdate;
-    if (latitudeDifference < 0.0001 && longitudeDifference < 0.0001) {
+    if ((north - south).abs() < 0.0001 && (east - west).abs() < 0.0001) {
       cameraUpdate = CameraUpdate.newLatLngZoom(vendorLatLng, 17);
     } else {
       cameraUpdate = CameraUpdate.newLatLngBounds(
         LatLngBounds(
-          southwest: LatLng(
-            min(travelerLatLng.latitude, vendorLatLng.latitude),
-            min(travelerLatLng.longitude, vendorLatLng.longitude),
-          ),
-          northeast: LatLng(
-            max(travelerLatLng.latitude, vendorLatLng.latitude),
-            max(travelerLatLng.longitude, vendorLatLng.longitude),
-          ),
+          southwest: LatLng(south, west),
+          northeast: LatLng(north, east),
         ),
         64,
       );
@@ -769,20 +785,292 @@ class _ClaimedVoucherDirectionsPageState
     unawaited(controller.animateCamera(cameraUpdate).catchError((_) {}));
   }
 
-  Future<void> _openWalkingDirections() async {
-    final traveler = travelerPosition;
-    final uri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      if (traveler != null)
-        'origin': '${traveler.latitude},${traveler.longitude}',
-      'destination':
-          '${widget.vendorLocation.latitude},${widget.vendorLocation.longitude}',
-      'travelmode': 'walking',
-    });
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
-      showMessage(context, 'Unable to open walking directions.', error: true);
+  Future<void> _loadWalkingRoute(Position origin) async {
+    if (loadingRoute) return;
+    if (!GeoapifyConfig.isConfigured) {
+      _showDirectRouteFallback(
+        origin,
+        'The walking-route service is not configured.',
+      );
+      return;
     }
+
+    setState(() {
+      loadingRoute = true;
+      routeError = null;
+    });
+
+    try {
+      final uri = Uri.https('api.geoapify.com', '/v1/routing', {
+        'waypoints':
+            '${origin.latitude},${origin.longitude}|${widget.vendorLocation.latitude},${widget.vendorLocation.longitude}',
+        'mode': 'walk',
+        'details': 'instruction_details',
+        'lang': 'en',
+        'apiKey': GeoapifyConfig.apiKey,
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Walking route request failed (${response.statusCode}).',
+        );
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) throw Exception('Invalid walking route response.');
+      final features = decoded['features'];
+      if (features is! List || features.isEmpty || features.first is! Map) {
+        throw Exception('No walking route was found.');
+      }
+
+      final feature = Map<String, dynamic>.from(features.first as Map);
+      final geometry = feature['geometry'];
+      if (geometry is! Map) throw Exception('Route geometry is unavailable.');
+      final points = <LatLng>[];
+      _collectRouteCoordinates(geometry['coordinates'], points);
+      if (points.length < 2) throw Exception('Walking route is empty.');
+
+      final rawProperties = feature['properties'];
+      final properties = rawProperties is Map
+          ? Map<String, dynamic>.from(rawProperties)
+          : <String, dynamic>{};
+      final steps = <_VoucherWalkingStep>[];
+      final legs = properties['legs'];
+      if (legs is List) {
+        for (final rawLeg in legs) {
+          if (rawLeg is! Map) continue;
+          final rawSteps = rawLeg['steps'];
+          if (rawSteps is! List) continue;
+          for (final rawStep in rawSteps) {
+            if (rawStep is! Map) continue;
+            final instruction = rawStep['instruction'];
+            if (instruction is! Map) continue;
+            final text = '${instruction['text'] ?? ''}'.trim();
+            if (text.isEmpty) continue;
+            steps.add(
+              _VoucherWalkingStep(
+                text: text,
+                type: '${instruction['type'] ?? ''}',
+                distanceMeters: (rawStep['distance'] as num?)?.toDouble() ?? 0,
+              ),
+            );
+          }
+        }
+      }
+
+      final distance =
+          (properties['distance'] as num?)?.toDouble() ??
+          _routeDistance(points);
+      final seconds = (properties['time'] as num?)?.toDouble();
+      if (!mounted) return;
+      setState(() {
+        routePoints = points;
+        routeSteps = steps;
+        routeDistanceMeters = distance;
+        routeMinutes = seconds == null
+            ? max(1, (distance / 75).ceil())
+            : max(1, (seconds / 60).ceil());
+      });
+      _fitMapToRoute();
+    } catch (error) {
+      if (mounted) {
+        _showDirectRouteFallback(
+          origin,
+          error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => loadingRoute = false);
+    }
+  }
+
+  void _collectRouteCoordinates(dynamic value, List<LatLng> points) {
+    if (value is! List) return;
+    if (value.length >= 2 && value[0] is num && value[1] is num) {
+      points.add(
+        LatLng((value[1] as num).toDouble(), (value[0] as num).toDouble()),
+      );
+      return;
+    }
+    for (final child in value) {
+      _collectRouteCoordinates(child, points);
+    }
+  }
+
+  double _routeDistance(List<LatLng> points) {
+    var total = 0.0;
+    for (var index = 0; index < points.length - 1; index++) {
+      total += Geolocator.distanceBetween(
+        points[index].latitude,
+        points[index].longitude,
+        points[index + 1].latitude,
+        points[index + 1].longitude,
+      );
+    }
+    return total;
+  }
+
+  void _showDirectRouteFallback(Position origin, String reason) {
+    final start = LatLng(origin.latitude, origin.longitude);
+    final distance = Geolocator.distanceBetween(
+      origin.latitude,
+      origin.longitude,
+      widget.vendorLocation.latitude,
+      widget.vendorLocation.longitude,
+    );
+    setState(() {
+      routePoints = [start, vendorLatLng];
+      routeSteps = const [];
+      routeDistanceMeters = distance;
+      routeMinutes = max(1, (distance / 75).ceil());
+      routeError = reason;
+    });
+    _fitMapToRoute();
+  }
+
+  String _formatDistance(double distance) => distance < 1000
+      ? '${distance.round()} m'
+      : '${(distance / 1000).toStringAsFixed(1)} km';
+
+  String get routeSummary {
+    if (loadingPosition) return 'Finding your current location...';
+    if (positionError != null) {
+      return 'Your location is unavailable. Check location access and try again.';
+    }
+    if (loadingRoute) return 'Calculating your in-app walking route...';
+    final distance = routeDistanceMeters;
+    final minutes = routeMinutes;
+    if (distance != null && minutes != null) {
+      return '${_formatDistance(distance)} • About $minutes min walk';
+    }
+    return distanceMessage;
+  }
+
+  Future<void> _showWalkingSteps() async {
+    if (routeSteps.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: .68,
+        minChildSize: .42,
+        maxChildSize: .92,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: ExplorerColors.background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: ExplorerColors.border,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 10, 12),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: ExplorerColors.navySoft,
+                      foregroundColor: ExplorerColors.navy,
+                      child: Icon(Icons.directions_walk_rounded),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Walking directions',
+                            style: TextStyle(
+                              color: ExplorerColors.navy,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            routeSummary,
+                            style: const TextStyle(
+                              color: ExplorerColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: routeSteps.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final step = routeSteps[index];
+                    return ExplorerCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: ExplorerColors.navySoft,
+                            foregroundColor: ExplorerColors.navy,
+                            child: Icon(step.icon, size: 19),
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  step.text,
+                                  style: const TextStyle(
+                                    color: ExplorerColors.navy,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (step.distanceMeters > 0) ...[
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _formatDistance(step.distanceMeters),
+                                    style: const TextStyle(
+                                      color: ExplorerColors.muted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String get distanceMessage {
@@ -878,11 +1166,7 @@ class _ClaimedVoucherDirectionsPageState
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            loadingPosition
-                                ? 'Finding your current location...'
-                                : positionError == null
-                                ? distanceMessage
-                                : 'Your location is unavailable. You can still open directions to the vendor.',
+                            routeSummary,
                             style: const TextStyle(
                               color: ExplorerColors.muted,
                               fontSize: 11,
@@ -892,6 +1176,40 @@ class _ClaimedVoucherDirectionsPageState
                         ),
                       ],
                     ),
+                    if (routeError != null && !loadingRoute) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: ExplorerColors.warningSoft,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              color: ExplorerColors.warning,
+                              size: 18,
+                            ),
+                            SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                'The exact walking route is temporarily unavailable, so the map is showing a direct guide line.',
+                                style: TextStyle(
+                                  color: ExplorerColors.navy,
+                                  fontSize: 10,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -905,7 +1223,20 @@ class _ClaimedVoucherDirectionsPageState
                     zoom: 15,
                   ),
                   markers: markers,
-                  myLocationButtonEnabled: false,
+                  polylines: routePoints.length < 2
+                      ? const <Polyline>{}
+                      : {
+                          Polyline(
+                            polylineId: const PolylineId(
+                              'voucher-walking-route',
+                            ),
+                            points: routePoints,
+                            color: ExplorerColors.navy,
+                            width: 6,
+                          ),
+                        },
+                  myLocationEnabled: traveler != null,
+                  myLocationButtonEnabled: traveler != null,
                   mapToolbarEnabled: false,
                   compassEnabled: true,
                   onMapCreated: (controller) {
@@ -920,9 +1251,31 @@ class _ClaimedVoucherDirectionsPageState
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _openWalkingDirections,
-                  icon: const Icon(Icons.directions_walk),
-                  label: const Text('Open Walking Directions'),
+                  onPressed: positionError != null
+                      ? _loadTravelerPosition
+                      : loadingPosition || loadingRoute || routeSteps.isEmpty
+                      ? null
+                      : _showWalkingSteps,
+                  icon: loadingPosition || loadingRoute
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          positionError != null
+                              ? Icons.refresh_rounded
+                              : Icons.format_list_numbered_rounded,
+                        ),
+                  label: Text(
+                    positionError != null
+                        ? 'Try Location Again'
+                        : loadingPosition || loadingRoute
+                        ? 'Calculating Walking Route...'
+                        : routeSteps.isEmpty
+                        ? 'Route Displayed Above'
+                        : 'View ${routeSteps.length} Walking Steps',
+                  ),
                 ),
               ),
             ),
@@ -930,5 +1283,27 @@ class _ClaimedVoucherDirectionsPageState
         ),
       ),
     );
+  }
+}
+
+class _VoucherWalkingStep {
+  const _VoucherWalkingStep({
+    required this.text,
+    required this.type,
+    required this.distanceMeters,
+  });
+
+  final String text;
+  final String type;
+  final double distanceMeters;
+
+  IconData get icon {
+    final normalized = type.toLowerCase();
+    if (normalized.contains('roundabout')) return Icons.roundabout_left_rounded;
+    if (normalized.contains('left')) return Icons.turn_left_rounded;
+    if (normalized.contains('right')) return Icons.turn_right_rounded;
+    if (normalized.contains('destination')) return Icons.flag_rounded;
+    if (normalized.contains('depart')) return Icons.trip_origin_rounded;
+    return Icons.straight_rounded;
   }
 }

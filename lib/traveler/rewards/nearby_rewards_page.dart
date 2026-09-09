@@ -120,16 +120,21 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
     return 'Claim for $cost points';
   }
 
-  Future<void> _openDirections(GeoPoint location) async {
-    final uri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      'destination': '${location.latitude},${location.longitude}',
-      'travelmode': 'walking',
-    });
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
-        mounted) {
-      showMessage(context, 'Unable to open directions.', error: true);
-    }
+  Future<void> _openDirections({
+    required GeoPoint location,
+    required Map<String, dynamic> voucher,
+  }) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ClaimedVoucherDirectionsPage(
+          voucherTitle: '${voucher['title'] ?? 'Nearby reward'}',
+          vendorName: '${voucher['vendorName'] ?? 'Registered vendor'}',
+          vendorAddress: '${voucher['vendorAddress'] ?? ''}',
+          vendorLocation: location,
+        ),
+      ),
+    );
   }
 
   Widget _buildMap() {
@@ -146,9 +151,11 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
             infoWindow: InfoWindow(
               title: '${item.doc.data()['title'] ?? 'Nearby reward'}',
               snippet:
-                  '${item.doc.data()['vendorName'] ?? 'Vendor'} • Tap for walking directions',
-              onTap: () =>
-                  _openDirections(item.doc.data()['location'] as GeoPoint),
+                  '${item.doc.data()['vendorName'] ?? 'Vendor'} • Tap for in-app directions',
+              onTap: () => _openDirections(
+                location: item.doc.data()['location'] as GeoPoint,
+                voucher: item.doc.data(),
+              ),
             ),
           ),
     };
@@ -178,7 +185,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    '${nearby.length} nearby vendors • Tap a marker for walking directions',
+                    '${nearby.length} nearby vendors • Tap a marker for in-app directions',
                     style: const TextStyle(
                       color: ExplorerColors.navy,
                       fontSize: 11,
@@ -416,9 +423,12 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
-                          onPressed: () => _openDirections(location),
+                          onPressed: () => _openDirections(
+                            location: location,
+                            voucher: voucher,
+                          ),
                           icon: const Icon(Icons.directions_walk, size: 18),
-                          label: const Text('Walking Directions'),
+                          label: const Text('In-App Directions'),
                         ),
                       ),
                     ],
