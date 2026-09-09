@@ -6,7 +6,8 @@ import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
 import 'admin_pages.dart';
-import 'system/admin_system_pages.dart';
+import 'system/admin_system_pages.dart' hide AdminEmergencyPage;
+import 'location_sos/admin_emergency_page.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key, required this.profile});

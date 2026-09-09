@@ -5,63 +5,53 @@ part of '../traveler_pages.dart';
 // ================================================================
 
 class _ItineraryChatDraft {
+  String? stateId;
+  String? stateName;
   String? area;
-  DateTime? date;
+  DateTime? startDate;
+  int dayCount = 1;
   final Set<String> interests = <String>{};
   String? budgetLevel;
   String? travelPace;
   double? availableHours;
+  int preferredStartMinutes = 9 * 60;
+  bool foodExplorationEnabled = false;
 
   bool get isComplete =>
       area != null &&
           area!.trim().isNotEmpty &&
-          date != null &&
+          startDate != null &&
           interests.isNotEmpty &&
           budgetLevel != null &&
           travelPace != null &&
           availableHours != null;
 
   String? get nextMissingField {
-    if (area == null || area!.trim().isEmpty) {
-      return 'area';
-    }
-
-    if (date == null) {
-      return 'date';
-    }
-
-    if (interests.isEmpty) {
-      return 'interests';
-    }
-
-    if (budgetLevel == null) {
-      return 'budgetLevel';
-    }
-
-    if (travelPace == null) {
-      return 'travelPace';
-    }
-
-    if (availableHours == null) {
-      return 'availableHours';
-    }
-
+    if (area == null || area!.trim().isEmpty) return 'area';
+    if (startDate == null) return 'date';
+    if (interests.isEmpty) return 'interests';
+    if (budgetLevel == null) return 'budgetLevel';
+    if (travelPace == null) return 'travelPace';
+    if (availableHours == null) return 'availableHours';
     return null;
   }
 
   Map<String, dynamic> toMap() {
     return {
       'active': true,
+      'stateId': stateId,
+      'stateName': stateName,
       'area': area,
-      'date': date == null
+      'date': startDate == null
           ? null
-          : DateFormat(
-        'yyyy-MM-dd',
-      ).format(date!),
+          : DateFormat('yyyy-MM-dd').format(startDate!),
+      'dayCount': dayCount,
       'interests': interests.toList(),
       'budgetLevel': budgetLevel,
       'travelPace': travelPace,
       'availableHours': availableHours,
+      'preferredStartMinutes': preferredStartMinutes,
+      'foodExplorationEnabled': foodExplorationEnabled,
     };
   }
 }
@@ -74,469 +64,188 @@ class ChatbotPage extends StatefulWidget {
   const ChatbotPage({super.key});
 
   @override
-  State<ChatbotPage> createState() =>
-      _ChatbotPageState();
+  State<ChatbotPage> createState() => _ChatbotPageState();
 }
 
-class _ChatbotPageState
-    extends State<ChatbotPage> {
-  final TextEditingController input =
-  TextEditingController();
+class _ChatbotPageState extends State<ChatbotPage> {
+  final TextEditingController input = TextEditingController();
+  final ScrollController scrollController = ScrollController();
 
-  final ScrollController scrollController =
-  ScrollController();
-
-  final List<Map<String, String>> messages =
-  <Map<String, String>>[
+  final List<Map<String, String>> messages = <Map<String, String>>[
     {
       'role': 'assistant',
       'text':
       'Hi! I’m your MyHeritage intelligent travel assistant. '
-          'I can help you plan trips and work together with '
-          'MyHeritage modules such as Daily Planner, safety, '
-          'cultural experiences, rewards and companion features.\n\n'
-          'For example, try asking:\n'
-          '"Create an itinerary plan for me."',
+          'My strongest feature is the Daily Planner: I can collect your '
+          'preferences, generate a real itinerary, save it, explain it and '
+          'open it for editing. I can also work with Rewards, Cultural Tasks, '
+          'Safety, Companion, Notifications and your profile.\n\n'
+          'Try: “Plan a 2-day food and heritage trip in George Town tomorrow.”',
     },
   ];
 
-  final List<String> _suggestions = const [
-    'Create an itinerary plan for me',
-    'Plan a heritage trip',
-    'Plan a food trip in George Town',
-  ];
-
   bool sending = false;
-
   _ItineraryChatDraft? _itineraryDraft;
-
   bool _awaitingGenerationConfirmation = false;
-
   String? _lastCreatedItineraryId;
 
-  // ==============================================================
-  // SEND
-  // ==============================================================
-
-  Future<bool> _tryHandleModuleAction(
-      String text,
-      ) async {
-    final contextData =
-    await ChatbotModuleService
-        .buildUserContext();
-
-    final analysis =
-    await AiChatService
-        .analyseAppAction(
-      message: text,
-      appContext: contextData,
-    );
-
-    final action =
-        '${analysis['action'] ?? 'general_chat'}';
-
-    switch (action) {
-    // ==========================================================
-    // REWARDS
-    // ==========================================================
-
-      case 'show_reward_points':
-        final rewards =
-        Map<String, dynamic>.from(
-          contextData['rewards'] ?? {},
-        );
-
-        final points =
-            rewards['points'] ?? 0;
-
-        _addAssistantMessage(
-          'You currently have ⭐ $points reward points.',
-        );
-
-        return true;
-
-      case 'show_rewards':
-        final rewards =
-        Map<String, dynamic>.from(
-          contextData['rewards'] ?? {},
-        );
-
-        final vouchers =
-        List<Map<String, dynamic>>.from(
-          rewards['vouchers'] ?? [],
-        );
-
-        if (vouchers.isEmpty) {
-          _addAssistantMessage(
-            'There are no available rewards at the moment.',
-          );
-
-          return true;
-        }
-
-        final text =
-        vouchers.take(5).map(
-              (voucher) {
-            final canClaim =
-                voucher['canClaim'] == true;
-
-            return '• ${voucher['title']} — '
-                '${voucher['pointCost']} pts'
-                '${canClaim ? ' ✅' : ''}';
-          },
-        ).join('\n');
-
-        _addAssistantMessage(
-          'Here are some available rewards:\n\n$text',
-        );
-
-        return true;
-
-      case 'open_rewards':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const RewardsPage(),
-          ),
-        );
-
-        return true;
-
-      case 'open_voucher_wallet':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const VoucherWalletPage(),
-          ),
-        );
-
-        return true;
-
-    // ==========================================================
-    // COMPANION
-    // ==========================================================
-
-      case 'show_groups':
-        final companion =
-        Map<String, dynamic>.from(
-          contextData['companion'] ?? {},
-        );
-
-        final groups =
-        List<Map<String, dynamic>>.from(
-          companion['groups'] ?? [],
-        );
-
-        if (groups.isEmpty) {
-          _addAssistantMessage(
-            'You are not currently in any active travel groups.',
-          );
-
-          return true;
-        }
-
-        final result =
-        groups.map(
-              (group) =>
-          '• ${group['name']} — '
-              '${group['role']}, '
-              '${group['memberCount']} member(s)',
-        ).join('\n');
-
-        _addAssistantMessage(
-          'Your active travel groups:\n\n$result',
-        );
-
-        return true;
-
-      case 'open_companion':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const CompanionPage(),
-          ),
-        );
-
-        return true;
-
-      case 'show_group_members':
-        final companion =
-        Map<String, dynamic>.from(
-          contextData['companion'] ?? {},
-        );
-
-        final groups =
-        List<Map<String, dynamic>>.from(
-          companion['groups'] ?? [],
-        );
-
-        if (groups.isEmpty) {
-          _addAssistantMessage(
-            'You do not have an active travel group.',
-          );
-
-          return true;
-        }
-
-        final group =
-            groups.first;
-
-        final memberNames =
-        Map<String, dynamic>.from(
-          group['memberNames'] ?? {},
-        );
-
-        _addAssistantMessage(
-          'Members of ${group['name']}:\n\n'
-              '${memberNames.values.map((e) => '• $e').join('\n')}',
-        );
-
-        return true;
-
-      case 'open_group_chat':
-        final companion =
-        Map<String, dynamic>.from(
-          contextData['companion'] ?? {},
-        );
-
-        final groups =
-        List<Map<String, dynamic>>.from(
-          companion['groups'] ?? [],
-        );
-
-        if (groups.isEmpty) {
-          _addAssistantMessage(
-            'You are not currently in any travel groups.',
-          );
-
-          return true;
-        }
-
-        final targetName =
-        '${analysis['targetName'] ?? ''}'
-            .trim()
-            .toLowerCase();
-
-        Map<String, dynamic>? selected;
-
-        if (targetName.isNotEmpty) {
-          for (final group in groups) {
-            final name =
-            '${group['name'] ?? ''}'
-                .toLowerCase();
-
-            if (name.contains(targetName) ||
-                targetName.contains(name)) {
-              selected = group;
-              break;
-            }
-          }
-        }
-
-        selected ??=
-        groups.length == 1
-            ? groups.first
-            : null;
-
-        if (selected == null) {
-          _addAssistantMessage(
-            'You are in more than one group. '
-                'Tell me which group chat you want to open.',
-          );
-
-          return true;
-        }
-
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                GroupChatPage(
-                  groupId:
-                  '${selected!['groupId']}',
-                  groupName:
-                  '${selected['name']}',
-                ),
-          ),
-        );
-
-        return true;
-
-    // ==========================================================
-    // SAFETY
-    // ==========================================================
-
-      case 'show_hazards':
-        final safety =
-        Map<String, dynamic>.from(
-          contextData['safety'] ?? {},
-        );
-
-        final hazards =
-        List<Map<String, dynamic>>.from(
-          safety['hazards'] ?? [],
-        );
-
-        if (hazards.isEmpty) {
-          _addAssistantMessage(
-            'There are currently no verified hazards in the system.',
-          );
-
-          return true;
-        }
-
-        final result =
-        hazards.take(5).map(
-              (hazard) =>
-          '• ${hazard['category']} '
-              '(${hazard['severity']}) — '
-              '${hazard['description']}',
-        ).join('\n');
-
-        _addAssistantMessage(
-          'I found ${hazards.length} verified hazard(s):\n\n$result',
-        );
-
-        return true;
-
-      case 'open_safety':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const SafetyPage(),
-          ),
-        );
-
-        return true;
-
-      case 'report_hazard':
-        _addAssistantMessage(
-          'I’ll open the Safety Report form. '
-              'You must review and submit the report yourself.',
-        );
-
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const CreateHazardPage(),
-          ),
-        );
-
-        return true;
-
-    // ==========================================================
-    // CULTURAL
-    // ==========================================================
-
-      case 'show_cultural_tasks':
-        final cultural =
-        Map<String, dynamic>.from(
-          contextData['cultural'] ?? {},
-        );
-
-        final tasks =
-        List<Map<String, dynamic>>.from(
-          cultural['tasks'] ?? [],
-        );
-
-        if (tasks.isEmpty) {
-          _addAssistantMessage(
-            'There are currently no active cultural tasks.',
-          );
-
-          return true;
-        }
-
-        final result =
-        tasks.take(5).map(
-              (task) =>
-          '• ${task['title']} — '
-              '${task['rewardPoints']} pts',
-        ).join('\n');
-
-        _addAssistantMessage(
-          'Active cultural tasks:\n\n$result',
-        );
-
-        return true;
-
-      case 'open_cultural_tasks':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const CulturalTasksPage(),
-          ),
-        );
-
-        return true;
-
-    // ==========================================================
-    // NOTIFICATIONS
-    // ==========================================================
-
-      case 'show_notifications':
-        final notifications =
-        Map<String, dynamic>.from(
-          contextData['notifications'] ?? {},
-        );
-
-        final unread =
-            notifications['unread'] ?? 0;
-
-        _addAssistantMessage(
-          unread == 0
-              ? 'You have no unread notifications.'
-              : 'You currently have $unread unread notification(s).',
-        );
-
-        return true;
-
-      case 'open_notifications':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const NotificationsPage(),
-          ),
-        );
-
-        return true;
-
-      case 'open_itineraries':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-            const MyItinerariesPage(),
-          ),
-        );
-
-        return true;
+  List<String> get _suggestions {
+    if (_lastCreatedItineraryId != null) {
+      return const [
+        'What is in my latest itinerary?',
+        'Check my itinerary safety',
+        'Show rewards in my itinerary',
+        'Edit my latest itinerary',
+      ];
     }
 
-    return false;
+    return const [
+      'Plan a 2-day trip in George Town',
+      'Create a food and heritage itinerary',
+      'How many reward points do I have?',
+      'Show my travel groups',
+    ];
   }
 
+  bool _looksLikeAnswerForField(
+      String? field,
+      String text,
+      ) {
+    final value =
+    text.trim().toLowerCase();
 
-  Future<void> send([
-    String? suggestedText,
-  ]) async {
+    if (value.isEmpty) {
+      return false;
+    }
+
+    switch (field) {
+      case 'area':
+      // Avoid treating questions as locations.
+        if (value.contains('?') ||
+            value.startsWith('what ') ||
+            value.startsWith('why ') ||
+            value.startsWith('how ') ||
+            value.startsWith('who ') ||
+            value.startsWith('can ') ||
+            value.startsWith('do ') ||
+            value.startsWith('is ')) {
+          return false;
+        }
+
+        return true;
+
+      case 'date':
+        return value.contains(
+          'today',
+        ) ||
+            value.contains(
+              'tomorrow',
+            ) ||
+            value.contains(
+              'monday',
+            ) ||
+            value.contains(
+              'tuesday',
+            ) ||
+            value.contains(
+              'wednesday',
+            ) ||
+            value.contains(
+              'thursday',
+            ) ||
+            value.contains(
+              'friday',
+            ) ||
+            value.contains(
+              'saturday',
+            ) ||
+            value.contains(
+              'sunday',
+            ) ||
+            RegExp(
+              r'\d',
+            ).hasMatch(value);
+
+      case 'interests':
+        return value.contains(
+          'heritage',
+        ) ||
+            value.contains(
+              'history',
+            ) ||
+            value.contains(
+              'food',
+            ) ||
+            value.contains(
+              'art',
+            ) ||
+            value.contains(
+              'culture',
+            ) ||
+            value.contains(
+              'nature',
+            );
+
+      case 'budgetLevel':
+        return value.contains(
+          'low',
+        ) ||
+            value.contains(
+              'medium',
+            ) ||
+            value.contains(
+              'high',
+            ) ||
+            value.contains(
+              'cheap',
+            ) ||
+            value.contains(
+              'budget',
+            ) ||
+            value.contains(
+              'premium',
+            );
+
+      case 'travelPace':
+        return value.contains(
+          'relax',
+        ) ||
+            value.contains(
+              'slow',
+            ) ||
+            value.contains(
+              'balance',
+            ) ||
+            value.contains(
+              'normal',
+            ) ||
+            value.contains(
+              'fast',
+            ) ||
+            value.contains(
+              'packed',
+            );
+
+      case 'availableHours':
+        return RegExp(
+          r'\d+(?:\.\d+)?\s*(?:hour|hours|hr|hrs)?',
+        ).hasMatch(value);
+
+      default:
+        return false;
+    }
+  }
+  // ==============================================================
+  // MAIN SEND FLOW
+  // ==============================================================
+
+  Future<void> send([String? suggestedText]) async {
     if (sending) return;
 
-    final text =
-    (suggestedText ?? input.text).trim();
-
+    final text = (suggestedText ?? input.text).trim();
     if (text.isEmpty) return;
 
-    final user =
-        AppServices.auth.currentUser;
-
+    final user = AppServices.auth.currentUser;
     if (user == null) {
       showMessage(
         context,
@@ -547,91 +256,195 @@ class _ChatbotPageState
     }
 
     setState(() {
-      messages.add({
-        'role': 'user',
-        'text': text,
-      });
-
+      messages.add({'role': 'user', 'text': text});
       input.clear();
       sending = true;
     });
-
     _scrollToBottom();
 
     try {
-      // ----------------------------------------------------------
-      // User already completed all preferences.
-      // We are waiting for Yes / No.
-      // ----------------------------------------------------------
-
       if (_awaitingGenerationConfirmation) {
         await _handleConfirmation(text);
         return;
       }
 
-      // ----------------------------------------------------------
-      // Existing itinerary conversation
-      // ----------------------------------------------------------
-
       if (_itineraryDraft != null) {
-        await _continueItineraryConversation(
-          text,
-        );
-
+        await _continueItineraryConversation(text);
         return;
       }
 
-      // ----------------------------------------------------------
-      // No active itinerary.
-      // Ask Gemini what the user intends.
-      // ----------------------------------------------------------
-
       Map<String, dynamic>? analysis;
-
       try {
-        analysis =
-        await AiChatService
-            .analyseItineraryMessage(
+        analysis = await AiChatService.analyseItineraryMessage(
           message: text,
-          currentDraft: const {
-            'active': false,
-          },
+          currentDraft: const {'active': false},
         );
       } catch (_) {
-        // AI high-demand fallback.
-        // This fallback only starts itinerary collection.
         if (_looksLikeItineraryRequest(text)) {
-          _itineraryDraft =
-              _ItineraryChatDraft();
-
-          _addAssistantMessage(
-            _questionForField('area'),
-          );
-
+          _itineraryDraft = _ItineraryChatDraft();
+          _addAssistantMessage(_questionForField('area'));
           return;
         }
-
         rethrow;
       }
 
-      final intent =
-      '${analysis['intent'] ?? 'other'}'
-          .toLowerCase();
+      final intent = '${analysis['intent'] ?? 'other'}'.toLowerCase();
 
       if (intent == 'create_itinerary') {
-        _itineraryDraft =
-            _ItineraryChatDraft();
-
+        _itineraryDraft = _ItineraryChatDraft();
         _mergeDraftFromAi(analysis);
+        _askNextItineraryQuestion();
+        return;
+      }
+
+      if (intent == 'suggest_area') {
+        _itineraryDraft ??= _ItineraryChatDraft();
+        _suggestAreas();
+        return;
+      }
+
+      final handled = await _tryHandleModuleAction(text);
+      if (handled) return;
+
+      await _answerGeneralQuestion(text);
+    } catch (error) {
+      _addAssistantMessage(
+        error.toString().replaceFirst('Exception: ', '').trim(),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => sending = false);
+        _scrollToBottom();
+      }
+    }
+  }
+
+  // ==============================================================
+  // DAILY PLANNER CONVERSATION
+  // ==============================================================
+
+  Future<void> _continueItineraryConversation(
+      String text,
+      ) async {
+    final draft = _itineraryDraft;
+
+    if (draft == null) return;
+
+    final expectedField =
+        draft.nextMissingField;
+
+    try {
+      final analysis =
+      await AiChatService
+          .analyseItineraryMessage(
+        message: text,
+        currentDraft: draft.toMap(),
+        expectedField: expectedField,
+      );
+
+      final intent =
+      '${analysis['intent'] ?? 'other'}'
+          .trim()
+          .toLowerCase();
+
+      debugPrint(
+        'CHATBOT ITINERARY INTENT: $intent',
+      );
+
+      // ==========================================================
+      // CANCEL
+      // ==========================================================
+
+      if (intent == 'cancel') {
+        _cancelItinerary();
+        return;
+      }
+
+      // ==========================================================
+      // AREA SUGGESTION
+      // ==========================================================
+
+      if (intent == 'suggest_area') {
+        _suggestAreas();
+        return;
+      }
+
+      // ==========================================================
+      // UPDATE EXISTING PREFERENCES
+      // ==========================================================
+
+      if (intent == 'update_itinerary') {
+        _mergeDraftFromAi(
+          analysis,
+          isUpdate: true,
+        );
+
+        _addAssistantMessage(
+          'Sure, I updated your itinerary preferences.',
+        );
 
         _askNextItineraryQuestion();
 
         return;
       }
 
-      // ----------------------------------------------------------
-      // Normal intelligent conversation
-      // ----------------------------------------------------------
+      // ==========================================================
+      // USER IS ANSWERING CURRENT PLANNER QUESTION
+      // ==========================================================
+
+      if (intent == 'continue_itinerary') {
+        _mergeDraftFromAi(
+          analysis,
+        );
+
+        _askNextItineraryQuestion();
+
+        return;
+      }
+
+      // ==========================================================
+      // USER STARTS A NEW ITINERARY WHILE ONE EXISTS
+      // ==========================================================
+
+      if (intent == 'create_itinerary') {
+        _mergeDraftFromAi(
+          analysis,
+        );
+
+        _askNextItineraryQuestion();
+
+        return;
+      }
+
+      // ==========================================================
+      // GENERAL / OTHER QUESTION
+      //
+      // IMPORTANT:
+      // Do not destroy the itinerary draft.
+      // Answer the user's other question normally.
+      // ==========================================================
+
+      if (intent == 'other') {
+        final handled =
+        await _tryHandleModuleAction(
+          text,
+        );
+
+        if (handled) {
+          return;
+        }
+
+        await _answerGeneralQuestion(
+          text,
+        );
+
+        // The draft remains stored.
+        return;
+      }
+
+      // ==========================================================
+      // SAFE FALLBACK
+      // ==========================================================
 
       final handled =
       await _tryHandleModuleAction(
@@ -646,278 +459,210 @@ class _ChatbotPageState
         text,
       );
     } catch (error) {
-      _addAssistantMessage(
-        error
-            .toString()
-            .replaceFirst(
-          'Exception: ',
-          '',
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          sending = false;
-        });
-
-        _scrollToBottom();
-      }
-    }
-  }
-
-  // ==============================================================
-  // ITINERARY CONVERSATION
-  // ==============================================================
-
-  Future<void>
-  _continueItineraryConversation(
-      String text,
-      ) async {
-    final draft = _itineraryDraft;
-
-    if (draft == null) return;
-
-    final expectedField =
-        draft.nextMissingField;
-
-    Map<String, dynamic>? analysis;
-
-    try {
-      analysis =
-      await AiChatService
-          .analyseItineraryMessage(
-        message: text,
-        currentDraft: draft.toMap(),
-        expectedField: expectedField,
+      debugPrint(
+        'ITINERARY CONVERSATION ERROR: $error',
       );
 
-      final intent =
-      '${analysis['intent'] ?? ''}'
-          .toLowerCase();
+      // Only use the local field parser when the answer
+      // genuinely looks like it belongs to the expected field.
+      if (_looksLikeAnswerForField(
+        expectedField,
+        text,
+      )) {
+        _applyLocalFallback(
+          expectedField,
+          text,
+        );
 
-      if (intent == 'cancel') {
-        _cancelItinerary();
+        _askNextItineraryQuestion();
+
         return;
       }
 
-      _mergeDraftFromAi(analysis);
-    } catch (_) {
-      // Gemini may temporarily return 500/high-demand.
-      // The conversation can still continue because we know which
-      // particular preference we are waiting for.
-      _applyLocalFallback(
-        expectedField,
-        text,
-      );
+      // Otherwise answer it as a normal question.
+      try {
+        final handled =
+        await _tryHandleModuleAction(
+          text,
+        );
+
+        if (handled) {
+          return;
+        }
+
+        await _answerGeneralQuestion(
+          text,
+        );
+      } catch (secondaryError) {
+        _addAssistantMessage(
+          secondaryError
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+      }
     }
-
-    _askNextItineraryQuestion();
   }
-
-  // ==============================================================
-  // ASK NEXT REQUIRED FIELD
-  // ==============================================================
 
   void _askNextItineraryQuestion() {
     final draft = _itineraryDraft;
-
     if (draft == null) return;
 
     if (draft.isComplete) {
-      _awaitingGenerationConfirmation =
-      true;
-
-      _addAssistantMessage(
-        _buildConfirmationSummary(),
-      );
-
+      _awaitingGenerationConfirmation = true;
+      _addAssistantMessage(_buildConfirmationSummary());
       return;
     }
 
-    final field =
-        draft.nextMissingField;
-
+    final field = draft.nextMissingField;
     if (field != null) {
-      _addAssistantMessage(
-        _questionForField(field),
-      );
+      _addAssistantMessage(_questionForField(field));
     }
   }
 
-  String _questionForField(
-      String field,
-      ) {
+  String _questionForField(String field) {
     switch (field) {
       case 'area':
-        return 'Sure! I can create the itinerary using the '
-            'Daily Planner module.\n\n'
-            'First, where would you like to explore?\n'
-            'For example: George Town, Penang.';
-
+        return 'Where would you like to explore?\n\n'
+            'For example: George Town, Batu Ferringhi, Melaka City or '
+            'Bukit Bintang. You can also ask me to suggest somewhere.';
       case 'date':
-        return 'What date are you planning to go?\n\n'
-            'You can say something like:\n'
-            '• Tomorrow\n'
-            '• This Saturday\n'
-            '• 30 August';
-
+        return 'What date are you planning to start?\n\n'
+            'You can say: Tomorrow, This Saturday, or 30 August.';
       case 'interests':
         return 'What are you interested in?\n\n'
-            'You can choose one or more:\n'
-            '• Heritage\n'
-            '• Food\n'
-            '• Art\n'
-            '• Culture\n'
-            '• Nature';
-
+            '• Heritage\n• Food\n• Art\n• Culture\n• Nature';
       case 'budgetLevel':
         return 'What is your preferred budget level?\n\n'
-            '• Low\n'
-            '• Medium\n'
-            '• High';
-
+            '• Low\n• Medium\n• High';
       case 'travelPace':
         return 'What travel pace do you prefer?\n\n'
-            '• Relaxed\n'
-            '• Balanced\n'
-            '• Fast';
-
+            '• Relaxed\n• Balanced\n• Fast';
       case 'availableHours':
-        return 'Finally, how many hours do you have for the trip?\n\n'
-            'For example: 2 hours, 4 hours, 6 hours or 8 hours.';
-
+        return 'How many hours per day do you have?\n\n'
+            'For example: 4 hours, 6 hours or 8 hours.';
       default:
         return 'Please provide the remaining travel information.';
     }
   }
 
-  // ==============================================================
-  // MERGE GEMINI EXTRACTION INTO DRAFT
-  // ==============================================================
-
   void _mergeDraftFromAi(
-      Map<String, dynamic> data,
-      ) {
+      Map<String, dynamic> data, {
+        bool isUpdate = false,
+      }) {
     final draft = _itineraryDraft;
-
     if (draft == null) return;
 
-    final rawArea =
-    '${data['area'] ?? ''}'.trim();
-
-    if (rawArea.isNotEmpty &&
-        rawArea.toLowerCase() != 'null') {
-      draft.area = rawArea;
+    final rawArea = '${data['area'] ?? ''}'.trim();
+    if (_isRealValue(rawArea)) {
+      final area = _normaliseArea(rawArea);
+      draft.area = area;
+      draft.stateId = MalaysiaLocationService.inferStateIdFromArea(area);
+      draft.stateName = MalaysiaLocationService.getStateName(draft.stateId!);
     }
 
-    final rawDate =
-    '${data['date'] ?? ''}'.trim();
-
-    if (rawDate.isNotEmpty &&
-        rawDate.toLowerCase() != 'null') {
-      final parsedDate =
-      DateTime.tryParse(rawDate);
-
-      if (parsedDate != null) {
-        draft.date = DateTime(
-          parsedDate.year,
-          parsedDate.month,
-          parsedDate.day,
-        );
+    final rawDate = '${data['date'] ?? ''}'.trim();
+    if (_isRealValue(rawDate)) {
+      final parsed = DateTime.tryParse(rawDate);
+      if (parsed != null) {
+        draft.startDate = DateTime(parsed.year, parsed.month, parsed.day);
       }
     }
 
-    final rawInterests =
-    data['interests'];
+    final rawDayCount = data['dayCount'];
+    final parsedDays = rawDayCount is num
+        ? rawDayCount.toInt()
+        : int.tryParse('${rawDayCount ?? ''}');
+    if (parsedDays != null && parsedDays > 0 && parsedDays <= 14) {
+      draft.dayCount = parsedDays;
+    }
 
-    if (rawInterests is List) {
-      for (final item
-      in rawInterests) {
-        final interest =
-        _normaliseInterest(
-          '$item',
-        );
+    final rawInterests = data['interests'];
+    if (rawInterests is List && rawInterests.isNotEmpty) {
+      final mode = '${data['interestsMode'] ?? ''}'.toLowerCase();
+      if (isUpdate && mode != 'add') {
+        draft.interests.clear();
+      }
 
-        if (interest != null) {
-          draft.interests.add(
-            interest,
-          );
-        }
+      for (final item in rawInterests) {
+        final interest = _normaliseInterest('$item');
+        if (interest != null) draft.interests.add(interest);
       }
     }
 
-    final budget =
-    _normaliseBudget(
-      '${data['budgetLevel'] ?? ''}',
-    );
+    final budget = _normaliseBudget('${data['budgetLevel'] ?? ''}');
+    if (budget != null) draft.budgetLevel = budget;
 
-    if (budget != null) {
-      draft.budgetLevel = budget;
+    final pace = _normalisePace('${data['travelPace'] ?? ''}');
+    if (pace != null) draft.travelPace = pace;
+
+    final rawHours = data['availableHours'];
+    final hours = rawHours is num
+        ? rawHours.toDouble()
+        : double.tryParse('${rawHours ?? ''}');
+    if (hours != null && hours > 0 && hours <= 24) {
+      draft.availableHours = hours;
     }
 
-    final pace =
-    _normalisePace(
-      '${data['travelPace'] ?? ''}',
-    );
-
-    if (pace != null) {
-      draft.travelPace = pace;
+    final rawStart = data['preferredStartMinutes'];
+    final startMinutes = rawStart is num
+        ? rawStart.toInt()
+        : int.tryParse('${rawStart ?? ''}');
+    if (startMinutes != null && startMinutes >= 0 && startMinutes < 1440) {
+      draft.preferredStartMinutes = startMinutes;
     }
 
-    final rawHours =
-    data['availableHours'];
-
-    if (rawHours is num &&
-        rawHours.toDouble() > 0) {
-      draft.availableHours =
-          rawHours.toDouble();
-    } else if (rawHours != null) {
-      final parsed =
-      double.tryParse(
-        '$rawHours',
-      );
-
-      if (parsed != null &&
-          parsed > 0) {
-        draft.availableHours =
-            parsed;
-      }
+    if (data['foodExplorationEnabled'] is bool) {
+      draft.foodExplorationEnabled = data['foodExplorationEnabled'] as bool;
     }
   }
 
+  bool _isRealValue(String value) {
+    final lower = value.trim().toLowerCase();
+    return lower.isNotEmpty && lower != 'null' && lower != 'none';
+  }
+
+  String _normaliseArea(String raw) {
+    final value = raw.trim();
+    final lower = value.toLowerCase();
+
+    if (lower == 'georgetown' || lower == 'george town penang') {
+      return 'George Town';
+    }
+    if (lower == 'kl') return 'Kuala Lumpur';
+    return value;
+  }
+
   // ==============================================================
-  // FALLBACK EXTRACTION
+  // LOCAL FALLBACKS
   // ==============================================================
 
-  void _applyLocalFallback(
-      String? expectedField,
-      String text,
-      ) {
+  void _applyLocalFallback(String? expectedField, String text) {
     final draft = _itineraryDraft;
-
     if (draft == null) return;
 
     switch (expectedField) {
       case 'area':
-        if (text.trim().isNotEmpty) {
-          draft.area =
-              text.trim();
+        final lower = text.trim().toLowerCase();
+        final asksSuggestion = lower.contains('suggest') ||
+            lower.contains('recommend') ||
+            lower.contains('you choose') ||
+            lower.contains('where should');
+        if (!asksSuggestion && text.trim().isNotEmpty) {
+          final area = _normaliseArea(text.trim());
+          draft.area = area;
+          draft.stateId = MalaysiaLocationService.inferStateIdFromArea(area);
+          draft.stateName = MalaysiaLocationService.getStateName(draft.stateId!);
         }
         break;
-
       case 'date':
-        final date =
-        _parseDateLocally(text);
-
-        if (date != null) {
-          draft.date = date;
-        }
+        final date = _parseDateLocally(text);
+        if (date != null) draft.startDate = date;
         break;
-
       case 'interests':
-        final lower =
-        text.toLowerCase();
-
+        final lower = text.toLowerCase();
         for (final value in const [
           'Heritage',
           'Food',
@@ -925,96 +670,41 @@ class _ChatbotPageState
           'Culture',
           'Nature',
         ]) {
-          if (lower.contains(
-            value.toLowerCase(),
-          )) {
-            draft.interests.add(
-              value,
-            );
+          if (lower.contains(value.toLowerCase())) {
+            draft.interests.add(value);
           }
         }
         break;
-
       case 'budgetLevel':
-        final value =
-        _normaliseBudget(text);
-
-        if (value != null) {
-          draft.budgetLevel =
-              value;
-        }
+        final value = _normaliseBudget(text);
+        if (value != null) draft.budgetLevel = value;
         break;
-
       case 'travelPace':
-        final value =
-        _normalisePace(text);
-
-        if (value != null) {
-          draft.travelPace =
-              value;
-        }
+        final value = _normalisePace(text);
+        if (value != null) draft.travelPace = value;
         break;
-
       case 'availableHours':
-        final match =
-        RegExp(
-          r'(\d+(?:\.\d+)?)',
-        ).firstMatch(text);
-
+        final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(text);
         if (match != null) {
-          final value =
-          double.tryParse(
-            match.group(1)!,
-          );
-
-          if (value != null &&
-              value > 0) {
-            draft.availableHours =
-                value;
+          final value = double.tryParse(match.group(1)!);
+          if (value != null && value > 0 && value <= 24) {
+            draft.availableHours = value;
           }
         }
         break;
     }
   }
 
-  // ==============================================================
-  // DATE FALLBACK
-  // ==============================================================
-
-  DateTime? _parseDateLocally(
-      String value,
-      ) {
-    final text =
-    value.trim().toLowerCase();
-
+  DateTime? _parseDateLocally(String value) {
+    final text = value.trim().toLowerCase();
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    final today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
+    if (text == 'today') return today;
+    if (text == 'tomorrow') return today.add(const Duration(days: 1));
 
-    if (text == 'today') {
-      return today;
-    }
-
-    if (text == 'tomorrow') {
-      return today.add(
-        const Duration(days: 1),
-      );
-    }
-
-    final iso =
-    DateTime.tryParse(value);
-
-    if (iso != null) {
-      return DateTime(
-        iso.year,
-        iso.month,
-        iso.day,
-      );
-    }
+    final iso = DateTime.tryParse(value);
+    if (iso != null) return DateTime(iso.year, iso.month, iso.day);
 
     final formats = [
       DateFormat('d MMMM yyyy'),
@@ -1025,169 +715,161 @@ class _ChatbotPageState
 
     for (final format in formats) {
       try {
-        final parsed =
-        format.parseStrict(
-          value,
-        );
-
-        return DateTime(
-          parsed.year,
-          parsed.month,
-          parsed.day,
-        );
+        final parsed = format.parseStrict(value);
+        return DateTime(parsed.year, parsed.month, parsed.day);
       } catch (_) {}
     }
 
-    // Example: "30 August"
     try {
-      final parsed =
-      DateFormat(
-        'd MMMM',
-      ).parseStrict(value);
-
-      var date = DateTime(
-        now.year,
-        parsed.month,
-        parsed.day,
-      );
-
+      final parsed = DateFormat('d MMMM').parseStrict(value);
+      var date = DateTime(now.year, parsed.month, parsed.day);
       if (date.isBefore(today)) {
-        date = DateTime(
-          now.year + 1,
-          parsed.month,
-          parsed.day,
-        );
+        date = DateTime(now.year + 1, parsed.month, parsed.day);
       }
-
       return date;
     } catch (_) {}
 
     return null;
   }
 
-  // ==============================================================
-  // NORMALISATION
-  // ==============================================================
-
-  String? _normaliseInterest(
-      String raw,
-      ) {
-    final value =
-    raw.trim().toLowerCase();
-
+  String? _normaliseInterest(String raw) {
+    final value = raw.trim().toLowerCase();
     switch (value) {
       case 'heritage':
       case 'history':
       case 'historical':
         return 'Heritage';
-
       case 'food':
       case 'foods':
       case 'restaurant':
       case 'restaurants':
       case 'cafe':
       case 'cafes':
+      case 'cuisine':
         return 'Food';
-
       case 'art':
       case 'arts':
+      case 'gallery':
+      case 'street art':
         return 'Art';
-
       case 'culture':
       case 'cultural':
+      case 'traditional':
         return 'Culture';
-
       case 'nature':
       case 'natural':
       case 'park':
       case 'parks':
+      case 'beach':
         return 'Nature';
     }
-
     return null;
   }
 
-  String? _normaliseBudget(
-      String raw,
-      ) {
-    final value =
-    raw.trim().toLowerCase();
-
+  String? _normaliseBudget(String raw) {
+    final value = raw.trim().toLowerCase();
     if (value.contains('low') ||
         value.contains('cheap') ||
         value.contains('budget')) {
       return 'Low';
     }
-
     if (value.contains('medium') ||
-        value.contains('moderate')) {
+        value.contains('moderate') ||
+        value.contains('normal')) {
       return 'Medium';
     }
-
     if (value.contains('high') ||
         value.contains('premium') ||
         value.contains('expensive')) {
       return 'High';
     }
-
     return null;
   }
 
-  String? _normalisePace(
-      String raw,
-      ) {
-    final value =
-    raw.trim().toLowerCase();
-
+  String? _normalisePace(String raw) {
+    final value = raw.trim().toLowerCase();
     if (value.contains('relax') ||
-        value.contains('slow')) {
+        value.contains('slow') ||
+        value.contains('easy')) {
       return 'Relaxed';
     }
-
     if (value.contains('balance') ||
         value.contains('moderate') ||
         value.contains('normal')) {
       return 'Balanced';
     }
-
     if (value.contains('fast') ||
         value.contains('packed') ||
         value.contains('quick')) {
       return 'Fast';
     }
-
     return null;
   }
 
   // ==============================================================
-  // CONFIRMATION
+  // DESTINATION SUGGESTION
+  // ==============================================================
+
+  void _suggestAreas() {
+    final interests = _itineraryDraft?.interests ?? <String>{};
+
+    String suggestions;
+    if (interests.contains('Nature')) {
+      suggestions =
+      '• Cameron Highlands, Pahang — nature and cooler weather\n'
+          '• Langkawi, Kedah — beaches and scenic attractions\n'
+          '• Teluk Bahang, Penang — nature-focused Penang option';
+    } else if (interests.contains('Food')) {
+      suggestions =
+      '• George Town, Penang — strong local food + heritage mix\n'
+          '• Melaka City — heritage streets and local cuisine\n'
+          '• Chinatown / Petaling Street, Kuala Lumpur — food and city culture';
+    } else {
+      suggestions =
+      '• George Town, Penang — heritage, art, culture and food\n'
+          '• Melaka City — historic core and cultural attractions\n'
+          '• Ipoh Old Town, Perak — heritage, food and old-town atmosphere';
+    }
+
+    _addAssistantMessage(
+      'Here are a few good choices:\n\n$suggestions\n\n'
+          'Tell me which one you want. I won’t choose it for you automatically.',
+    );
+  }
+
+  // ==============================================================
+  // CONFIRMATION + EDITING
   // ==============================================================
 
   String _buildConfirmationSummary() {
-    final draft =
-    _itineraryDraft!;
-
-    final dateText =
-    DateFormat(
-      'd MMMM yyyy',
-    ).format(draft.date!);
-
-    final hours =
-    _formatHours(
-      draft.availableHours!,
-    );
+    final draft = _itineraryDraft!;
+    final startDate = draft.startDate!;
+    final endDate = startDate.add(Duration(days: draft.dayCount - 1));
+    final dateText = draft.dayCount == 1
+        ? DateFormat('d MMMM yyyy').format(startDate)
+        : '${DateFormat('d MMM yyyy').format(startDate)} – '
+        '${DateFormat('d MMM yyyy').format(endDate)}';
 
     return '''
-Great! I have everything I need.
+Great! Here is your Daily Planner setup.
 
-📍 Location: ${draft.area}
+📍 Location: ${draft.area}, ${draft.stateName ?? ''}
 📅 Date: $dateText
+🗓️ Days: ${draft.dayCount}
 🎯 Interests: ${draft.interests.join(', ')}
 💰 Budget: ${draft.budgetLevel}
 🚶 Pace: ${draft.travelPace}
-⏰ Available time: $hours
+⏰ Available time/day: ${_formatHours(draft.availableHours!)}
+🕘 Start time: ${_formatStartTime(draft.preferredStartMinutes)}
+🍜 Food exploration: ${draft.foodExplorationEnabled ? 'On' : 'Off'}
 
-I will use the MyHeritage Daily Planner module to find suitable places and build the route.
+I will use the real MyHeritage Daily Planner engine, including its vendor, cultural-task, voucher and weather-aware planning data.
+
+You can still say things like:
+• "Change location to Batu Ferringhi"
+• "Make it 2 days"
+• "Start at 10am instead"
+• "Change budget to Medium"
 
 Would you like me to generate and save this itinerary now?
 ''';
@@ -1199,12 +881,20 @@ Would you like me to generate and save this itinerary now?
     final value =
     text.trim().toLowerCase();
 
+    // ============================================================
+    // FAST YES
+    // ============================================================
+
     if (_isPositiveConfirmation(
       value,
     )) {
       await _generateAndSaveItinerary();
       return;
     }
+
+    // ============================================================
+    // FAST NO
+    // ============================================================
 
     if (_isNegativeConfirmation(
       value,
@@ -1213,8 +903,8 @@ Would you like me to generate and save this itinerary now?
       false;
 
       _addAssistantMessage(
-        'No problem. Tell me which preference you want to change, '
-            'or type "cancel itinerary" to start over.',
+        'No problem. Your itinerary draft is still saved. '
+            'Tell me what you want to change.',
       );
 
       return;
@@ -1228,265 +918,319 @@ Would you like me to generate and save this itinerary now?
         currentDraft:
         _itineraryDraft?.toMap() ??
             const {},
-        expectedField: 'confirmation',
+        expectedField:
+        'confirmation',
       );
 
       final intent =
-      '${result['intent'] ?? ''}'
+      '${result['intent'] ?? 'other'}'
+          .trim()
           .toLowerCase();
+
+      debugPrint(
+        'CONFIRMATION INTENT: $intent',
+      );
+
+      // ==========================================================
+      // CONFIRM
+      // ==========================================================
 
       if (intent == 'confirm') {
         await _generateAndSaveItinerary();
         return;
       }
 
+      // ==========================================================
+      // CANCEL
+      // ==========================================================
+
       if (intent == 'cancel') {
         _cancelItinerary();
         return;
       }
 
-      // User may have changed one of the values.
-      _mergeDraftFromAi(result);
+      // ==========================================================
+      // UPDATE ITINERARY
+      // ==========================================================
 
-      _awaitingGenerationConfirmation =
-      false;
+      if (intent == 'update_itinerary') {
+        _mergeDraftFromAi(
+          result,
+          isUpdate: true,
+        );
 
-      _askNextItineraryQuestion();
-    } catch (_) {
-      _addAssistantMessage(
-        'Please reply "Yes" to generate the itinerary, '
-            'or "No" if you want to change something.',
+        _awaitingGenerationConfirmation =
+        false;
+
+        _addAssistantMessage(
+          'Sure, I updated your itinerary.',
+        );
+
+        _askNextItineraryQuestion();
+
+        return;
+      }
+
+      // ==========================================================
+      // SUGGESTION
+      // ==========================================================
+
+      if (intent == 'suggest_area') {
+        _awaitingGenerationConfirmation =
+        false;
+
+        _suggestAreas();
+
+        return;
+      }
+
+      // ==========================================================
+      // THIS IS THE IMPORTANT FIX:
+      // unrelated question while confirmation is pending
+      // ==========================================================
+
+      final handled =
+      await _tryHandleModuleAction(
+        text,
       );
+
+      if (handled) {
+        return;
+      }
+
+      await _answerGeneralQuestion(
+        text,
+      );
+
+      // Keep:
+      // _awaitingGenerationConfirmation = true
+      //
+      // So user can later simply say "yes".
+    } catch (error) {
+      debugPrint(
+        'CONFIRMATION HANDLER ERROR: $error',
+      );
+
+      try {
+        final handled =
+        await _tryHandleModuleAction(
+          text,
+        );
+
+        if (handled) {
+          return;
+        }
+
+        await _answerGeneralQuestion(
+          text,
+        );
+      } catch (secondaryError) {
+        _addAssistantMessage(
+          secondaryError
+              .toString()
+              .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+      }
     }
   }
 
-  bool _isPositiveConfirmation(
-      String value,
-      ) {
+  bool _looksLikePreferenceEdit(String text) {
+    return text.contains('change') ||
+        text.contains('update') ||
+        text.contains('instead') ||
+        text.contains('actually') ||
+        text.contains('location') ||
+        text.contains('area') ||
+        text.contains('budget') ||
+        text.contains('pace') ||
+        text.contains('interest') ||
+        text.contains('day') ||
+        text.contains('hour') ||
+        text.contains('start at') ||
+        text.contains('start time') ||
+        text.contains('food exploration');
+  }
+
+  bool _isPositiveConfirmation(String value) {
     return value == 'yes' ||
         value == 'y' ||
         value == 'sure' ||
         value == 'ok' ||
         value == 'okay' ||
         value == 'confirm' ||
+        value == 'looks good' ||
         value.contains('go ahead') ||
-        value.contains('generate') ||
-        value.contains('create it') ||
+        value.contains('generate it') ||
+        value.contains('create it now') ||
         value.contains('proceed');
   }
 
-  bool _isNegativeConfirmation(
-      String value,
-      ) {
+  bool _isNegativeConfirmation(String value) {
     return value == 'no' ||
         value == 'n' ||
-        value.contains('change') ||
-        value.contains('not yet');
+        value == 'not yet' ||
+        value == 'nope';
   }
 
   // ==============================================================
-  // GENERATE USING DAILY PLANNER
+  // REAL DAILY PLANNER GENERATION
   // ==============================================================
 
-  Future<void>
-  _generateAndSaveItinerary() async {
-    final draft =
-        _itineraryDraft;
+  Future<void> _generateAndSaveItinerary() async {
+    final draft = _itineraryDraft;
+    final user = AppServices.auth.currentUser;
 
-    final user =
-        AppServices.auth.currentUser;
-
-    if (draft == null ||
-        !draft.isComplete ||
-        user == null) {
+    if (draft == null || !draft.isComplete || user == null) {
       _addAssistantMessage(
-        'Some itinerary information is missing. '
-            'Please start the itinerary again.',
+        'Some planner information is missing. Please continue the itinerary '
+            'setup before generating it.',
       );
-
-      _resetItineraryState();
-
       return;
     }
 
+    final stateId = draft.stateId ??
+        MalaysiaLocationService.inferStateIdFromArea(draft.area!);
+    final stateName =
+        draft.stateName ?? MalaysiaLocationService.getStateName(stateId);
+
     _addAssistantMessage(
-      'Generating your itinerary using the Daily Planner module...',
+      'Generating your itinerary with the real Daily Planner engine...',
     );
 
     try {
-      // ----------------------------------------------------------
-      // THIS IS THE ACTUAL COLLABORATION WITH DAILY PLANNER.
-      // ----------------------------------------------------------
-
-      final generated =
-      await GeoapifyPlanner.generate(
+      final generated = await GeoapifyPlanner.generate(
         area: draft.area!,
-        availableHours:
-        draft.availableHours!,
-        interests:
-        draft.interests.toList(),
-        budgetLevel:
-        draft.budgetLevel!,
-        travelPace:
-        draft.travelPace!,
+        availableHours: draft.availableHours!,
+        interests: draft.interests.toList(),
+        budgetLevel: draft.budgetLevel!,
+        travelPace: draft.travelPace!,
+        preferredStartMinutes: draft.preferredStartMinutes,
+        startDate: draft.startDate!,
+        dayCount: draft.dayCount,
+        foodExplorationEnabled: draft.foodExplorationEnabled,
       );
 
       if (generated.places.isEmpty) {
-        _awaitingGenerationConfirmation =
-        false;
-
+        _awaitingGenerationConfirmation = false;
         _addAssistantMessage(
-          'I could not find suitable places for those preferences. '
-              'Try changing the location, interests or budget.',
+          'The Daily Planner could not find suitable places for this setup. '
+              'Try changing the location, interests, budget or available hours.',
         );
-
         return;
       }
 
-      // ----------------------------------------------------------
-      // SAVE SAME PLANNER PREFERENCES INTO TRAVELER PROFILE
-      // ----------------------------------------------------------
+      final startDate = generated.startDate ?? draft.startDate!;
+      final endDate = generated.endDate ??
+          startDate.add(Duration(days: draft.dayCount - 1));
 
-      await AppServices
-          .travelerRef(user.uid)
-          .set(
+      final daysMap = generated.days.map((day) => day.toMap()).toList();
+      if (daysMap.isEmpty) {
+        daysMap.add({
+          'dayNumber': 1,
+          'date': startDate.toIso8601String(),
+          'dateLabel': DateFormat('EEE, d MMM').format(startDate),
+          'weather': const <String, dynamic>{},
+          'stops': generated.places,
+          'totalEstimatedMinutes': generated.totalEstimatedMinutes,
+          'remainingMinutes': generated.remainingMinutes,
+        });
+      }
+
+      final title = draft.dayCount > 1
+          ? '$stateName ${draft.dayCount}-Day Tour'
+          : '${draft.area} Cultural Day';
+
+      await AppServices.travelerRef(user.uid).set(
         {
           'lastPlannerPreferences': {
+            'stateId': stateId,
+            'stateName': stateName,
             'area': draft.area!,
-            'date': Timestamp.fromDate(
-              draft.date!,
-            ),
-            'availableHours':
-            draft.availableHours!,
-            'interests':
-            draft.interests.toList(),
-            'budgetLevel':
-            draft.budgetLevel!,
-            'travelPace':
-            draft.travelPace!,
-            'placeSource':
-            'Registered MyHeritage vendors in Penang',
+            'availableHours': draft.availableHours!,
+            'dayCount': draft.dayCount,
+            'interests': draft.interests.toList(),
+            'budgetLevel': draft.budgetLevel!,
+            'travelPace': draft.travelPace!,
+            'startMinutes': draft.preferredStartMinutes,
+            'foodExplorationEnabled': draft.foodExplorationEnabled,
+            'tripStartDate': Timestamp.fromDate(startDate),
           },
-          'updatedAt':
-          FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
         },
-        SetOptions(
-          merge: true,
-        ),
+        SetOptions(merge: true),
       );
 
-      // ----------------------------------------------------------
-      // SAVE INTO SAME ITINERARIES COLLECTION AS DAILY PLANNER
-      // ----------------------------------------------------------
-
-      final itineraryRef =
-      await AppServices.db
-          .collection(
-        'itineraries',
-      )
-          .add({
+      final itineraryRef = await AppServices.db.collection('itineraries').add({
         'userId': user.uid,
-
-        'title':
-        '${draft.area!} - ${DateFormat('d MMM yyyy').format(draft.date!)}',
-
+        'title': title,
+        'stateId': stateId,
+        'stateName': stateName,
+        'selectedArea': draft.area!,
         'area': draft.area!,
-
-        // Added for Chatbot → Daily Planner integration
-        'tripDate': Timestamp.fromDate(
-          DateTime(
-            draft.date!.year,
-            draft.date!.month,
-            draft.date!.day,
-          ),
+        'availableHours': draft.availableHours!,
+        'dailyHours': draft.availableHours!,
+        'numberOfDays': draft.dayCount,
+        'dayCount': draft.dayCount,
+        'dailyStartTime': _format24Hour(draft.preferredStartMinutes),
+        'dailyEndTime': _format24Hour(
+          (draft.preferredStartMinutes + (draft.availableHours! * 60).round())
+              .clamp(0, 1439),
         ),
-
-        'availableHours':
-        draft.availableHours!,
-
-        'budget':
-        _budgetAmount(
-          draft.budgetLevel!,
-        ),
-
-        'budgetLevel':
-        draft.budgetLevel!,
-
-        'interests':
-        draft.interests.toList(),
-
-        'travelPace':
-        draft.travelPace!,
-
-        'placeSource':
-        'Registered MyHeritage vendors in Penang',
-
-        'totalEstimatedMinutes':
-        generated
-            .totalEstimatedMinutes,
-
-        'remainingMinutes':
-        generated.remainingMinutes,
-
-        'stops':
-        generated.places,
-
+        'tripDate': Timestamp.fromDate(startDate),
+        'startDate': Timestamp.fromDate(startDate),
+        'endDate': Timestamp.fromDate(endDate),
+        'budget': _budgetRange(draft.budgetLevel!),
+        'budgetLevel': draft.budgetLevel!,
+        'budgetPreference': draft.budgetLevel!,
+        'interests': draft.interests.toList(),
+        'travelPace': draft.travelPace!,
+        'pace': draft.travelPace!,
+        'suggestedStartMinutes': draft.preferredStartMinutes,
+        'foodExplorationEnabled': draft.foodExplorationEnabled,
+        'totalEstimatedMinutes': generated.totalEstimatedMinutes,
+        'remainingMinutes': generated.remainingMinutes,
+        'stops': generated.places,
+        'days': daysMap,
         'status': 'saved',
-
-        'createdBy':
-        'ai_chatbot',
-
-        'createdAt':
-        FieldValue.serverTimestamp(),
-
-        'updatedAt':
-        FieldValue.serverTimestamp(),
+        'createdBy': 'ai_chatbot',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      _lastCreatedItineraryId =
-          itineraryRef.id;
+      _lastCreatedItineraryId = itineraryRef.id;
 
-      final stopNames =
-      generated.places
-          .take(5)
-          .map(
-            (place) =>
-        '${place['name'] ?? 'Place'}',
-      )
+      final stopNames = generated.places
+          .take(6)
+          .map((place) => '${place['name'] ?? 'Place'}')
           .toList();
-
-      final additional =
-      generated.places.length >
-          stopNames.length
+      final extra = generated.places.length > stopNames.length
           ? '\n…and ${generated.places.length - stopNames.length} more stop(s).'
           : '';
 
       _addAssistantMessage(
         '''
-Your itinerary has been generated and saved successfully! 🎉
+Your Daily Planner itinerary has been generated and saved successfully! 🎉
 
-📍 ${draft.area}
-📅 ${DateFormat('d MMMM yyyy').format(draft.date!)}
-🗺️ ${generated.places.length} stops
-⏱️ Estimated duration: ${_minutesToReadableTime(generated.totalEstimatedMinutes)}
+📍 ${draft.area}, $stateName
+📅 ${_dateRange(startDate, endDate)}
+🗓️ ${draft.dayCount} day${draft.dayCount == 1 ? '' : 's'}
+🗺️ ${generated.places.length} total stop(s)
+⏱️ Planned activity time: ${_minutesToReadableTime(generated.totalEstimatedMinutes)}
+💰 Budget preference: ${draft.budgetLevel} (${_budgetRange(draft.budgetLevel!)})
 
 Route highlights:
-${stopNames.asMap().entries.map(
-              (entry) =>
-          '${entry.key + 1}. ${entry.value}',
-        ).join('\n')}$additional
+${stopNames.asMap().entries.map((entry) => '${entry.key + 1}. ${entry.value}').join('\n')}$extra
 
-You can tap "Open Generated Itinerary" below to view the complete route.
+You can open the itinerary below, ask what is on a specific day, check rewards/cultural tasks, check nearby verified hazards, or ask me to open the itinerary editor.
 ''',
       );
 
-      _resetItineraryState(
-        keepLastItinerary: true,
-      );
+      _resetItineraryState(keepLastItinerary: true);
     } catch (error) {
-      _awaitingGenerationConfirmation =
-      false;
-
+      _awaitingGenerationConfirmation = false;
       _addAssistantMessage(
         'I could not generate the itinerary.\n\n'
             '${error.toString().replaceFirst('Exception: ', '')}',
@@ -1495,7 +1239,819 @@ You can tap "Open Generated Itinerary" below to view the complete route.
   }
 
   // ==============================================================
-  // GENERAL CHAT
+  // REAL MODULE CONTEXT
+  // ==============================================================
+
+  Future<Map<String, dynamic>> _buildAppContext() async {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return const {};
+    final uid = user.uid;
+
+    final results = await Future.wait<Map<String, dynamic>>([
+      _profileContext(uid),
+      _groupContext(uid),
+      _rewardContext(uid),
+      _culturalContext(),
+      _safetyContext(),
+      _notificationContext(uid),
+      _itineraryContext(uid),
+    ]);
+
+    return {
+      'profile': results[0],
+      'companion': results[1],
+      'rewards': results[2],
+      'cultural': results[3],
+      'safety': results[4],
+      'notifications': results[5],
+      'itineraries': results[6],
+    };
+  }
+
+  Future<Map<String, dynamic>> _profileContext(String uid) async {
+    try {
+      final snapshot = await AppServices.travelerRef(uid).get();
+      final data = snapshot.data() ?? const <String, dynamic>{};
+      return {
+        'displayName': data['displayName'] ?? '',
+        'points': (data['points'] as num?)?.toInt() ?? 0,
+        'travelInterests': data['travelInterests'] ?? [],
+        'budgetPreference': data['budgetPreference'],
+        'travelPace': data['travelPace'],
+      };
+    } catch (error) {
+      return {'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _groupContext(String uid) async {
+    try {
+      final snapshot = await AppServices.db
+          .collection('travel_groups')
+          .where('memberIds', arrayContains: uid)
+          .get();
+
+      final groups = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if ('${data['status'] ?? ''}'.toLowerCase() != 'active') continue;
+
+        final members = List<String>.from(data['memberIds'] ?? const []);
+        groups.add({
+          'groupId': doc.id,
+          'name': data['name'] ?? 'Travel Group',
+          'role': '${data['leaderId'] ?? ''}' == uid ? 'leader' : 'member',
+          'memberCount': members.length,
+          'memberNames': data['memberNames'] ?? {},
+        });
+      }
+
+      return {'count': groups.length, 'groups': groups};
+    } catch (error) {
+      return {'count': 0, 'groups': [], 'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _rewardContext(String uid) async {
+    try {
+      final profile = await AppServices.travelerRef(uid).get();
+      final points = (profile.data()?['points'] as num?)?.toInt() ?? 0;
+
+      final snapshot = await AppServices.db
+          .collection('vouchers')
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      final vouchers = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final cost = (data['pointCost'] as num?)?.toInt() ?? 0;
+        final inventory = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
+        final expiry = asDate(data['expiresAt']);
+        if (cost <= 0 || inventory <= 0) continue;
+        if (expiry != null && expiry.isBefore(DateTime.now())) continue;
+
+        vouchers.add({
+          'voucherId': doc.id,
+          'title': data['title'] ?? '',
+          'vendorName': data['vendorName'] ?? '',
+          'pointCost': cost,
+          'canClaim': points >= cost,
+          'pointsNeeded': points >= cost ? 0 : cost - points,
+        });
+      }
+
+      return {
+        'points': points,
+        'availableVoucherCount': vouchers.length,
+        'vouchers': vouchers.take(8).toList(),
+      };
+    } catch (error) {
+      return {'points': 0, 'vouchers': [], 'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _culturalContext() async {
+    try {
+      final snapshot = await AppServices.db
+          .collection('cultural_tasks')
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      final tasks = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final deadline = asDate(data['deadline']);
+        if (deadline != null && deadline.isBefore(DateTime.now())) continue;
+        tasks.add({
+          'taskId': doc.id,
+          'title': data['title'] ?? '',
+          'category': data['category'] ?? '',
+          'vendorName': data['vendorName'] ?? '',
+          'rewardPoints': data['rewardPoints'] ?? 0,
+        });
+      }
+
+      return {'activeCount': tasks.length, 'tasks': tasks.take(8).toList()};
+    } catch (error) {
+      return {'activeCount': 0, 'tasks': [], 'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _safetyContext() async {
+    try {
+      final snapshot = await AppServices.db
+          .collection('hazards')
+          .where('status', isEqualTo: 'verified')
+          .get();
+
+      final hazards = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final point = _extractLatLng(data['location']);
+        return {
+          'hazardId': doc.id,
+          'category': data['category'] ?? '',
+          'severity': data['severity'] ?? '',
+          'description': data['description'] ?? '',
+          'latitude': point?.latitude,
+          'longitude': point?.longitude,
+        };
+      }).toList();
+
+      return {'verifiedCount': hazards.length, 'hazards': hazards.take(12).toList()};
+    } catch (error) {
+      return {'verifiedCount': 0, 'hazards': [], 'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _notificationContext(String uid) async {
+    try {
+      final snapshot = await AppServices.db
+          .collection('notifications')
+          .where('userId', isEqualTo: uid)
+          .get();
+      final unread = snapshot.docs.where((doc) => doc.data()['read'] != true).length;
+      return {'total': snapshot.docs.length, 'unread': unread};
+    } catch (error) {
+      return {'total': 0, 'unread': 0, 'error': '$error'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _itineraryContext(String uid) async {
+    try {
+      final snapshot = await AppServices.db
+          .collection('itineraries')
+          .where('userId', isEqualTo: uid)
+          .get();
+
+      final docs = snapshot.docs.toList()
+        ..sort((a, b) {
+          final aDate = asDate(a.data()['createdAt']) ?? DateTime(2000);
+          final bDate = asDate(b.data()['createdAt']) ?? DateTime(2000);
+          return bDate.compareTo(aDate);
+        });
+
+      final items = docs.take(5).map((doc) {
+        final data = doc.data();
+        final stops = List<Map<String, dynamic>>.from(data['stops'] ?? const []);
+        return {
+          'itineraryId': doc.id,
+          'title': data['title'] ?? '',
+          'area': data['area'] ?? data['selectedArea'] ?? '',
+          'dayCount': data['dayCount'] ?? data['numberOfDays'] ?? 1,
+          'startDate': asDate(data['startDate'])?.toIso8601String(),
+          'stopCount': stops.length,
+          'stopNames': stops.take(8).map((s) => '${s['name'] ?? 'Place'}').toList(),
+        };
+      }).toList();
+
+      return {
+        'count': docs.length,
+        'recent': items,
+        'latest': items.isEmpty ? null : items.first,
+      };
+    } catch (error) {
+      return {'count': 0, 'recent': [], 'latest': null, 'error': '$error'};
+    }
+  }
+
+  // ==============================================================
+  // MODULE ACTION ROUTER
+  // ==============================================================
+
+  Future<bool> _tryHandleModuleAction(String text) async {
+    final appContext = await _buildAppContext();
+    final analysis = await AiChatService.analyseAppAction(
+      message: text,
+      appContext: appContext,
+    );
+
+    final action = '${analysis['action'] ?? 'general_chat'}';
+    final targetName = '${analysis['targetName'] ?? ''}'.trim();
+    final targetNumberRaw = analysis['targetNumber'];
+    final targetNumber = targetNumberRaw is num
+        ? targetNumberRaw.toInt()
+        : int.tryParse('${targetNumberRaw ?? ''}');
+
+    switch (action) {
+      case 'show_reward_points':
+        final rewards = Map<String, dynamic>.from(appContext['rewards'] ?? {});
+        _addAssistantMessage(
+          'You currently have ⭐ ${rewards['points'] ?? 0} reward points.',
+        );
+        return true;
+
+      case 'show_rewards':
+        _showRewardsFromContext(appContext);
+        return true;
+
+      case 'open_rewards':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RewardsPage()),
+        );
+        return true;
+
+      case 'open_voucher_wallet':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const VoucherWalletPage()),
+        );
+        return true;
+
+      case 'show_groups':
+        _showGroupsFromContext(appContext);
+        return true;
+
+      case 'open_companion':
+        _addAssistantMessage(
+          'I’ll open Companion. Safety-sensitive actions such as SOS or '
+              'location sharing still require your explicit action there.',
+        );
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CompanionPage()),
+        );
+        return true;
+
+      case 'open_group_chat':
+        return _openGroupChat(appContext, targetName);
+
+      case 'show_group_members':
+        _showGroupMembers(appContext, targetName);
+        return true;
+
+      case 'show_hazards':
+        _showHazardsFromContext(appContext);
+        return true;
+
+      case 'open_safety':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SafetyPage()),
+        );
+        return true;
+
+      case 'report_hazard':
+        _addAssistantMessage(
+          'I’ll open the hazard report form. You must review and submit the '
+              'report yourself.',
+        );
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CreateHazardPage()),
+        );
+        return true;
+
+      case 'show_cultural_tasks':
+        _showCulturalTasksFromContext(appContext);
+        return true;
+
+      case 'open_cultural_tasks':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CulturalTasksPage()),
+        );
+        return true;
+
+      case 'show_notifications':
+        final notifications =
+        Map<String, dynamic>.from(appContext['notifications'] ?? {});
+        final unread = notifications['unread'] ?? 0;
+        _addAssistantMessage(
+          unread == 0
+              ? 'You have no unread notifications.'
+              : 'You currently have $unread unread notification(s).',
+        );
+        return true;
+
+      case 'open_notifications':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const NotificationsPage()),
+        );
+        return true;
+
+      case 'show_profile':
+        final profile = Map<String, dynamic>.from(appContext['profile'] ?? {});
+        _addAssistantMessage(
+          'Profile summary:\n\n'
+              '👤 ${profile['displayName'] ?? 'Traveler'}\n'
+              '⭐ ${profile['points'] ?? 0} points\n'
+              '🎯 Interests: ${_listText(profile['travelInterests'])}\n'
+              '💰 Budget preference: ${profile['budgetPreference'] ?? '-'}\n'
+              '🚶 Pace: ${profile['travelPace'] ?? '-'}',
+        );
+        return true;
+
+      case 'open_profile':
+        final user = AppServices.auth.currentUser;
+        if (user == null) return true;
+        final snapshot = await AppServices.travelerRef(user.uid).get();
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TravelerProfilePage(
+              profile: snapshot.data() ?? const <String, dynamic>{},
+            ),
+          ),
+        );
+        return true;
+
+      case 'show_itineraries':
+        _showItinerariesFromContext(appContext);
+        return true;
+
+      case 'open_itineraries':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const MyItinerariesPage()),
+        );
+        return true;
+
+      case 'describe_latest_itinerary':
+        await _describeLatestItinerary(targetNumber);
+        return true;
+
+      case 'open_latest_itinerary':
+        await _openLatestItinerary();
+        return true;
+
+      case 'edit_latest_itinerary':
+        await _editLatestItinerary();
+        return true;
+
+      case 'show_itinerary_rewards':
+        await _showLatestItineraryRewards();
+        return true;
+
+      case 'show_itinerary_cultural_tasks':
+        await _showLatestItineraryCulturalTasks();
+        return true;
+
+      case 'check_itinerary_safety':
+        await _checkLatestItinerarySafety();
+        return true;
+    }
+
+    return false;
+  }
+
+  void _showRewardsFromContext(Map<String, dynamic> appContext) {
+    final rewards = Map<String, dynamic>.from(appContext['rewards'] ?? {});
+    final vouchers = List<Map<String, dynamic>>.from(rewards['vouchers'] ?? []);
+    final points = rewards['points'] ?? 0;
+
+    if (vouchers.isEmpty) {
+      _addAssistantMessage(
+        'You have $points points, but there are no active claimable vouchers '
+            'listed right now.',
+      );
+      return;
+    }
+
+    final lines = vouchers.take(6).map((voucher) {
+      final canClaim = voucher['canClaim'] == true;
+      return '• ${voucher['title']} — ${voucher['pointCost']} pts'
+          '${canClaim ? ' ✅' : ' (need ${voucher['pointsNeeded']} more)'}';
+    }).join('\n');
+
+    _addAssistantMessage(
+      'You have ⭐ $points points.\n\nAvailable rewards:\n$lines',
+    );
+  }
+
+  void _showGroupsFromContext(Map<String, dynamic> appContext) {
+    final companion = Map<String, dynamic>.from(appContext['companion'] ?? {});
+    final groups = List<Map<String, dynamic>>.from(companion['groups'] ?? []);
+
+    if (groups.isEmpty) {
+      _addAssistantMessage('You are not in any active travel groups.');
+      return;
+    }
+
+    final lines = groups.map((group) {
+      return '• ${group['name']} — ${group['role']}, '
+          '${group['memberCount']} member(s)';
+    }).join('\n');
+
+    _addAssistantMessage('Your active travel groups:\n\n$lines');
+  }
+
+  Future<bool> _openGroupChat(
+      Map<String, dynamic> appContext,
+      String targetName,
+      ) async {
+    final companion = Map<String, dynamic>.from(appContext['companion'] ?? {});
+    final groups = List<Map<String, dynamic>>.from(companion['groups'] ?? []);
+
+    final selected = _selectGroup(groups, targetName);
+    if (selected == null) {
+      _addAssistantMessage(
+        groups.isEmpty
+            ? 'You are not currently in an active travel group.'
+            : 'You are in more than one group. Tell me which group chat you '
+            'want to open.',
+      );
+      return true;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GroupChatPage(
+          groupId: '${selected['groupId']}',
+          groupName: '${selected['name']}',
+        ),
+      ),
+    );
+    return true;
+  }
+
+  void _showGroupMembers(Map<String, dynamic> appContext, String targetName) {
+    final companion = Map<String, dynamic>.from(appContext['companion'] ?? {});
+    final groups = List<Map<String, dynamic>>.from(companion['groups'] ?? []);
+    final selected = _selectGroup(groups, targetName);
+
+    if (selected == null) {
+      _addAssistantMessage(
+        groups.isEmpty
+            ? 'You are not currently in an active travel group.'
+            : 'Tell me which travel group you mean.',
+      );
+      return;
+    }
+
+    final names = Map<String, dynamic>.from(selected['memberNames'] ?? {});
+    final lines = names.values.isEmpty
+        ? 'Member names are not available.'
+        : names.values.map((name) => '• $name').join('\n');
+    _addAssistantMessage('Members of ${selected['name']}:\n\n$lines');
+  }
+
+  Map<String, dynamic>? _selectGroup(
+      List<Map<String, dynamic>> groups,
+      String targetName,
+      ) {
+    if (groups.isEmpty) return null;
+    if (targetName.trim().isEmpty) return groups.length == 1 ? groups.first : null;
+
+    final target = targetName.toLowerCase();
+    for (final group in groups) {
+      final name = '${group['name'] ?? ''}'.toLowerCase();
+      if (name.contains(target) || target.contains(name)) return group;
+    }
+    return null;
+  }
+
+  void _showHazardsFromContext(Map<String, dynamic> appContext) {
+    final safety = Map<String, dynamic>.from(appContext['safety'] ?? {});
+    final hazards = List<Map<String, dynamic>>.from(safety['hazards'] ?? []);
+
+    if (hazards.isEmpty) {
+      _addAssistantMessage('There are currently no verified hazards listed.');
+      return;
+    }
+
+    final lines = hazards.take(6).map((hazard) {
+      return '• ${hazard['category']} (${hazard['severity']}) — '
+          '${hazard['description']}';
+    }).join('\n');
+
+    _addAssistantMessage(
+      'I found ${hazards.length} verified hazard(s):\n\n$lines',
+    );
+  }
+
+  void _showCulturalTasksFromContext(Map<String, dynamic> appContext) {
+    final cultural = Map<String, dynamic>.from(appContext['cultural'] ?? {});
+    final tasks = List<Map<String, dynamic>>.from(cultural['tasks'] ?? []);
+
+    if (tasks.isEmpty) {
+      _addAssistantMessage('There are currently no active cultural tasks.');
+      return;
+    }
+
+    final lines = tasks.take(6).map((task) {
+      return '• ${task['title']} — ${task['rewardPoints']} pts';
+    }).join('\n');
+
+    _addAssistantMessage('Active cultural tasks:\n\n$lines');
+  }
+
+  void _showItinerariesFromContext(Map<String, dynamic> appContext) {
+    final itineraries = Map<String, dynamic>.from(appContext['itineraries'] ?? {});
+    final recent = List<Map<String, dynamic>>.from(itineraries['recent'] ?? []);
+
+    if (recent.isEmpty) {
+      _addAssistantMessage('You do not have any saved itineraries yet.');
+      return;
+    }
+
+    final lines = recent.map((item) {
+      return '• ${item['title']} — ${item['dayCount']} day(s), '
+          '${item['stopCount']} stop(s)';
+    }).join('\n');
+
+    _addAssistantMessage('Your recent itineraries:\n\n$lines');
+  }
+
+  // ==============================================================
+  // LATEST ITINERARY OPERATIONS
+  // ==============================================================
+
+  Future<QueryDocumentSnapshot<Map<String, dynamic>>?> _latestItineraryDoc() async {
+    final user = AppServices.auth.currentUser;
+    if (user == null) return null;
+
+    final snapshot = await AppServices.db
+        .collection('itineraries')
+        .where('userId', isEqualTo: user.uid)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    final docs = snapshot.docs.toList()
+      ..sort((a, b) {
+        final aDate = asDate(a.data()['createdAt']) ?? DateTime(2000);
+        final bDate = asDate(b.data()['createdAt']) ?? DateTime(2000);
+        return bDate.compareTo(aDate);
+      });
+
+    return docs.first;
+  }
+
+  Future<void> _describeLatestItinerary(int? requestedDay) async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    final data = doc.data();
+    final days = List<Map<String, dynamic>>.from(data['days'] ?? const []);
+    final allStops = List<Map<String, dynamic>>.from(data['stops'] ?? const []);
+
+    if (requestedDay != null && requestedDay > 0 && days.isNotEmpty) {
+      final index = requestedDay - 1;
+      if (index >= days.length) {
+        _addAssistantMessage(
+          'This itinerary has ${days.length} day(s), so Day $requestedDay '
+              'does not exist.',
+        );
+        return;
+      }
+
+      final day = days[index];
+      final stops = List<Map<String, dynamic>>.from(day['stops'] ?? const []);
+      final lines = stops.isEmpty
+          ? 'No stops are stored for this day.'
+          : stops.asMap().entries.map((entry) {
+        return '${entry.key + 1}. ${entry.value['name'] ?? 'Place'}';
+      }).join('\n');
+
+      _addAssistantMessage(
+        'Day $requestedDay of ${data['title'] ?? 'your itinerary'}:\n\n'
+            '$lines\n\n'
+            'Estimated activity time: '
+            '${_minutesToReadableTime((day['totalEstimatedMinutes'] as num?)?.toInt() ?? 0)}',
+      );
+      return;
+    }
+
+    final stopLines = allStops.take(8).toList().asMap().entries.map((entry) {
+      return '${entry.key + 1}. ${entry.value['name'] ?? 'Place'}';
+    }).join('\n');
+
+    _addAssistantMessage(
+      '${data['title'] ?? 'Your latest itinerary'}\n\n'
+          '📍 ${data['area'] ?? data['selectedArea'] ?? '-'}\n'
+          '🗓️ ${data['dayCount'] ?? data['numberOfDays'] ?? 1} day(s)\n'
+          '🗺️ ${allStops.length} stop(s)\n'
+          '⏱️ ${_minutesToReadableTime((data['totalEstimatedMinutes'] as num?)?.toInt() ?? 0)}\n\n'
+          '$stopLines',
+    );
+  }
+
+  Future<void> _openLatestItinerary() async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ItineraryDetailPage(itineraryId: doc.id),
+      ),
+    );
+  }
+
+  Future<void> _editLatestItinerary() async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    _addAssistantMessage('I’ll open the Daily Planner itinerary editor.');
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ItineraryEditPage(
+          itineraryId: doc.id,
+          itinerary: doc.data(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLatestItineraryRewards() async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    final stops = List<Map<String, dynamic>>.from(doc.data()['stops'] ?? const []);
+    final found = <String>[];
+
+    for (final stop in stops) {
+      final vouchers = stop['activeVouchers'];
+      if (vouchers is! List || vouchers.isEmpty) continue;
+      final placeName = '${stop['name'] ?? 'Itinerary stop'}';
+      for (final raw in vouchers.take(3)) {
+        if (raw is! Map) continue;
+        final voucher = Map<String, dynamic>.from(raw);
+        found.add(
+          '• $placeName — ${voucher['title'] ?? 'Voucher'} '
+              '${voucher['pointCost'] == null ? '' : '(${voucher['pointCost']} pts)'}',
+        );
+      }
+    }
+
+    _addAssistantMessage(
+      found.isEmpty
+          ? 'I did not find active voucher data attached to the stops in your '
+          'latest itinerary.'
+          : 'Rewards/vouchers along your latest itinerary:\n\n${found.join('\n')}',
+    );
+  }
+
+  Future<void> _showLatestItineraryCulturalTasks() async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    final stops = List<Map<String, dynamic>>.from(doc.data()['stops'] ?? const []);
+    final found = <String>[];
+
+    for (final stop in stops) {
+      final raw = stop['culturalTask'];
+      if (raw is! Map) continue;
+      final task = Map<String, dynamic>.from(raw);
+      found.add(
+        '• ${task['title'] ?? task['taskTitle'] ?? 'Cultural task'} — '
+            '${task['rewardPoints'] ?? 0} pts',
+      );
+    }
+
+    _addAssistantMessage(
+      found.isEmpty
+          ? 'There are no cultural tasks attached to the stops in your latest '
+          'itinerary.'
+          : 'Cultural tasks in your latest itinerary:\n\n${found.join('\n')}',
+    );
+  }
+
+  Future<void> _checkLatestItinerarySafety() async {
+    final doc = await _latestItineraryDoc();
+    if (doc == null) {
+      _addAssistantMessage('You do not have a saved itinerary yet.');
+      return;
+    }
+
+    final hazardSnapshot = await AppServices.db
+        .collection('hazards')
+        .where('status', isEqualTo: 'verified')
+        .get();
+
+    final stops = List<Map<String, dynamic>>.from(doc.data()['stops'] ?? const []);
+    final warnings = <Map<String, dynamic>>[];
+
+    for (final stop in stops) {
+      final stopPoint = _extractLatLng(stop['location']) ??
+          _extractLatLng({
+            'latitude': stop['latitude'] ?? stop['lat'],
+            'longitude': stop['longitude'] ?? stop['lng'],
+          });
+      if (stopPoint == null) continue;
+
+      for (final hazardDoc in hazardSnapshot.docs) {
+        final hazard = hazardDoc.data();
+        final hazardPoint = _extractLatLng(hazard['location']);
+        if (hazardPoint == null) continue;
+
+        final distance = Geolocator.distanceBetween(
+          stopPoint.latitude,
+          stopPoint.longitude,
+          hazardPoint.latitude,
+          hazardPoint.longitude,
+        );
+
+        if (distance <= 500) {
+          warnings.add({
+            'stop': stop['name'] ?? 'Itinerary stop',
+            'category': hazard['category'] ?? 'Hazard',
+            'severity': hazard['severity'] ?? 'Unknown',
+            'distance': distance,
+          });
+        }
+      }
+    }
+
+    warnings.sort(
+          (a, b) => (a['distance'] as double).compareTo(b['distance'] as double),
+    );
+
+    if (warnings.isEmpty) {
+      _addAssistantMessage(
+        'I did not find any verified hazard within 500 m of the mapped stops '
+            'in your latest itinerary. This is only based on currently verified '
+            'MyHeritage hazard reports, not a guarantee that an area is risk-free.',
+      );
+      return;
+    }
+
+    final lines = warnings.take(6).map((warning) {
+      return '• ${warning['category']} (${warning['severity']}) — about '
+          '${(warning['distance'] as double).round()} m from ${warning['stop']}';
+    }).join('\n');
+
+    _addAssistantMessage(
+      'I found verified hazards near your itinerary:\n\n$lines\n\n'
+          'You can ask me to open the Safety module for more details.',
+    );
+  }
+
+  LatLng? _extractLatLng(dynamic raw) {
+    if (raw is GeoPoint) return LatLng(raw.latitude, raw.longitude);
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      final lat = map['latitude'] ?? map['lat'];
+      final lng = map['longitude'] ?? map['lng'] ?? map['lon'];
+      if (lat is num && lng is num) {
+        return LatLng(lat.toDouble(), lng.toDouble());
+      }
+    }
+    return null;
+  }
+
+  // ==============================================================
+  // GENERAL CHAT WITH REAL CONTEXT
   // ==============================================================
 
   Future<void> _answerGeneralQuestion(
@@ -1512,53 +2068,129 @@ You can tap "Open Generated Itinerary" below to view the complete route.
         )
             .toList()
             .reversed
-            .take(8)
+            .take(10)
             .toList()
             .reversed;
 
     final historyText =
-    recent.map((message) {
-      final role =
-      message['role'] ==
-          'user'
-          ? 'User'
-          : 'Assistant';
+    recent.map(
+          (message) {
+        final role =
+        message['role'] == 'user'
+            ? 'User'
+            : 'Assistant';
 
-      return '$role: ${message['text']}';
-    }).join('\n');
+        return '$role: ${message['text']}';
+      },
+    ).join('\n');
+
+    Map<String, dynamic> appContext =
+    const {};
+
+    try {
+      appContext =
+      await _buildAppContext();
+    } catch (error) {
+      debugPrint(
+        'APP CONTEXT ERROR: $error',
+      );
+    }
+
+    final activeDraft =
+    _itineraryDraft?.toMap();
 
     final response =
     await AiChatService.ask(
       '''
-You are the intelligent AI assistant inside MyHeritage Explorer,
-a sustainable tourism application for Malaysia.
+You are the intelligent conversational assistant inside
+MyHeritage Explorer.
 
-The application includes:
+You are a capable general assistant, but you also understand the
+MyHeritage tourism application.
 
-- Daily Planner
-- Cultural Experiences and cultural tasks
-- Rewards and vouchers
-- Companion travel groups
-- Private chat
-- Consent-based location sharing
-- SOS
-- Route guidance
-- Safety and hazard reporting
-- Notifications
-- Traveler profile
+============================================================
+YOUR CAPABILITIES
+============================================================
 
-You should answer naturally and intelligently.
+You can answer:
 
-When a user asks you to create an itinerary, the application itself
-will handle that workflow, so do not invent a fake itinerary here.
+- general questions
+- Malaysia tourism questions
+- cultural and heritage questions
+- travel advice
+- explanations
+- recommendations
+- questions about MyHeritage Explorer
+- questions about the user's real app data when context is available
 
-Recent conversation:
+You do NOT have to force every conversation into an app module.
+
+If the user asks a normal question, simply answer it naturally.
+
+Examples:
+
+"What is the capital of Malaysia?"
+→ Answer normally.
+
+"Why is George Town famous?"
+→ Explain normally.
+
+"What food is famous in Penang?"
+→ Answer normally.
+
+"How many points do I have?"
+→ Use real application context.
+
+============================================================
+REAL APPLICATION CONTEXT
+============================================================
+
+${jsonEncode(appContext)}
+
+============================================================
+ACTIVE DAILY PLANNER DRAFT
+============================================================
+
+${jsonEncode(activeDraft)}
+
+The user may currently be creating an itinerary.
+
+IMPORTANT:
+
+If they ask an unrelated question while an itinerary is in progress,
+answer their question normally.
+
+Do NOT force them back into itinerary setup.
+
+The Flutter application remembers the itinerary draft separately.
+
+============================================================
+RULES
+============================================================
+
+- Never invent personal app data.
+- If information exists in REAL APPLICATION CONTEXT, use it.
+- Do not pretend an app action occurred.
+- Do not claim that an SOS, voucher claim, hazard report or GPS share
+  was completed.
+- Do not fabricate a saved itinerary.
+- Daily Planner generation is performed by Flutter, not by you.
+- Be conversational and helpful.
+- Keep answers concise unless the user asks for more detail.
+
+============================================================
+RECENT CONVERSATION
+============================================================
+
 $historyText
 
-Latest user message:
+============================================================
+LATEST USER MESSAGE
+============================================================
+
 $text
 
-Give a concise, helpful response.
+Answer the user's latest question naturally.
 ''',
     );
 
@@ -1568,143 +2200,112 @@ Give a concise, helpful response.
   }
 
   // ==============================================================
-  // ITINERARY STATE HELPERS
+  // STATE + FORMAT HELPERS
   // ==============================================================
 
   void _cancelItinerary() {
     _resetItineraryState();
-
     _addAssistantMessage(
-      'The itinerary planning process has been cancelled. '
-          'You can ask me to create another itinerary anytime.',
+      'The itinerary planning process has been cancelled. You can start a new '
+          'Daily Planner request anytime.',
     );
   }
 
-  void _resetItineraryState({
-    bool keepLastItinerary = false,
-  }) {
+  void _resetItineraryState({bool keepLastItinerary = false}) {
     _itineraryDraft = null;
-
-    _awaitingGenerationConfirmation =
-    false;
-
-    if (!keepLastItinerary) {
-      _lastCreatedItineraryId =
-      null;
-    }
+    _awaitingGenerationConfirmation = false;
+    if (!keepLastItinerary) _lastCreatedItineraryId = null;
   }
 
-  bool _looksLikeItineraryRequest(
-      String text,
-      ) {
-    final value =
-    text.toLowerCase();
-
-    final hasTripWord =
-        value.contains('itinerary') ||
-            value.contains('trip') ||
-            value.contains('travel plan');
-
-    final hasAction =
-        value.contains('create') ||
-            value.contains('make') ||
-            value.contains('generate') ||
-            value.contains('plan');
-
+  bool _looksLikeItineraryRequest(String text) {
+    final value = text.toLowerCase();
+    final hasTripWord = value.contains('itinerary') ||
+        value.contains('trip') ||
+        value.contains('travel plan') ||
+        value.contains('day plan');
+    final hasAction = value.contains('create') ||
+        value.contains('make') ||
+        value.contains('generate') ||
+        value.contains('plan');
     return hasTripWord && hasAction;
   }
 
-  double _budgetAmount(
-      String budgetLevel,
-      ) {
-    switch (budgetLevel) {
+  String _budgetRange(String level) {
+    switch (level) {
       case 'Low':
-        return 50;
-
+        return 'RM 30 - 80 / day';
       case 'High':
-        return 200;
-
+        return 'RM 150+ / day';
       default:
-        return 100;
+        return 'RM 80 - 150 / day';
     }
   }
 
-  String _formatHours(
-      double hours,
-      ) {
-    if (hours % 1 == 0) {
-      return '${hours.toInt()} hours';
-    }
-
-    return '${hours.toStringAsFixed(1)} hours';
+  String _formatHours(double hours) {
+    return hours % 1 == 0
+        ? '${hours.toInt()} hours'
+        : '${hours.toStringAsFixed(1)} hours';
   }
 
-  String _minutesToReadableTime(
-      int totalMinutes,
-      ) {
-    if (totalMinutes <= 0) {
-      return '-';
-    }
+  String _format24Hour(int minutes) {
+    final hour = minutes ~/ 60;
+    final minute = minutes % 60;
+    return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  }
 
-    final hours =
-        totalMinutes ~/ 60;
+  String _formatStartTime(int minutes) {
+    final hour = minutes ~/ 60;
+    final minute = minutes % 60;
+    final date = DateTime(2026, 1, 1, hour, minute);
+    return DateFormat.jm().format(date);
+  }
 
-    final minutes =
-        totalMinutes % 60;
-
-    if (hours == 0) {
-      return '$minutes minutes';
-    }
-
-    if (minutes == 0) {
-      return '$hours hour${hours == 1 ? '' : 's'}';
-    }
-
+  String _minutesToReadableTime(int totalMinutes) {
+    if (totalMinutes <= 0) return '-';
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours == 0) return '$minutes minutes';
+    if (minutes == 0) return '$hours hour${hours == 1 ? '' : 's'}';
     return '$hours h $minutes min';
+  }
+
+  String _dateRange(DateTime start, DateTime end) {
+    if (start.year == end.year &&
+        start.month == end.month &&
+        start.day == end.day) {
+      return DateFormat('d MMMM yyyy').format(start);
+    }
+    return '${DateFormat('d MMM yyyy').format(start)} – '
+        '${DateFormat('d MMM yyyy').format(end)}';
+  }
+
+  String _listText(dynamic value) {
+    if (value is List && value.isNotEmpty) return value.join(', ');
+    return '-';
   }
 
   // ==============================================================
   // MESSAGE HELPERS
   // ==============================================================
 
-  void _addAssistantMessage(
-      String text,
-      ) {
+  void _addAssistantMessage(String text) {
     if (!mounted) return;
-
     setState(() {
-      messages.add({
-        'role': 'assistant',
-        'text': text.trim(),
-      });
+      messages.add({'role': 'assistant', 'text': text.trim()});
     });
-
     _scrollToBottom();
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) {
-      if (!scrollController.hasClients) {
-        return;
-      }
-
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!scrollController.hasClients) return;
       scrollController.animateTo(
-        scrollController
-            .position
-            .maxScrollExtent,
-        duration:
-        const Duration(
-          milliseconds: 280,
-        ),
+        scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 280),
         curve: Curves.easeOut,
       );
     });
   }
-
-  // ==============================================================
-  // DISPOSE
-  // ==============================================================
 
   @override
   void dispose() {
@@ -1718,45 +2319,31 @@ Give a concise, helpful response.
   // ==============================================================
 
   @override
-  Widget build(
-      BuildContext context,
-      ) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-      ExplorerColors.background,
+      backgroundColor: ExplorerColors.background,
       appBar: AppBar(
         title: const Column(
-          crossAxisAlignment:
-          CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text('Travel Assistant'),
             Text(
-              'Travel Assistant',
-            ),
-            Text(
-              'AI + MyHeritage modules',
+              'AI + Daily Planner + MyHeritage modules',
               style: TextStyle(
-                color:
-                ExplorerColors.muted,
+                color: ExplorerColors.muted,
                 fontSize: 10,
-                fontWeight:
-                FontWeight.w500,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],
         ),
         actions: const [
           Padding(
-            padding:
-            EdgeInsets.only(
-              right: 14,
-            ),
+            padding: EdgeInsets.only(right: 14),
             child: Center(
-              child:
-              ExplorerStatusBadge(
+              child: ExplorerStatusBadge(
                 label: 'AI',
-                tone:
-                ExplorerStatusTone
-                    .navy,
+                tone: ExplorerStatusTone.navy,
               ),
             ),
           ),
@@ -1764,269 +2351,133 @@ Give a concise, helpful response.
       ),
       body: Column(
         children: [
-          // ------------------------------------------------------
-          // MODULE INTEGRATION BANNER
-          // ------------------------------------------------------
-
           Container(
             width: double.infinity,
-            color:
-            ExplorerColors.navySoft,
-            padding:
-            const EdgeInsets
-                .fromLTRB(
-              14,
-              9,
-              14,
-              9,
-            ),
+            color: ExplorerColors.navySoft,
+            padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
             child: const Row(
               children: [
                 Icon(
                   Icons.hub_outlined,
-                  color:
-                  ExplorerColors.navy,
+                  color: ExplorerColors.navy,
                   size: 17,
                 ),
                 SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    'The AI can coordinate with MyHeritage modules. '
-                        'Itinerary requests are generated using the real Daily Planner.',
+                    'Daily Planner is fully connected. The assistant can also '
+                        'read/open Rewards, Cultural, Safety, Companion, '
+                        'Notifications and Profile features.',
                     style: TextStyle(
-                      color:
-                      ExplorerColors
-                          .navy,
+                      color: ExplorerColors.navy,
                       fontSize: 10,
                       height: 1.35,
-                      fontWeight:
-                      FontWeight.w600,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-
-          // ------------------------------------------------------
-          // CHAT
-          // ------------------------------------------------------
-
           Expanded(
             child: ListView.builder(
-              controller:
-              scrollController,
-              padding:
-              const EdgeInsets
-                  .fromLTRB(
-                14,
-                18,
-                14,
-                18,
-              ),
-              itemCount:
-              messages.length +
-                  (sending
-                      ? 1
-                      : 0),
-              itemBuilder:
-                  (context, index) {
-                if (sending &&
-                    index ==
-                        messages
-                            .length) {
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(14, 18, 14, 18),
+              itemCount: messages.length + (sending ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (sending && index == messages.length) {
                   return _thinkingBubble();
                 }
-
-                final message =
-                messages[index];
-
-                final isUser =
-                    message['role'] ==
-                        'user';
-
+                final message = messages[index];
                 return _messageBubble(
-                  text:
-                  message['text'] ??
-                      '',
-                  isUser: isUser,
+                  text: message['text'] ?? '',
+                  isUser: message['role'] == 'user',
                 );
               },
             ),
           ),
-
-          // ------------------------------------------------------
-          // OPEN GENERATED ITINERARY
-          // ------------------------------------------------------
-
-          if (_lastCreatedItineraryId !=
-              null)
+          if (_lastCreatedItineraryId != null)
             Padding(
-              padding:
-              const EdgeInsets
-                  .fromLTRB(
-                12,
-                0,
-                12,
-                8,
-              ),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: SizedBox(
-                width:
-                double.infinity,
-                child:
-                FilledButton.icon(
+                width: double.infinity,
+                child: FilledButton.icon(
                   onPressed: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) =>
-                            ItineraryDetailPage(
-                              itineraryId:
-                              _lastCreatedItineraryId!,
-                            ),
+                        builder: (_) => ItineraryDetailPage(
+                          itineraryId: _lastCreatedItineraryId!,
+                        ),
                       ),
                     );
                   },
-                  icon: const Icon(
-                    Icons
-                        .route_outlined,
-                  ),
-                  label: const Text(
-                    'Open Generated Itinerary',
-                  ),
+                  icon: const Icon(Icons.route_outlined),
+                  label: const Text('Open Generated Itinerary'),
                 ),
               ),
             ),
-
-          // ------------------------------------------------------
-          // SUGGESTIONS
-          // ------------------------------------------------------
-
-          if (messages.length <= 2)
+          if (messages.length <= 3 || _lastCreatedItineraryId != null)
             SizedBox(
               height: 48,
-              child:
-              ListView.separated(
-                padding:
-                const EdgeInsets
-                    .symmetric(
-                  horizontal: 12,
-                ),
-                scrollDirection:
-                Axis.horizontal,
-                itemCount:
-                _suggestions.length,
-                separatorBuilder:
-                    (_, __) =>
-                const SizedBox(
-                  width: 7,
-                ),
-                itemBuilder:
-                    (context, index) {
-                  final suggestion =
-                  _suggestions[
-                  index];
-
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                scrollDirection: Axis.horizontal,
+                itemCount: _suggestions.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 7),
+                itemBuilder: (context, index) {
+                  final suggestion = _suggestions[index];
                   return ActionChip(
-                    avatar:
-                    const Icon(
-                      Icons
-                          .auto_awesome,
-                      size: 16,
-                    ),
+                    avatar: const Icon(Icons.auto_awesome, size: 16),
                     label: Text(
                       suggestion,
-                      style:
-                      const TextStyle(
-                        fontSize: 10,
-                      ),
+                      style: const TextStyle(fontSize: 10),
                     ),
-                    onPressed: sending
-                        ? null
-                        : () => send(
-                      suggestion,
-                    ),
+                    onPressed: sending ? null : () => send(suggestion),
                   );
                 },
               ),
             ),
-
-          // ------------------------------------------------------
-          // INPUT
-          // ------------------------------------------------------
-
           SafeArea(
             top: false,
             child: Container(
-              padding:
-              const EdgeInsets
-                  .fromLTRB(
-                12,
-                10,
-                12,
-                12,
-              ),
-              decoration:
-              const BoxDecoration(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(
-                  top: BorderSide(
-                    color:
-                    ExplorerColors
-                        .border,
-                  ),
+                  top: BorderSide(color: ExplorerColors.border),
                 ),
               ),
               child: Row(
-                crossAxisAlignment:
-                CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
                     child: TextField(
                       controller: input,
                       minLines: 1,
                       maxLines: 4,
-                      enabled:
-                      !sending,
-                      textCapitalization:
-                      TextCapitalization
-                          .sentences,
-                      textInputAction:
-                      TextInputAction
-                          .send,
-                      onSubmitted:
-                          (_) => send(),
-                      decoration:
-                      const InputDecoration(
-                        hintText:
-                        'Ask about your trip...',
+                      enabled: !sending,
+                      textCapitalization: TextCapitalization.sentences,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => send(),
+                      decoration: const InputDecoration(
+                        hintText: 'Ask me to plan, check or open something...',
                       ),
                     ),
                   ),
-                  const SizedBox(
-                    width: 8,
-                  ),
+                  const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed:
-                    sending
-                        ? null
-                        : send,
+                    onPressed: sending ? null : send,
                     icon: sending
                         ? const SizedBox(
                       width: 17,
                       height: 17,
-                      child:
-                      CircularProgressIndicator(
-                        strokeWidth:
-                        2,
-                        color:
-                        Colors
-                            .white,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
                       ),
                     )
-                        : const Icon(
-                      Icons.send,
-                    ),
+                        : const Icon(Icons.send),
                   ),
                 ],
               ),
@@ -2037,92 +2488,51 @@ Give a concise, helpful response.
     );
   }
 
-  // ==============================================================
-  // THINKING BUBBLE
-  // ==============================================================
-
   Widget _thinkingBubble() {
     return Padding(
-      padding:
-      const EdgeInsets.only(
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment:
-        CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           const CircleAvatar(
             radius: 16,
-            backgroundColor:
-            ExplorerColors.navy,
+            backgroundColor: ExplorerColors.navy,
             child: Icon(
-              Icons
-                  .smart_toy_outlined,
+              Icons.smart_toy_outlined,
               color: Colors.white,
               size: 17,
             ),
           ),
-          const SizedBox(
-            width: 8,
-          ),
+          const SizedBox(width: 8),
           Container(
-            padding:
-            const EdgeInsets
-                .symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            decoration:
-            const BoxDecoration(
-              color:
-              Color(0xFFDDE8FF),
-              borderRadius:
-              BorderRadius.only(
-                topLeft:
-                Radius.circular(
-                  14,
-                ),
-                topRight:
-                Radius.circular(
-                  14,
-                ),
-                bottomLeft:
-                Radius.circular(
-                  3,
-                ),
-                bottomRight:
-                Radius.circular(
-                  14,
-                ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFDDE8FF),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(14),
+                topRight: Radius.circular(14),
+                bottomLeft: Radius.circular(3),
+                bottomRight: Radius.circular(14),
               ),
             ),
             child: const Row(
-              mainAxisSize:
-              MainAxisSize.min,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
                   width: 15,
                   height: 15,
-                  child:
-                  CircularProgressIndicator(
+                  child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color:
-                    ExplorerColors
-                        .navy,
+                    color: ExplorerColors.navy,
                   ),
                 ),
-                SizedBox(
-                  width: 9,
-                ),
+                SizedBox(width: 9),
                 Text(
                   'Thinking...',
                   style: TextStyle(
-                    color:
-                    ExplorerColors
-                        .navy,
+                    color: ExplorerColors.navy,
                     fontSize: 11,
-                    fontWeight:
-                    FontWeight.w600,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -2133,96 +2543,48 @@ Give a concise, helpful response.
     );
   }
 
-  // ==============================================================
-  // MESSAGE BUBBLE
-  // ==============================================================
-
   Widget _messageBubble({
     required String text,
     required bool isUser,
   }) {
     return Padding(
-      padding:
-      const EdgeInsets.only(
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         mainAxisAlignment:
-        isUser
-            ? MainAxisAlignment
-            .end
-            : MainAxisAlignment
-            .start,
-        crossAxisAlignment:
-        CrossAxisAlignment.end,
+        isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isUser) ...[
             const CircleAvatar(
               radius: 16,
-              backgroundColor:
-              ExplorerColors
-                  .navy,
+              backgroundColor: ExplorerColors.navy,
               child: Icon(
-                Icons
-                    .smart_toy_outlined,
+                Icons.smart_toy_outlined,
                 color: Colors.white,
                 size: 17,
               ),
             ),
-            const SizedBox(
-              width: 8,
-            ),
+            const SizedBox(width: 8),
           ],
           Flexible(
             child: Container(
-              padding:
-              const EdgeInsets
-                  .all(13),
-              constraints:
-              const BoxConstraints(
-                maxWidth: 330,
-              ),
-              decoration:
-              BoxDecoration(
+              padding: const EdgeInsets.all(13),
+              constraints: const BoxConstraints(maxWidth: 330),
+              decoration: BoxDecoration(
                 color: isUser
-                    ? ExplorerColors
-                    .navy
-                    : const Color(
-                  0xFFDDE8FF,
-                ),
-                borderRadius:
-                BorderRadius.only(
-                  topLeft:
-                  const Radius
-                      .circular(
-                    14,
-                  ),
-                  topRight:
-                  const Radius
-                      .circular(
-                    14,
-                  ),
-                  bottomLeft:
-                  Radius.circular(
-                    isUser
-                        ? 14
-                        : 3,
-                  ),
-                  bottomRight:
-                  Radius.circular(
-                    isUser
-                        ? 3
-                        : 14,
-                  ),
+                    ? ExplorerColors.navy
+                    : const Color(0xFFDDE8FF),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(14),
+                  topRight: const Radius.circular(14),
+                  bottomLeft: Radius.circular(isUser ? 14 : 3),
+                  bottomRight: Radius.circular(isUser ? 3 : 14),
                 ),
               ),
               child: Text(
                 text,
                 style: TextStyle(
-                  color: isUser
-                      ? Colors.white
-                      : ExplorerColors
-                      .navy,
+                  color: isUser ? Colors.white : ExplorerColors.navy,
                   fontSize: 12,
                   height: 1.45,
                 ),
