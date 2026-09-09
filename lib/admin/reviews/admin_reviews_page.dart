@@ -11,6 +11,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   String filter = 'flagged';
   final search = TextEditingController();
   bool seeding = false;
+  int pageLimit = 50;
 
   @override
   void dispose() {
@@ -183,7 +184,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                     controller: search,
                     hintText: 'Search review, place or user...',
                     width: 360,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => pageLimit = 50),
                   ),
                   SizedBox(
                     width: 210,
@@ -202,7 +203,10 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                 ),
                               )
                               .toList(),
-                      onChanged: (value) => setState(() => filter = value!),
+                      onChanged: (value) => setState(() {
+                        filter = value!;
+                        pageLimit = 50;
+                      }),
                     ),
                   ),
                   ExplorerStatusBadge(
@@ -254,8 +258,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                       : null,
                 ),
               )
-            else
-              ...docs.map((doc) {
+            else ...[
+              ...docs.take(pageLimit).map((doc) {
                 final data = doc.data();
                 final reviewStatus = '${data['status'] ?? 'flagged'}';
                 final displayStatus = _displayModerationStatus(data);
@@ -455,6 +459,27 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   ),
                 );
               }),
+              if (docs.length > pageLimit) ...[
+                const SizedBox(height: 12),
+                Center(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 14,
+                      ),
+                    ),
+                    onPressed: () => setState(() => pageLimit += 50),
+                    icon: const Icon(Icons.expand_more_rounded),
+                    label: Text(
+                      'Load More (${docs.length - pageLimit} remaining in this queue)',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ],
           ],
         );
       },
