@@ -233,10 +233,17 @@ class ItineraryShareHelper {
       'availableHours': availableHours,
       'dayCount': publicDays.length,
       'startDate': _shortText(
-        itinerary['startDate'] ?? itinerary['targetDate'] ?? '',
+        ('${itinerary['startDate'] ?? itinerary['targetDate'] ?? ''}'.trim().isNotEmpty)
+            ? '${itinerary['startDate'] ?? itinerary['targetDate']}'
+            : (publicDays.isNotEmpty ? '${publicDays.first['date'] ?? ''}' : DateTime.now().toIso8601String()),
         40,
       ),
-      'endDate': _shortText(itinerary['endDate'] ?? '', 40),
+      'endDate': _shortText(
+        ('${itinerary['endDate'] ?? ''}'.trim().isNotEmpty)
+            ? '${itinerary['endDate']}'
+            : (publicDays.isNotEmpty ? '${publicDays.last['date'] ?? ''}' : '${itinerary['startDate'] ?? ''}'),
+        40,
+      ),
       'budgetLevel': _shortText(itinerary['budgetLevel'], 30),
       'travelPace': _shortText(itinerary['travelPace'], 30),
       'interests': List<String>.from(

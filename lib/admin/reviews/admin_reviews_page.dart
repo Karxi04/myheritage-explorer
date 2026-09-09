@@ -11,6 +11,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   String filter = 'flagged';
   final search = TextEditingController();
   bool seeding = false;
+  int pageLimit = 50;
 
   @override
   void dispose() {
@@ -190,12 +191,11 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   final searchField = ExplorerSearchField(
                     controller: search,
                     hintText: 'Search review, place or user...',
-                    width: effectiveSearchWidth,
-                    onChanged: (_) => setState(() {}),
-                  );
-
-                  final filterDropdown = SizedBox(
-                    width: effectiveDropdownWidth,
+                    width: 340,
+                    onChanged: (_) => setState(() => pageLimit = 50),
+                  ),
+                  SizedBox(
+                    width: 200,
                     child: DropdownButtonFormField<String>(
                       isExpanded: true,
                       initialValue: filter,
@@ -212,7 +212,10 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                 ),
                               )
                               .toList(),
-                      onChanged: (value) => setState(() => filter = value!),
+                      onChanged: (value) => setState(() {
+                        filter = value!;
+                        pageLimit = 50;
+                      }),
                     ),
                   );
 
@@ -221,9 +224,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                     tone: docs.isEmpty
                         ? ExplorerStatusTone.success
                         : ExplorerStatusTone.warning,
-                  );
-
-                  final syncButton = FilledButton.icon(
+                  ),
+                  FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: ExplorerColors.navy,
                     ),
@@ -291,17 +293,18 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                       : null,
                 ),
               )
-            else
-              ...docs.map((doc) {
+            else ...[
+              ...docs.take(pageLimit).map((doc) {
                 final data = doc.data();
-                final reviewStatus = '${data['status'] ?? 'flagged'}';
+                final reviewStatus = '${data['status'] ?? 'valid'}';
                 final displayStatus = _displayModerationStatus(data);
-                final rating = (data['rating'] ?? 0) as num;
-                final riskScore =
-                    ((data['mlRiskScore'] as num?) ??
-                            (data['mlSuspiciousProbability'] as num?) ??
-                            0)
-                        .toDouble();
+                final rating = num.tryParse('${data['rating'] ?? 0}') ?? 0;
+                final riskScore = (num.tryParse(
+                      '${data['mlRiskScore'] ?? data['mlSuspiciousProbability'] ?? 0}',
+                    ) ??
+                    0.0).toDouble();
+                final commentText = '${data['comment'] ?? 'No review comment'}'.trim();
+
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ExplorerCard(
@@ -314,8 +317,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 54,
-                          height: 54,
+                          width: 50,
+                          height: 50,
                           decoration: BoxDecoration(
                             color: ExplorerColors.goldSoft,
                             borderRadius: BorderRadius.circular(12),
@@ -327,14 +330,14 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                 '$rating',
                                 style: const TextStyle(
                                   color: ExplorerColors.navy,
-                                  fontSize: 18,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
                               const Icon(
                                 Icons.star_rounded,
                                 color: ExplorerColors.goldDark,
-                                size: 16,
+                                size: 14,
                               ),
                             ],
                           ),
@@ -348,7 +351,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      '${data['comment'] ?? 'No review comment'}',
+                                      commentText.isEmpty
+                                          ? 'No review comment'
+                                          : commentText,
                                       style: const TextStyle(
                                         color: ExplorerColors.navy,
                                         fontSize: 14,
@@ -356,6 +361,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                       ),
                                     ),
                                   ),
+                                  const SizedBox(width: 8),
                                   ExplorerStatusBadge(
                                     label: _statusLabel(
                                       displayStatus,
@@ -366,8 +372,8 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                               ),
                               const SizedBox(height: 7),
                               Wrap(
-                                spacing: 16,
-                                runSpacing: 5,
+                                spacing: 14,
+                                runSpacing: 4,
                                 children: [
                                   _ReviewMeta(
                                     icon: Icons.place_outlined,
@@ -387,14 +393,15 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                       text: '${data['flagReason']}',
                                       danger: true,
                                     ),
-                                  if (data['mlSuspiciousProbability'] is num)
+                                  if (data['mlSuspiciousProbability'] is num ||
+                                      data['mlRiskScore'] is num)
                                     _ReviewMeta(
                                       icon: Icons.psychology_outlined,
                                       text:
                                           'Risk: ${(riskScore * 100).toStringAsFixed(0)}% '
                                           '(${data['mlRiskLevel'] ?? _riskLevelFromScore(riskScore)}) • '
                                           'sentiment ${data['mlSentiment'] ?? '-'} '
-                                          '(${(((data['mlSentimentConfidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%) • '
+                                          '(${(((num.tryParse('${data['mlSentimentConfidence'] ?? 0}') ?? 0)) * 100).toStringAsFixed(0)}%) • '
                                           '${data['mlRatingMismatch'] == true ? 'rating mismatch' : 'rating aligned'} • '
                                           '${data['mlModelVersion'] ?? 'model'}',
                                       danger:
@@ -406,14 +413,15 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Wrap(
-                          spacing: 5,
+                        const SizedBox(width: 10),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             if (reviewStatus != 'valid' ||
                                 displayStatus == 'needs_review')
                               IconButton(
                                 tooltip: 'Mark as valid',
+                                iconSize: 20,
                                 onPressed: () async {
                                   await doc.reference.update({
                                     'status': 'valid',
@@ -436,6 +444,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                             if (reviewStatus != 'flagged')
                               IconButton(
                                 tooltip: 'Flag review',
+                                iconSize: 20,
                                 onPressed: () async {
                                   await doc.reference.update({
                                     'status': 'flagged',
@@ -461,6 +470,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                             if (reviewStatus != 'hidden')
                               IconButton(
                                 tooltip: 'Hide review',
+                                iconSize: 20,
                                 onPressed: () async {
                                   await doc.reference.update({
                                     'status': 'hidden',
@@ -475,6 +485,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                               ),
                             IconButton(
                               tooltip: 'Delete review',
+                              iconSize: 20,
                               onPressed: () async {
                                 final placeId = '${data['placeId']}';
                                 await doc.reference.delete();
@@ -492,6 +503,27 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   ),
                 );
               }),
+              if (docs.length > pageLimit) ...[
+                const SizedBox(height: 12),
+                Center(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 14,
+                      ),
+                    ),
+                    onPressed: () => setState(() => pageLimit += 50),
+                    icon: const Icon(Icons.expand_more_rounded),
+                    label: Text(
+                      'Load More (${docs.length - pageLimit} remaining in this queue)',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ],
           ],
         );
       },

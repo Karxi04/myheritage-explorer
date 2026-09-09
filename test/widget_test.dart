@@ -386,6 +386,77 @@ void main() {
       expect(result4h.days.first.stops.length, greaterThanOrEqualTo(3));
       expect(result8h.days.first.stops.length, greaterThan(result4h.days.first.stops.length));
     });
+
+    test('George Town itinerary excludes other Penang areas', () async {
+      final mixedPenangPlaces = [
+        PlaceModel(
+          placeId: 'gt_jetty',
+          name: 'Chew Jetty',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Heritage',
+          interestTags: ['Heritage', 'Culture'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Weld Quay, George Town, 10300 Penang',
+          publicRating: 4.4,
+        ),
+        PlaceModel(
+          placeId: 'gt_food',
+          name: 'Hameediyah Restaurant',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Food',
+          interestTags: ['Food', 'Heritage'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: '164 Campbell Street, George Town, 10100 Penang',
+          publicRating: 4.5,
+        ),
+        PlaceModel(
+          placeId: 'wrong_air_itam',
+          name: 'Kek Lok Si Temple',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Nature',
+          interestTags: ['Nature', 'Heritage'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Tingkat Lembah Ria 1, 11500 Ayer Itam, Penang',
+          publicRating: 5.0,
+        ),
+        PlaceModel(
+          placeId: 'bf_beach',
+          name: 'Batu Ferringhi Beach',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'Batu Ferringhi',
+          category: 'Nature',
+          interestTags: ['Nature'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang',
+          publicRating: 5.0,
+        ),
+      ];
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: TravelPreferences(
+          stateId: 'penang',
+          selectedArea: 'George Town',
+          availableHours: 3,
+          interests: ['Heritage', 'Food', 'Nature'],
+        ),
+        candidatePlaces: mixedPenangPlaces,
+        randomSeed: 1,
+      );
+
+      final selectedIds = itinerary.stops.map((stop) => stop.placeId).toSet();
+      expect(selectedIds, contains('gt_jetty'));
+      expect(selectedIds, contains('gt_food'));
+      expect(selectedIds, isNot(contains('wrong_air_itam')));
+      expect(selectedIds, isNot(contains('bf_beach')));
+      expect(itinerary.stops.every((stop) => stop.area == 'George Town'), isTrue);
+    });
   });
 
   group('Tutor Requirements: Multi-Day Anti-Duplication', () {

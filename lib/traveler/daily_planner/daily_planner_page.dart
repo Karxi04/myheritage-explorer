@@ -4156,6 +4156,7 @@ int get tripDays {
     try {
       final currentDayModel = latestGeneratedItinerary!.days[selectedDayIndex];
       final allPlaces = await PlaceRepository.getPlacesForState(selectedStateId);
+      if (!mounted) return;
       final updatedDay = ItineraryRecommendationService.addDessertStopToDay(
         currentDay: currentDayModel,
         availablePlaces: allPlaces,
@@ -4163,6 +4164,7 @@ int get tripDays {
         startMinutes: preferredStartMinutes,
         stateId: selectedStateId,
         stateName: selectedStateName,
+        selectedArea: selectedArea,
       );
       if (updatedDay == null) {
         showMessage(context, 'Not enough remaining time to add a dessert stop.', error: true);

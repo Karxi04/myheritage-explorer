@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_gate.dart';
 import '../core/explorer_ui.dart';
@@ -170,13 +171,16 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
 
   Future<List<Map<String, dynamic>>> _cloneDaysForAccount() async {
     final sharedDays = _rawSharedDays();
+    final fallbackDate = widget.itinerary['startDate'] ??
+        widget.itinerary['targetDate'] ??
+        DateTime.now().toIso8601String();
     final sourceDays = sharedDays.isNotEmpty
         ? sharedDays
         : [
             {
               'dayNumber': 1,
-              'date': widget.itinerary['startDate'] ?? widget.itinerary['targetDate'],
-              'dateLabel': widget.itinerary['dateLabel'] ?? '',
+              'date': fallbackDate,
+              'dateLabel': widget.itinerary['dateLabel'] ?? 'Day 1',
               'weather': const <String, dynamic>{},
               'stops': _rawStopsFrom(widget.itinerary['stops']),
             }
@@ -228,6 +232,177 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
     return clonedDays;
   }
 
+  void _copyShareCode(BuildContext context) {
+    final shareId = '${widget.itinerary['shareId'] ?? ''}'.trim();
+    if (shareId.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: shareId));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Share code copied: $shareId\nEnter this code in the mobile app (My Itineraries > 🔗)'),
+        backgroundColor: ExplorerColors.navy,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: ExplorerColors.gold,
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  void _showAppPromptDialog(BuildContext context, String shareId) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.phone_android_rounded, color: ExplorerColors.navy, size: 24),
+            SizedBox(width: 8),
+            Text('Open in Mobile App', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.navySoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.check_circle_outline, color: ExplorerColors.navy, size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'If the MyHeritage Explorer app is installed on your Android device, it will launch automatically.',
+                          style: TextStyle(fontSize: 12, color: ExplorerColors.navy, fontWeight: FontWeight.w600, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'DON\'T HAVE THE APP YET?',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: ExplorerColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '• You can view this full itinerary directly here in your browser.\n'
+                  '• To create, save, or customize itineraries and track cultural tasks, install the MyHeritage Explorer Android app on your device.',
+                  style: TextStyle(fontSize: 12, color: ExplorerColors.navy, height: 1.45),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'SHARE CODE FOR IN-APP IMPORT:',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: ExplorerColors.goldDark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: ExplorerColors.goldSoft,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: ExplorerColors.gold.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      SelectableText(
+                        shareId,
+                        style: const TextStyle(
+                          color: ExplorerColors.goldDark,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: ExplorerColors.goldDark,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: const Icon(Icons.copy_rounded, size: 14),
+                        label: const Text('Copy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: shareId));
+                          Navigator.pop(dialogContext);
+                          _copyShareCode(context);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'HOW TO IMPORT IN THE APP:',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '1. Open MyHeritage Explorer on your Android device\n'
+                  '2. Go to the "My Itineraries" tab\n'
+                  '3. Tap the "🔗" (Import) icon in the top app bar\n'
+                  '4. Paste the share code to clone this full itinerary into your account',
+                  style: TextStyle(fontSize: 11.5, color: ExplorerColors.muted, height: 1.45),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: ExplorerColors.navy),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final uri = Uri(
+                scheme: 'myheritage',
+                host: 'shared-itinerary',
+                queryParameters: {'share': shareId},
+              );
+              try {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (_) {}
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('Try Launch App'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openInstalledApp() async {
     final shareId = '${widget.itinerary['shareId'] ?? ''}'.trim();
     if (shareId.isEmpty) return;
@@ -236,27 +411,22 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
       host: 'shared-itinerary',
       queryParameters: {'share': shareId},
     );
+    bool launched = false;
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (launched) return;
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {}
 
-    try {
-      final intentUri = Uri.parse(
-        'intent://shared-itinerary?share=$shareId#Intent;scheme=myheritage;package=com.example.myheritage_explorer;end',
-      );
-      await launchUrl(intentUri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Open MyHeritage Explorer app > My Itineraries > 🔗 icon and enter code: $shareId',
-            ),
-            backgroundColor: ExplorerColors.navy,
-          ),
+    if (!launched) {
+      try {
+        final intentUri = Uri.parse(
+          'intent://shared-itinerary?share=$shareId#Intent;scheme=myheritage;package=com.example.myheritage_explorer;end',
         );
-      }
+        launched = await launchUrl(intentUri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      _showAppPromptDialog(context, shareId);
     }
   }
 
@@ -375,8 +545,15 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
             'dailyHours':
                 (widget.itinerary['availableHours'] as num?)?.toDouble() ?? 4,
             'dayCount': clonedDays.length,
-            'startDate': widget.itinerary['startDate'],
-            'endDate': widget.itinerary['endDate'],
+            'startDate': widget.itinerary['startDate'] ??
+                (clonedDays.isNotEmpty ? clonedDays.first['date'] : null) ??
+                widget.itinerary['targetDate'] ??
+                DateTime.now().toIso8601String(),
+            'endDate': widget.itinerary['endDate'] ??
+                (clonedDays.isNotEmpty ? clonedDays.last['date'] : null) ??
+                widget.itinerary['startDate'] ??
+                widget.itinerary['targetDate'] ??
+                DateTime.now().toIso8601String(),
             'budget': tripBudget.tripBudget,
             'budgetLevel': tripBudget.budgetLevel,
             'budgetPreference': widget.itinerary['budgetLevel'] ?? 'Medium',
@@ -453,123 +630,59 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
       appBar: AppBar(
         title: const Text('MyHeritage Explorer'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton.tonalIcon(
-              style: FilledButton.styleFrom(
-                backgroundColor: ExplorerColors.goldSoft,
-                foregroundColor: ExplorerColors.goldDark,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: _isSaving ? null : () => _saveToAccount(context, schedule),
-              icon: _isSaving
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.bookmark_add_outlined, size: 16),
-              label: Text(
-                _isSaving ? 'Saving...' : 'Save',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, -3),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Row(
-            children: [
-              if (kIsWeb &&
-                  '${widget.itinerary['shareId'] ?? ''}'.trim().isNotEmpty) ...[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: _openInstalledApp,
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: const Text(
-                      'Open in App',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-              ],
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ExplorerColors.navy,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  onPressed: _isSaving ? null : () => _saveToAccount(context, schedule),
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(Icons.bookmark_add_outlined, size: 18),
-                  label: Text(
-                    _isSaving ? 'Saving...' : 'Save to My Itineraries',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          if (!kIsWeb)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: ExplorerColors.goldSoft,
+                  foregroundColor: ExplorerColors.goldDark,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onPressed: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AuthGate()),
-                  );
-                },
-                icon: const Icon(Icons.explore_outlined, size: 18),
-                label: const Text(
-                  'Explore App',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                onPressed: _isSaving ? null : () => _saveToAccount(context, schedule),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.bookmark_add_outlined, size: 16),
+                label: Text(
+                  _isSaving ? 'Saving...' : 'Save',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
                 ),
               ),
-            ],
-          ),
-        ),
+            )
+          else if ('${widget.itinerary['shareId'] ?? ''}'.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: ExplorerColors.navy,
+                  side: const BorderSide(color: ExplorerColors.navy),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: () => _copyShareCode(context),
+                icon: const Icon(Icons.copy_rounded, size: 14),
+                label: Text(
+                  'Code: ${widget.itinerary['shareId']}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                ),
+              ),
+            ),
+        ],
       ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 80),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 40),
             children: [
               if (kIsWeb)
                 Container(
@@ -586,7 +699,7 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Viewing shared itinerary. Tap "Save to My Itineraries" below, or enter code "${widget.itinerary['shareId'] ?? ''}" in the MyHeritage Explorer app (My Itineraries > 🔗) to clone it directly into your account.',
+                          'Viewing shared cultural itinerary. Tap "Open in App" or copy share code "${widget.itinerary['shareId'] ?? ''}" to clone it directly into your MyHeritage Explorer mobile app (My Itineraries > 🔗).',
                           style: const TextStyle(
                             fontSize: 12,
                             color: ExplorerColors.navy,
@@ -594,6 +707,25 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                           ),
                         ),
                       ),
+                      if ('${widget.itinerary['shareId'] ?? ''}'.trim().isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            backgroundColor: Colors.white.withValues(alpha: 0.8),
+                          ),
+                          onPressed: () => _copyShareCode(context),
+                          icon: const Icon(Icons.copy_rounded, size: 14, color: ExplorerColors.navy),
+                          label: const Text(
+                            'Copy',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: ExplorerColors.navy,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -649,37 +781,11 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              FilledButton.icon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: ExplorerColors.navy,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                onPressed: _isSaving
-                                    ? null
-                                    : () => _saveToAccount(context, schedule),
-                                icon: _isSaving
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          color: Colors.white,
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.bookmark_add_outlined, size: 18),
-                                label: Text(
-                                  _isSaving ? 'Saving...' : 'Save to My Itineraries',
-                                  style: const TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              if (kIsWeb &&
-                                  '${widget.itinerary['shareId'] ?? ''}'
-                                      .trim()
-                                      .isNotEmpty)
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
+                              if (kIsWeb) ...[
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: ExplorerColors.navy,
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(10),
                                     ),
@@ -689,23 +795,55 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                                     Icons.open_in_new_rounded,
                                     size: 18,
                                   ),
-                                  label: const Text('Open in App'),
-                                ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
+                                  label: const Text(
+                                    'Open in App',
+                                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                                   ),
                                 ),
-                                onPressed: () {
-                                  Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => const AuthGate()),
-                                  );
-                                },
-                                icon: const Icon(Icons.explore_outlined, size: 18),
-                                label: const Text('Explore App'),
-                              ),
+                                if ('${widget.itinerary['shareId'] ?? ''}'.trim().isNotEmpty)
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: ExplorerColors.navy,
+                                      side: const BorderSide(color: ExplorerColors.navy),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    onPressed: () => _copyShareCode(context),
+                                    icon: const Icon(Icons.copy_rounded, size: 18),
+                                    label: const Text(
+                                      'Copy Share Code',
+                                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                                    ),
+                                  ),
+                              ] else ...[
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: ExplorerColors.navy,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: _isSaving
+                                      ? null
+                                      : () => _saveToAccount(context, schedule),
+                                  icon: _isSaving
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.bookmark_add_outlined, size: 18),
+                                  label: Text(
+                                    _isSaving ? 'Saving...' : 'Save to My Itineraries',
+                                    style: const TextStyle(fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ],
@@ -928,27 +1066,29 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
                   ),
                 );
               }),
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                  backgroundColor: ExplorerColors.navy,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              if (!kIsWeb) ...[
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                    backgroundColor: ExplorerColors.navy,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: _isSaving
+                      ? null
+                      : () => _saveToAccount(context, schedule),
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                  label: const Text(
+                    'Save Itinerary to Account',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-                onPressed: _isSaving
-                    ? null
-                    : () => _saveToAccount(context, schedule),
-                icon: const Icon(Icons.bookmark_add_outlined),
-                label: const Text(
-                  'Save Itinerary to Account',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
+              ],
             ],
           ),
         ),

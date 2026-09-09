@@ -47,6 +47,7 @@ class MalaysiaLocationService {
       name: 'Penang',
       areas: [
         'George Town',
+        'Air Itam',
         'Batu Ferringhi',
         'Bayan Lepas',
         'Balik Pulau',
