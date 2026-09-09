@@ -1,410 +1,566 @@
-
 part of '../traveler_pages.dart';
 
 class SafetyPage extends StatefulWidget {
   const SafetyPage({super.key});
-
   @override
   State<SafetyPage> createState() => _SafetyPageState();
 }
 
 class _SafetyPageState extends State<SafetyPage> {
-  static const center = LatLng(5.4141, 100.3288);
-
+  final _service = HazardReportService();
+  late Stream<List<HazardReport>> _reports;
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ExplorerColors.background,
-      appBar: AppBar(
-        title: const Text('Safety & Hazard Reporting'),
-        actions: [
-          IconButton(
-            tooltip: 'My reports',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const MyHazardReportsPage(),
-              ),
+  void initState() {
+    super.initState();
+    _reports = _service.watchVerifiedReports();
+  }
+
+  void _retry() => setState(() => _reports = _service.watchVerifiedReports());
+  void _create() => Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const CreateHazardPage()),
+  );
+  void _myReports() => Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const MyHazardReportsPage()),
+  );
+  void _safeNavigation() => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => SafeNavigationPage(
+        onViewHazard: (navigationContext, hazard) {
+          Navigator.of(navigationContext).push(
+            MaterialPageRoute<void>(
+              builder: (_) => HazardDetailPage(hazardId: hazard.id),
             ),
-            icon: const Icon(Icons.assignment_outlined),
-          ),
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const NotificationsPage(),
-              ),
-            ),
-            icon: const Icon(Icons.notifications_none),
-          ),
-        ],
-      ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: AppServices.db
-            .collection('hazards')
-            .where('status', isEqualTo: 'verified')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final docs = snapshot.data!.docs.toList()
-            ..sort(
-              (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
-                  .compareTo(
-                asDate(a.data()['createdAt']) ?? DateTime(2000),
-              ),
-            );
-
-          final markers = docs.map((doc) {
-            final data = doc.data();
-            final geo = data['location'];
-            if (geo is! GeoPoint) return null;
-            return Marker(
-              markerId: MarkerId(doc.id),
-              position: LatLng(geo.latitude, geo.longitude),
-              infoWindow: InfoWindow(
-                title: data['category'] ?? 'Hazard',
-                snippet:
-                    '${data['severity'] ?? ''}: ${data['description'] ?? ''}',
-              ),
-              icon: BitmapDescriptor.defaultMarkerWithHue(
-                _hazardHue(data['severity']),
-              ),
-            );
-          }).whereType<Marker>().toSet();
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 30),
-            children: [
-              ExplorerCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const ExplorerSectionTitle(
-                      'Report a Hazard',
-                      subtitle:
-                          'Contribute to the safety of our heritage sites.',
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: const BoxDecoration(
-                            color: ExplorerColors.dangerSoft,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.report_problem_outlined,
-                            color: ExplorerColors.danger,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            'Use your current GPS location, select the hazard category and severity, then add a clear description and photo.',
-                            style: TextStyle(
-                              color: ExplorerColors.muted,
-                              fontSize: 11,
-                              height: 1.45,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const CreateHazardPage(),
-                        ),
-                      ),
-                      icon: const Icon(Icons.add_alert_outlined),
-                      label: const Text('Create Hazard Report'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              ExplorerSectionTitle(
-                'Verified Danger Zones',
-                subtitle:
-                    'Avoid high-severity areas reported by verified stewards.',
-                trailing: IconButton(
-                  tooltip: 'Check nearby hazards',
-                  onPressed: () => checkNearby(docs),
-                  icon: const Icon(Icons.radar),
-                ),
-              ),
-              const SizedBox(height: 10),
-              ExplorerCard(
-                padding: EdgeInsets.zero,
-                child: SizedBox(
-                  height: 225,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: GoogleMap(
-                      initialCameraPosition: const CameraPosition(
-                        target: center,
-                        zoom: 12.5,
-                      ),
-                      markers: markers,
-                      myLocationButtonEnabled: true,
-                      myLocationEnabled: true,
-                      zoomControlsEnabled: false,
-                      mapToolbarEnabled: false,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const ExplorerSectionTitle('Live Safety Feed'),
-              const SizedBox(height: 10),
-              if (docs.isEmpty)
-                const ExplorerEmptyState(
-                  title: 'No verified hazards',
-                  subtitle:
-                      'Verified safety updates will appear here.',
-                  icon: Icons.health_and_safety_outlined,
-                )
-              else
-                ...docs.take(8).map(
-                      (doc) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _hazardCard(context, doc),
-                      ),
-                    ),
-            ],
           );
         },
       ),
+    ),
+  );
+  Future<void> _preview(HazardReport report) async {
+    final open = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                report.category,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              ExplorerStatusBadge(
+                label: '${report.severity} severity',
+                tone: _tone(report),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                report.description,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('View Hazard Details'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
+    if (open == true && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HazardDetailPage(hazardId: report.id),
+        ),
+      );
+    }
   }
 
-  Widget _hazardCard(
-    BuildContext context,
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data();
-    final severity = '${data['severity'] ?? 'Low'}';
-    final high = severity == 'High';
-    final medium = severity == 'Medium';
-    final color = high
-        ? ExplorerColors.danger
-        : medium
-            ? ExplorerColors.warning
-            : ExplorerColors.success;
-    final soft = high
-        ? ExplorerColors.dangerSoft
-        : medium
-            ? ExplorerColors.warningSoft
-            : ExplorerColors.successSoft;
-
-    return ExplorerCard(
-      padding: const EdgeInsets.all(13),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: soft,
-              shape: BoxShape.circle,
+  ExplorerStatusTone _tone(HazardReport r) => r.severity == 'High'
+      ? ExplorerStatusTone.danger
+      : r.severity == 'Medium'
+      ? ExplorerStatusTone.warning
+      : ExplorerStatusTone.navy;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: ExplorerColors.background,
+    appBar: AppBar(
+      title: const Text('Safety'),
+      actions: [
+        IconButton(
+          tooltip: 'My reports',
+          onPressed: _myReports,
+          icon: const Icon(Icons.assignment_outlined),
+        ),
+        IconButton(
+          tooltip: 'Notifications',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const NotificationsPage()),
+          ),
+          icon: const Icon(Icons.notifications_none),
+        ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
+          children: [
+            const ExplorerSectionTitle(
+              'Explore with awareness',
+              subtitle: 'See verified reports and share hazards you encounter.',
             ),
-            child: Icon(
-              high ? Icons.crisis_alert : Icons.warning_amber_rounded,
-              color: color,
-              size: 20,
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _create,
+                icon: const Icon(Icons.add_alert_outlined),
+                label: const Text('Report a Hazard'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _safeNavigation,
+                icon: const Icon(Icons.route_outlined),
+                label: const Text('Safe Navigation'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _AutoSafetyAlertSection(),
+            const SizedBox(height: 8),
+            StreamBuilder<List<HazardReport>>(
+              stream: _reports,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return SafetyErrorState(
+                    title: 'Unable to load danger zones',
+                    message: friendlySafetyError(
+                      snapshot.error,
+                      subject: 'danger zones',
+                    ),
+                    onRetry: _retry,
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const SafetyLoadingState(
+                    label: 'Loading danger zones…',
+                  );
+                }
+                final reports = HazardMapService.activeReports(snapshot.data!);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ExplorerSectionTitle(
+                      'Danger Zone Map',
+                      subtitle: '${reports.length} verified reports',
+                      trailing: IconButton(
+                        tooltip: 'Open full map',
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const _FullSafetyMapPage(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.open_in_full),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DangerZoneMapPage(
+                      reports: reports,
+                      height: 350,
+                      onReportSelected: _preview,
+                    ),
+                    const SizedBox(height: 24),
+                    const ExplorerSectionTitle('Verified reports'),
+                    const SizedBox(height: 12),
+                    if (reports.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Text(
+                          'Verified reports will appear here as they are reviewed.',
+                          style: TextStyle(color: ExplorerColors.muted),
+                        ),
+                      ),
+                    for (final report in reports)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: ExplorerCard(
+                          onTap: () => _preview(report),
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            report.category,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w800,
+                                              color: ExplorerColors.navy,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ExplorerStatusBadge(
+                                          label:
+                                              '${report.severity.toUpperCase()} SEVERITY',
+                                          tone: _tone(report),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      report.description,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        height: 1.4,
+                                        color: ExplorerColors.text,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 12,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        const ExplorerStatusBadge(
+                                          label: 'VERIFIED',
+                                          tone: ExplorerStatusTone.success,
+                                        ),
+                                        if (report.createdAt != null)
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.schedule_outlined,
+                                                size: 13,
+                                                color: ExplorerColors.muted,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                DateFormat.yMMMd().format(
+                                                  report.createdAt!,
+                                                ),
+                                                style: const TextStyle(
+                                                  color: ExplorerColors.muted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: ExplorerColors.muted,
+                                  size: 20,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            TextButton(
+              onPressed: _myReports,
+              child: const Text('Track my reports'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _FullSafetyMapPage extends StatefulWidget {
+  const _FullSafetyMapPage();
+  @override
+  State<_FullSafetyMapPage> createState() => _FullSafetyMapPageState();
+}
+
+class _FullSafetyMapPageState extends State<_FullSafetyMapPage> {
+  late Stream<List<HazardReport>> _stream;
+  @override
+  void initState() {
+    super.initState();
+    _stream = HazardReportService().watchVerifiedReports();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Danger Zone Map')),
+    body: StreamBuilder<List<HazardReport>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return SafetyErrorState(
+            title: 'Unable to load danger zones',
+            message: 'Check your connection and retry.',
+            onRetry: () => setState(
+              () => _stream = HazardReportService().watchVerifiedReports(),
+            ),
+          );
+        }
+        if (!snapshot.hasData) return const SafetyLoadingState();
+        return LayoutBuilder(
+          builder: (context, constraints) => DangerZoneMapPage(
+            reports: snapshot.data!,
+            height: constraints.maxHeight,
+            onReportSelected: (report) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HazardDetailPage(hazardId: report.id),
+              ),
             ),
           ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${data['category'] ?? 'Hazard'}',
-                        style: const TextStyle(
-                          color: ExplorerColors.navy,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    ExplorerStatusBadge(
-                      label: severity.toUpperCase(),
-                      tone: high
-                          ? ExplorerStatusTone.danger
-                          : medium
-                              ? ExplorerStatusTone.warning
-                              : ExplorerStatusTone.success,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${data['description'] ?? ''}',
-                  style: const TextStyle(
-                    color: ExplorerColors.muted,
-                    fontSize: 10,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.schedule,
-                      size: 13,
-                      color: ExplorerColors.muted,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      asDate(data['createdAt']) == null
-                          ? 'Recently reported'
-                          : DateFormat.yMMMd()
-                              .add_jm()
-                              .format(asDate(data['createdAt'])!),
-                      style: const TextStyle(
-                        color: ExplorerColors.muted,
-                        fontSize: 9,
-                      ),
-                    ),
-                    const Spacer(),
-                    PopupMenuButton<String>(
-                      tooltip: 'Hazard actions',
-                      padding: EdgeInsets.zero,
-                      onSelected: (value) => _vote(doc, value),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                          value: 'upvote',
-                          child: Text('Confirm hazard'),
-                        ),
-                        PopupMenuItem(
-                          value: 'resolved',
-                          child: Text('Vote as resolved'),
-                        ),
-                      ],
-                      icon: const Icon(
-                        Icons.more_horiz,
-                        size: 18,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+        );
+      },
+    ),
+  );
+}
+
+class _AutoSafetyAlertSection extends StatefulWidget {
+  const _AutoSafetyAlertSection();
+
+  @override
+  State<_AutoSafetyAlertSection> createState() =>
+      _AutoSafetyAlertSectionState();
+}
+
+class _AutoSafetyAlertSectionState extends State<_AutoSafetyAlertSection>
+    with WidgetsBindingObserver {
+  static const _permissionService = BackgroundLocationPermissionService();
+  bool _hasBackgroundLocation = false;
+  bool _hasNotifications = false;
+  bool _checked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermission();
+    }
+  }
+
+  Future<void> _checkPermission() async {
+    final locationGranted = await _permissionService.hasBackgroundPermission();
+    final notificationsGranted = await MobileNotificationService.instance
+        .areNotificationsEnabled();
+    if (mounted) {
+      final wasFullyEnabled = _hasBackgroundLocation && _hasNotifications;
+      final isFullyEnabled = locationGranted && notificationsGranted;
+      setState(() {
+        _hasBackgroundLocation = locationGranted;
+        _hasNotifications = notificationsGranted;
+        _checked = true;
+      });
+      if (!wasFullyEnabled && isFullyEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Background hazard alerts enabled.'),
+            backgroundColor: ExplorerColors.success,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _fixNotifications() async {
+    await MobileNotificationService.instance.requestPermissions();
+    if (mounted) {
+      final enabled = await MobileNotificationService.instance
+          .areNotificationsEnabled();
+      if (!enabled) {
+        await _permissionService.openLocationSettings();
+      }
+      await _checkPermission();
+    }
+  }
+
+  Future<void> _requestUpgrade() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Background Safety Alerts'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Allow background location to receive nearby verified hazard alerts even while MyHeritage Explorer is closed.',
+              style: TextStyle(fontSize: 14, height: 1.4),
             ),
+            SizedBox(height: 12),
+            Text(
+              'Android requires you to enable this in App Settings:\n'
+              '1. Tap "Permissions"\n'
+              '2. Tap "Location"\n'
+              '3. Select "Allow all the time"',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ExplorerColors.navy,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not Now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
           ),
         ],
       ),
     );
-  }
 
-  Future<void> _vote(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-    String value,
-  ) async {
-    final uid = AppServices.auth.currentUser!.uid;
-    final voteId = '${uid}_${doc.id}_$value';
-    final voteRef = AppServices.db.collection('hazard_votes').doc(voteId);
+    if (proceed != true || !mounted) return;
 
-    if ((await voteRef.get()).exists) {
-      if (mounted) {
-        showMessage(
-          context,
-          'You already voted on this hazard.',
-          error: true,
-        );
-      }
-      return;
+    await _permissionService.openLocationSettings();
+    if (mounted) {
+      await _checkPermission();
     }
-
-    await AppServices.db.runTransaction((transaction) async {
-      transaction.set(voteRef, {
-        'userId': uid,
-        'hazardId': doc.id,
-        'type': value,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      transaction.update(doc.reference, {
-        value == 'upvote' ? 'upvoteCount' : 'resolveCount':
-            FieldValue.increment(1),
-      });
-    });
   }
 
-  Future<void> checkNearby(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> hazards,
-  ) async {
-    try {
-      final position = await determinePosition();
-      QueryDocumentSnapshot<Map<String, dynamic>>? nearest;
-      double nearestMeters = double.infinity;
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb && defaultTargetPlatform != TargetPlatform.android) {
+      return const SizedBox.shrink();
+    }
+    if (!_checked) return const SizedBox.shrink();
 
-      for (final hazard in hazards) {
-        final location = hazard.data()['location'];
-        if (location is! GeoPoint) continue;
+    final isFullyActive = _hasBackgroundLocation && _hasNotifications;
+    final isNotificationMissing = _hasBackgroundLocation && !_hasNotifications;
 
-        final distance = Geolocator.distanceBetween(
-          position.latitude,
-          position.longitude,
-          location.latitude,
-          location.longitude,
-        );
+    final iconData = isFullyActive
+        ? Icons.shield_rounded
+        : isNotificationMissing
+        ? Icons.notifications_off_outlined
+        : Icons.shield_outlined;
 
-        if (distance < nearestMeters) {
-          nearestMeters = distance;
-          nearest = hazard;
-        }
-      }
+    final iconColor = isFullyActive
+        ? ExplorerColors.success
+        : isNotificationMissing
+        ? ExplorerColors.warning
+        : ExplorerColors.navy;
 
-      if (!mounted) return;
+    final iconBgColor = isFullyActive
+        ? ExplorerColors.success.withValues(alpha: 0.12)
+        : isNotificationMissing
+        ? ExplorerColors.warningSoft
+        : ExplorerColors.navy.withValues(alpha: 0.08);
 
-      if (nearest == null || nearestMeters > 2000) {
-        showMessage(
-          context,
-          'No verified hazard was found within 2 km.',
-        );
-        return;
-      }
+    final subtitle = isFullyActive
+        ? 'Active when app is closed'
+        : isNotificationMissing
+        ? 'Notifications disabled; alerts cannot be posted'
+        : 'Alerts active in foreground only';
 
-      final hazard = nearest.data();
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Nearby Safety Alert'),
-          content: Text(
-            '${hazard['category'] ?? 'Hazard'} is approximately '
-            '${nearestMeters < 1000 ? '${nearestMeters.round()} m' : '${(nearestMeters / 1000).toStringAsFixed(1)} km'} away.\n\n'
-            '${hazard['description'] ?? ''}',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: ExplorerCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: iconBgColor,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(iconData, color: iconColor, size: 22),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Auto Safety Alerts',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: ExplorerColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isFullyActive)
+              const ExplorerStatusBadge(
+                label: 'ENABLED',
+                tone: ExplorerStatusTone.success,
+              )
+            else if (isNotificationMissing)
+              TextButton(onPressed: _fixNotifications, child: const Text('Fix'))
+            else
+              TextButton(
+                onPressed: _requestUpgrade,
+                child: const Text('Enable'),
+              ),
           ],
         ),
-      );
-    } catch (e) {
-      if (mounted) {
-        showMessage(context, e.toString(), error: true);
-      }
-    }
-  }
-
-  double _hazardHue(dynamic severity) {
-    if (severity == 'High') return BitmapDescriptor.hueRed;
-    if (severity == 'Medium') return BitmapDescriptor.hueOrange;
-    return BitmapDescriptor.hueGreen;
+      ),
+    );
   }
 }

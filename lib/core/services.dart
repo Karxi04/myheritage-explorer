@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -18,10 +19,49 @@ class AccountProfile {
   final Map<String, dynamic> data;
 }
 
+class VoucherClaimReceipt {
+  const VoucherClaimReceipt({
+    required this.claimId,
+    required this.voucherTitle,
+    required this.vendorName,
+    required this.pointsSpent,
+    required this.pointsRemaining,
+    required this.claimedAt,
+    this.expiresAt,
+  });
+
+  final String claimId;
+  final String voucherTitle;
+  final String vendorName;
+  final int pointsSpent;
+  final int pointsRemaining;
+  final DateTime claimedAt;
+  final DateTime? expiresAt;
+}
+
+class VoucherRedemptionSession {
+  const VoucherRedemptionSession({
+    required this.claimId,
+    required this.token,
+    required this.pin,
+    required this.expiresAt,
+  });
+
+  final String claimId;
+  final String token;
+  final String pin;
+  final DateTime expiresAt;
+
+  String get qrPayload => 'MHE1|$claimId|$token';
+}
+
 class AppServices {
+  static const redemptionSessionDuration = Duration(minutes: 3);
   static final auth = FirebaseAuth.instance;
   static final db = FirebaseFirestore.instance;
   static final storage = FirebaseStorage.instance;
+  static final Map<String, DateTime> _nearbyRewardAlertTimes =
+      <String, DateTime>{};
   static final googleSignIn = GoogleSignIn();
 
   static DocumentReference<Map<String, dynamic>> adminRef(String uid) =>
@@ -388,6 +428,13 @@ class AppServices {
       'travelPace': travelPace,
       'securityQuestions': securityQuestions,
       'points': 0,
+      'favoriteVoucherIds': <String>[],
+      'notificationPreferences': {
+        'nearbyRewards': true,
+        'expiryReminders': true,
+        'rewardUpdates': true,
+        'backgroundLocationAlerts': false,
+      },
       'localImpactScore': 0,
       'rank': 'Bronze',
       'emailVerified': user.emailVerified,
@@ -622,6 +669,57 @@ class AppServices {
     });
   }
 
+  static bool notificationPreference(
+    Map<String, dynamic>? profile,
+    String key, {
+    required bool defaultValue,
+  }) {
+    final raw = profile?['notificationPreferences'];
+    if (raw is Map && raw[key] is bool) return raw[key] as bool;
+    return defaultValue;
+  }
+
+  static Future<void> setNotificationPreference(
+    String key,
+    bool enabled,
+  ) async {
+    final user = _currentUserOrThrow();
+    await travelerRef(user.uid).update({
+      'notificationPreferences.$key': enabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<LocationPermission> requestBackgroundLocationAccess() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw Exception('Turn on device location services first.');
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.whileInUse) {
+      permission = await Geolocator.requestPermission();
+    }
+    return permission;
+  }
+
+  static Future<bool> _notificationAllowed(String userId, String type) async {
+    final key = switch (type) {
+      'voucher_nearby' => 'nearbyRewards',
+      'voucher_expiry' => 'expiryReminders',
+      'voucher_claimed' || 'voucher_redeemed' => 'rewardUpdates',
+      _ => null,
+    };
+    if (key == null) return true;
+    try {
+      final profile = (await travelerRef(userId).get()).data();
+      return notificationPreference(profile, key, defaultValue: true);
+    } catch (_) {
+      return true;
+    }
+  }
+
   static Future<void> notify({
     required String userId,
     required String title,
@@ -631,55 +729,53 @@ class AppServices {
     String? groupId,
     String? chatId,
   }) async {
-    await db.collection('notifications').add({
+    if (!await _notificationAllowed(userId, type)) return;
+    final notificationRef = db.collection('notifications').doc();
+    await notificationRef.set({
+      'notificationId': notificationRef.id,
       'userId': userId,
       'title': title,
       'message': message,
       'type': type,
       'referenceId': referenceId,
+      if (type.startsWith('hazard')) 'hazardId': referenceId,
+      'isRead': false,
+      if (groupId != null) 'groupId': groupId,
 
-      if (groupId != null)
-        'groupId': groupId,
-
-      if (chatId != null)
-        'chatId': chatId,
-
+      if (chatId != null) 'chatId': chatId,
       'read': false,
 
       // ==========================================================
       // USED BY OUR SPARK NOTIFICATION SERVER
       // ==========================================================
-
       'pushStatus': 'pending',
       'pushAttempts': 0,
 
-      'createdAt':
-      FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     });
-    try {
-      await db.collection('notifications').add({
-        'userId': userId,
-        'title': title,
-        'message': message,
-        'type': type,
-        'referenceId': referenceId,
-        'read': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-
-    try {
-      final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
-      final payload = type == 'itinerary' && referenceId != null
-          ? 'itinerary:$referenceId'
-          : null;
-      await SystemNotificationService.instance.showInstantNotification(
-        id: notifId,
-        title: title,
-        body: message,
-        payload: payload,
-      );
-    } catch (_) {}
+    // A client device must never display a local notification intended for a
+    // different account (for example, while an administrator approves a
+    // tourist's task). The Firestore notification is still written above.
+    if (auth.currentUser?.uid == userId) {
+      try {
+        final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
+        final payload = switch (type) {
+          'itinerary' when referenceId != null => 'itinerary:$referenceId',
+          'voucher_nearby' when referenceId != null => 'reward:$referenceId',
+          'voucher_claimed' || 'voucher_redeemed'
+              when referenceId != null && referenceId.isNotEmpty =>
+            'claim:$referenceId',
+          'voucher_claimed' || 'voucher_redeemed' => 'voucher_wallet',
+          _ => null,
+        };
+        await SystemNotificationService.instance.showInstantNotification(
+          id: notifId,
+          title: title,
+          body: message,
+          payload: payload,
+        );
+      } catch (_) {}
+    }
   }
 
   static Future<void> scheduleTripNotification({
@@ -751,6 +847,7 @@ class AppServices {
     return null;
   }
 
+  // Testing: New static helper method
   static int tripReminderLeadDays({
     required DateTime tripStartDate,
     required DateTime reminderTime,
@@ -825,7 +922,7 @@ class AppServices {
     }
   }
 
-  static Future<void> claimVoucher({
+  static Future<VoucherClaimReceipt> claimVoucher({
     required String voucherId,
     required Map<String, dynamic> voucher,
   }) async {
@@ -837,71 +934,42 @@ class AppServices {
     final uid = signedInUser.uid;
     final travelerProfileRef = travelerRef(uid);
     final voucherRef = db.collection('vouchers').doc(voucherId);
-    final claimRef = db.collection('claimed_vouchers').doc('${uid}_$voucherId');
+    final legacyClaimRef = db
+        .collection('claimed_vouchers')
+        .doc('${uid}_$voucherId');
+    late DocumentReference<Map<String, dynamic>> claimRef;
+
+    var claimedTitle = 'Voucher';
+    var vendorName = 'Registered vendor';
+    var pointsSpent = 0;
+    var pointsRemaining = 0;
+    DateTime? claimExpiry;
 
     await db.runTransaction((transaction) async {
       final travelerSnapshot = await transaction.get(travelerProfileRef);
       final voucherSnapshot = await transaction.get(voucherRef);
-      final existingClaim = await transaction.get(claimRef);
 
       if (!travelerSnapshot.exists) {
         throw Exception('Traveler profile was not found.');
       }
+      if (!voucherSnapshot.exists) {
+        throw Exception('This voucher is no longer available.');
+      }
 
       final traveler = travelerSnapshot.data()!;
+      final currentVoucher = voucherSnapshot.data()!;
+      final vendorId = '${currentVoucher['vendorId'] ?? ''}'.trim();
+      if (vendorId.isEmpty) {
+        throw Exception('This voucher is not linked to a registered vendor.');
+      }
+      final vendorSnapshot = await transaction.get(vendorRef(vendorId));
+
       if (traveler['role'] != 'traveler') {
         throw Exception('Only travelers can claim vouchers.');
       }
       if (traveler['status'] != 'active') {
         throw Exception('This traveler account is not active.');
       }
-
-      if (!voucherSnapshot.exists) {
-        throw Exception('This voucher is no longer available.');
-      }
-
-      final currentVoucher = voucherSnapshot.data()!;
-      final cost = (currentVoucher['pointCost'] as num?)?.toInt() ?? 0;
-      final currentPoints = (traveler['points'] as num?)?.toInt() ?? 0;
-      final inventory =
-          (currentVoucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
-
-      if (cost <= 0) {
-        throw Exception(
-          'This voucher has an invalid point cost and cannot be claimed.',
-        );
-      }
-
-      if (currentPoints < cost) {
-        throw Exception(
-          'Insufficient points. You need ${cost - currentPoints} more points.',
-        );
-      }
-
-      if (currentVoucher['status'] != 'active') {
-        throw Exception('This voucher is not active.');
-      }
-
-      final expiry = asDate(currentVoucher['expiresAt']);
-      if (expiry != null && !expiry.isAfter(DateTime.now())) {
-        throw Exception('This voucher has expired.');
-      }
-
-      if (inventory <= 0) {
-        throw Exception('This reward is fully claimed.');
-      }
-
-      if (existingClaim.exists) {
-        throw Exception('You already claimed this voucher.');
-      }
-
-      final vendorId = '${currentVoucher['vendorId'] ?? ''}'.trim();
-      if (vendorId.isEmpty) {
-        throw Exception('This voucher is not linked to a registered vendor.');
-      }
-
-      final vendorSnapshot = await transaction.get(vendorRef(vendorId));
-
       if (!vendorSnapshot.exists) {
         throw Exception('The vendor linked to this voucher was not found.');
       }
@@ -912,50 +980,154 @@ class AppServices {
         throw Exception('The vendor linked to this voucher is unavailable.');
       }
 
+      final cost = (currentVoucher['pointCost'] as num?)?.toInt() ?? 0;
+      final currentPoints = (traveler['points'] as num?)?.toInt() ?? 0;
+      final inventory =
+          (currentVoucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
+      final rawClaimLimit =
+          (currentVoucher['perTouristClaimLimit'] as num?)?.toInt() ?? 0;
+      final int? claimLimit = rawClaimLimit > 0 ? rawClaimLimit : null;
+
+      if (cost <= 0) {
+        throw Exception(
+          'This voucher has an invalid point cost and cannot be claimed.',
+        );
+      }
+      if (currentPoints < cost) {
+        throw Exception(
+          'Insufficient points. You need ${cost - currentPoints} more points.',
+        );
+      }
+      if (currentVoucher['status'] != 'active') {
+        throw Exception('This voucher is not active.');
+      }
+
+      final now = DateTime.now();
+      final startsAt = asDate(currentVoucher['startsAt']);
+      if (startsAt != null && startsAt.isAfter(now)) {
+        throw Exception(
+          'This voucher becomes available on ${startsAt.day}/${startsAt.month}/${startsAt.year}.',
+        );
+      }
+      final expiry = asDate(currentVoucher['expiresAt']);
+      if (expiry != null && !expiry.isAfter(now)) {
+        throw Exception('This voucher has expired.');
+      }
+      if (inventory <= 0) {
+        throw Exception('This reward is fully claimed.');
+      }
+      var claimSequence = 1;
+      while (true) {
+        if (claimLimit != null && claimSequence > claimLimit) {
+          throw Exception(
+            claimLimit == 1
+                ? 'You already claimed this voucher.'
+                : 'You have reached the limit of $claimLimit claims for this voucher.',
+          );
+        }
+        if (claimSequence > 10000) {
+          throw Exception('Unable to allocate another voucher claim.');
+        }
+
+        final slot = claimSequence == 1
+            ? legacyClaimRef
+            : db
+                  .collection('claimed_vouchers')
+                  .doc('${uid}_${voucherId}_$claimSequence');
+        final slotSnapshot = await transaction.get(slot);
+        if (!slotSnapshot.exists) {
+          claimRef = slot;
+          break;
+        }
+        claimSequence += 1;
+      }
+
       final pointsAfterClaim = currentPoints - cost;
-      final token = randomToken();
+      claimedTitle = '${currentVoucher['title'] ?? 'Voucher'}'.trim();
+      vendorName =
+          '${currentVoucher['vendorName'] ?? vendor['businessName'] ?? vendor['displayName'] ?? 'Registered vendor'}';
+      pointsSpent = cost;
+      pointsRemaining = pointsAfterClaim;
+      claimExpiry = expiry;
+      final rawInterests = traveler['travelInterests'];
+      final interestTags = rawInterests is Iterable
+          ? rawInterests
+                .map((value) => '$value'.trim())
+                .where((value) => value.isNotEmpty)
+                .take(6)
+                .toList()
+          : <String>[];
 
       transaction.update(travelerProfileRef, {
         'points': pointsAfterClaim,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
       transaction.update(voucherRef, {
         'inventoryRemaining': inventory - 1,
         'claimCount': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
       transaction.set(claimRef, {
         'travelerId': uid,
         'userId': uid,
         'voucherId': voucherId,
         'vendorId': vendorId,
-        'vendorName':
-            currentVoucher['vendorName'] ??
-            vendor['businessName'] ??
-            vendor['displayName'],
-        'title': currentVoucher['title'],
+        'vendorName': vendorName,
+        'vendorCategory': currentVoucher['vendorCategory'],
+        'vendorAddress':
+            currentVoucher['vendorAddress'] ?? vendor['shopLocation'],
+        if (currentVoucher['location'] != null)
+          'location': currentVoucher['location'],
+        'title': claimedTitle,
+        'description': currentVoucher['description'],
+        'terms': currentVoucher['terms'],
         'pointCost': cost,
         'pointsBeforeClaim': currentPoints,
         'pointsAfterClaim': pointsAfterClaim,
-        'token': token,
+        'travelerName':
+            '${traveler['displayName'] ?? traveler['name'] ?? signedInUser.displayName ?? 'Tourist'}',
+        'interestTags': interestTags,
+        'claimSequence': claimSequence,
+        'claimLimit': claimLimit,
         'status': 'claimed',
         'claimedAt': FieldValue.serverTimestamp(),
         'expiresAt': currentVoucher['expiresAt'],
       });
     });
+
+    await notify(
+      userId: uid,
+      title: 'Voucher added to wallet',
+      message: '$claimedTitle is ready to use. Show its QR code at the vendor.',
+      type: 'voucher_claimed',
+      referenceId: claimRef.id,
+    );
+    await syncVoucherExpiryReminders();
+
+    return VoucherClaimReceipt(
+      claimId: claimRef.id,
+      voucherTitle: claimedTitle,
+      vendorName: vendorName,
+      pointsSpent: pointsSpent,
+      pointsRemaining: pointsRemaining,
+      claimedAt: DateTime.now(),
+      expiresAt: claimExpiry,
+    );
   }
 
-  static Future<String> redeemClaim(String rawQr, String vendorId) async {
-    final parts = rawQr.split('|');
-    if (parts.length != 2) {
-      throw Exception('Unrecognized QR code.');
+  static Future<VoucherRedemptionSession> startRedemptionSession(
+    String claimId,
+  ) async {
+    final signedInUser = auth.currentUser;
+    if (signedInUser == null) {
+      throw Exception('Please sign in as a traveler first.');
     }
 
-    final claimRef = db.collection('claimed_vouchers').doc(parts[0]);
-    final redemptionRef = db.collection('redemptions').doc();
-    String travelerId = '';
+    final claimRef = db.collection('claimed_vouchers').doc(claimId);
+    final token = randomToken();
+    final pin = randomNumericCode();
+    final now = DateTime.now();
+    var sessionExpiry = now.add(redemptionSessionDuration);
 
     await db.runTransaction((transaction) async {
       final claimSnapshot = await transaction.get(claimRef);
@@ -964,9 +1136,142 @@ class AppServices {
       }
 
       final claim = claimSnapshot.data()!;
-      if (claim['token'] != parts[1]) {
-        throw Exception('Invalid voucher token.');
+      final ownerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
+      if (ownerId != signedInUser.uid) {
+        throw Exception('This voucher does not belong to your account.');
       }
+      if (claim['status'] != 'claimed') {
+        throw Exception('Only active vouchers can create a redemption code.');
+      }
+
+      final voucherExpiry = asDate(claim['expiresAt']);
+      if (voucherExpiry != null && !voucherExpiry.isAfter(now)) {
+        throw Exception('This voucher has expired.');
+      }
+      if (voucherExpiry != null && voucherExpiry.isBefore(sessionExpiry)) {
+        sessionExpiry = voucherExpiry;
+      }
+      if (sessionExpiry.difference(now) < const Duration(seconds: 30)) {
+        throw Exception('This voucher expires too soon to start a session.');
+      }
+
+      transaction.update(claimRef, {
+        'redemptionSessionToken': token,
+        'redemptionSessionPin': pin,
+        'redemptionSessionCreatedAt': FieldValue.serverTimestamp(),
+        'redemptionSessionExpiresAt': Timestamp.fromDate(sessionExpiry),
+      });
+    });
+
+    return VoucherRedemptionSession(
+      claimId: claimId,
+      token: token,
+      pin: pin,
+      expiresAt: sessionExpiry,
+    );
+  }
+
+  static Future<
+    ({
+      DocumentReference<Map<String, dynamic>> claimRef,
+      String? qrToken,
+      String? pin,
+    })
+  >
+  _resolveRedemptionCode(String rawCode, String vendorId) async {
+    final code = rawCode.trim();
+    final parts = code.split('|');
+    if (parts.length == 3 &&
+        parts.first == 'MHE1' &&
+        parts.every((part) => part.isNotEmpty)) {
+      return (
+        claimRef: db.collection('claimed_vouchers').doc(parts[1]),
+        qrToken: parts[2],
+        pin: null,
+      );
+    }
+
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      throw Exception('Enter a valid QR code or 6-digit redemption PIN.');
+    }
+    final matches = await db
+        .collection('claimed_vouchers')
+        .where('vendorId', isEqualTo: vendorId)
+        .get();
+    final matchingClaims = matches.docs.where((doc) {
+      final data = doc.data();
+      final sessionExpiry = asDate(data['redemptionSessionExpiresAt']);
+      return '${data['redemptionSessionPin'] ?? ''}' == code &&
+          data['status'] == 'claimed' &&
+          sessionExpiry != null &&
+          sessionExpiry.isAfter(DateTime.now());
+    }).toList();
+    if (matchingClaims.isEmpty) {
+      throw Exception('Invalid or expired redemption PIN.');
+    }
+    if (matchingClaims.length > 1) {
+      throw Exception(
+        'This PIN is ambiguous. Please scan the QR code instead.',
+      );
+    }
+    return (
+      claimRef: matchingClaims.single.reference,
+      qrToken: null,
+      pin: code,
+    );
+  }
+
+  static void _validateRedemptionSession(
+    Map<String, dynamic> claim,
+    ({String? qrToken, String? pin}) code,
+  ) {
+    final sessionExpiry = asDate(claim['redemptionSessionExpiresAt']);
+    if (sessionExpiry == null || !sessionExpiry.isAfter(DateTime.now())) {
+      throw Exception(
+        'This redemption code has expired. Ask the tourist to generate a new 3-minute code.',
+      );
+    }
+    if (code.qrToken != null &&
+        claim['redemptionSessionToken'] != code.qrToken) {
+      throw Exception('Invalid or replaced voucher QR code.');
+    }
+    if (code.pin != null && claim['redemptionSessionPin'] != code.pin) {
+      throw Exception('Invalid or replaced redemption PIN.');
+    }
+  }
+
+  static Future<String> redeemClaim(String rawCode, String vendorId) async {
+    final signedInUser = auth.currentUser;
+    if (signedInUser == null || signedInUser.uid != vendorId) {
+      throw Exception(
+        'Please sign in with the vendor account that owns this voucher.',
+      );
+    }
+
+    final resolved = await _resolveRedemptionCode(rawCode, vendorId);
+    final claimRef = resolved.claimRef;
+    final redemptionRef = db.collection('redemptions').doc();
+    String travelerId = '';
+    var voucherTitle = 'Voucher';
+
+    await db.runTransaction((transaction) async {
+      final claimSnapshot = await transaction.get(claimRef);
+      final vendorSnapshot = await transaction.get(vendorRef(vendorId));
+      if (!claimSnapshot.exists) {
+        throw Exception('Voucher claim was not found.');
+      }
+      if (!vendorSnapshot.exists ||
+          vendorSnapshot.data()?['role'] != 'vendor' ||
+          vendorSnapshot.data()?['status'] != 'active' ||
+          vendorSnapshot.data()?['vendorStatus'] != 'verified') {
+        throw Exception('This vendor account is not active and verified.');
+      }
+
+      final claim = claimSnapshot.data()!;
+      _validateRedemptionSession(claim, (
+        qrToken: resolved.qrToken,
+        pin: resolved.pin,
+      ));
       if (claim['vendorId'] != vendorId) {
         throw Exception('This voucher belongs to another vendor.');
       }
@@ -975,22 +1280,35 @@ class AppServices {
       }
 
       final expiry = asDate(claim['expiresAt']);
-      if (expiry != null && expiry.isBefore(DateTime.now())) {
+      if (expiry != null && !expiry.isAfter(DateTime.now())) {
         throw Exception('Voucher has expired.');
       }
 
       travelerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
+      if (travelerId.isEmpty) {
+        throw Exception('The voucher owner could not be identified.');
+      }
+      voucherTitle = '${claim['title'] ?? 'Voucher'}'.trim();
 
       transaction.update(claimRef, {
         'status': 'redeemed',
         'redeemedAt': FieldValue.serverTimestamp(),
+        'redemptionMethod': resolved.pin == null ? 'qr' : 'pin',
+        'redemptionSessionToken': FieldValue.delete(),
+        'redemptionSessionPin': FieldValue.delete(),
+        'redemptionSessionExpiresAt': FieldValue.delete(),
+        'redemptionSessionUsedAt': FieldValue.serverTimestamp(),
       });
-
       transaction.set(redemptionRef, {
         'claimId': claimRef.id,
         'voucherId': claim['voucherId'],
+        'voucherTitle': voucherTitle,
         'vendorId': vendorId,
+        'vendorName': claim['vendorName'],
         'travelerId': travelerId,
+        'pointCost': claim['pointCost'],
+        'interestTags': claim['interestTags'] ?? const <String>[],
+        'redemptionMethod': resolved.pin == null ? 'qr' : 'pin',
         'redeemedAt': FieldValue.serverTimestamp(),
       });
     });
@@ -998,12 +1316,240 @@ class AppServices {
     await notify(
       userId: travelerId,
       title: 'Redemption successful',
-      message: 'Your voucher was successfully redeemed.',
-      type: 'voucher',
+      message: '$voucherTitle was successfully redeemed.',
+      type: 'voucher_redeemed',
       referenceId: claimRef.id,
     );
 
     return claimRef.id;
+  }
+
+  static Future<Map<String, dynamic>> redemptionPreview(
+    String rawCode,
+    String vendorId,
+  ) async {
+    final signedInUser = auth.currentUser;
+    if (signedInUser == null || signedInUser.uid != vendorId) {
+      throw Exception(
+        'Please sign in with the vendor account that owns this voucher.',
+      );
+    }
+
+    final resolved = await _resolveRedemptionCode(rawCode, vendorId);
+    final claimSnapshot = await resolved.claimRef.get();
+    final vendorSnapshot = await vendorRef(vendorId).get();
+    if (!claimSnapshot.exists) {
+      throw Exception('Voucher claim was not found.');
+    }
+    if (!vendorSnapshot.exists ||
+        vendorSnapshot.data()?['role'] != 'vendor' ||
+        vendorSnapshot.data()?['status'] != 'active' ||
+        vendorSnapshot.data()?['vendorStatus'] != 'verified') {
+      throw Exception('This vendor account is not active and verified.');
+    }
+
+    final claim = claimSnapshot.data()!;
+    _validateRedemptionSession(claim, (
+      qrToken: resolved.qrToken,
+      pin: resolved.pin,
+    ));
+    if (claim['vendorId'] != vendorId) {
+      throw Exception('This voucher belongs to another vendor.');
+    }
+    if (claim['status'] != 'claimed') {
+      throw Exception('Voucher is already redeemed or unavailable.');
+    }
+
+    final expiry = asDate(claim['expiresAt']);
+    if (expiry != null && !expiry.isAfter(DateTime.now())) {
+      throw Exception('Voucher has expired.');
+    }
+
+    return <String, dynamic>{...claim, 'claimId': claimSnapshot.id};
+  }
+
+  static Future<void> syncVoucherExpiryReminders() async {
+    final user = auth.currentUser;
+    if (user == null) return;
+    final profile = (await travelerRef(user.uid).get()).data();
+    final enabled = notificationPreference(
+      profile,
+      'expiryReminders',
+      defaultValue: true,
+    );
+    final claims = await db
+        .collection('claimed_vouchers')
+        .where('userId', isEqualTo: user.uid)
+        .get();
+
+    for (final doc in claims.docs) {
+      final threeDayId = stableNotificationId(doc.id, 3);
+      final oneDayId = stableNotificationId(doc.id, 1);
+      await SystemNotificationService.instance.cancelNotification(threeDayId);
+      await SystemNotificationService.instance.cancelNotification(oneDayId);
+
+      final claim = doc.data();
+      final expiry = asDate(claim['expiresAt']);
+      if (!enabled || claim['status'] != 'claimed' || expiry == null) continue;
+
+      final reminderBase = DateTime(expiry.year, expiry.month, expiry.day, 9);
+      final title = '${claim['title'] ?? 'Voucher'}';
+      for (final days in const [3, 1]) {
+        final reminderTime = reminderBase.subtract(Duration(days: days));
+        if (!reminderTime.isAfter(DateTime.now())) continue;
+        await SystemNotificationService.instance.scheduleRewardExpiryReminder(
+          id: days == 3 ? threeDayId : oneDayId,
+          voucherTitle: title,
+          claimId: doc.id,
+          reminderTime: reminderTime,
+          daysRemaining: days,
+        );
+      }
+    }
+  }
+
+  static Future<int> archiveExpiredVouchers(String vendorId) async {
+    final snapshot = await db
+        .collection('vouchers')
+        .where('vendorId', isEqualTo: vendorId)
+        .get();
+    final now = DateTime.now();
+    final expired = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final expiry = asDate(data['expiresAt']);
+      return data['status'] == 'active' &&
+          expiry != null &&
+          !expiry.isAfter(now);
+    }).toList();
+
+    if (expired.isEmpty) return 0;
+    final batch = db.batch();
+    for (final doc in expired) {
+      batch.update(doc.reference, {
+        'status': 'expired',
+        'archivedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    return expired.length;
+  }
+
+  static Future<int> checkNearbyRewardNotifications({
+    Position? currentPosition,
+    bool requestPermission = false,
+  }) async {
+    final user = auth.currentUser;
+    if (user == null) return 0;
+
+    final traveler = (await travelerRef(user.uid).get()).data();
+    if (traveler == null ||
+        traveler['role'] != 'traveler' ||
+        traveler['status'] != 'active') {
+      return 0;
+    }
+    if (!notificationPreference(
+      traveler,
+      'nearbyRewards',
+      defaultValue: true,
+    )) {
+      return 0;
+    }
+
+    Position position;
+    if (currentPosition != null) {
+      position = currentPosition;
+    } else {
+      if (!await Geolocator.isLocationServiceEnabled()) return 0;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied && !requestPermission) {
+        return 0;
+      }
+      if (permission == LocationPermission.deniedForever) return 0;
+      position = await determinePosition();
+    }
+
+    final snapshot = await db
+        .collection('vouchers')
+        .where('status', isEqualTo: 'active')
+        .get();
+    final now = DateTime.now();
+    final matches =
+        <
+          ({QueryDocumentSnapshot<Map<String, dynamic>> doc, double distance})
+        >[];
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final location = data['location'];
+      final startsAt = asDate(data['startsAt']);
+      final expiry = asDate(data['expiresAt']);
+      final remaining = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
+      if (location is! GeoPoint ||
+          remaining <= 0 ||
+          (startsAt != null && startsAt.isAfter(now)) ||
+          (expiry != null && !expiry.isAfter(now))) {
+        continue;
+      }
+
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        location.latitude,
+        location.longitude,
+      );
+      final radius = ((data['notificationRadiusMeters'] ?? 750) as num)
+          .toDouble();
+      if (distance <= radius) matches.add((doc: doc, distance: distance));
+    }
+
+    matches.sort((a, b) => a.distance.compareTo(b.distance));
+    try {
+      final previousNotifications = await db
+          .collection('notifications')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+      for (final notification in previousNotifications.docs) {
+        final data = notification.data();
+        if (data['type'] != 'voucher_nearby') continue;
+        final voucherId = '${data['referenceId'] ?? ''}';
+        final notifiedAt = asDate(data['createdAt']);
+        if (voucherId.isNotEmpty && notifiedAt != null) {
+          final key = '${user.uid}_$voucherId';
+          final cached = _nearbyRewardAlertTimes[key];
+          if (cached == null || notifiedAt.isAfter(cached)) {
+            _nearbyRewardAlertTimes[key] = notifiedAt;
+          }
+        }
+      }
+    } catch (_) {
+      // Local suppression below still prevents repeated alerts this session.
+    }
+
+    var alertCount = 0;
+    for (final match in matches.take(3)) {
+      final voucher = match.doc.data();
+      final alertKey = '${user.uid}_${match.doc.id}';
+      final lastNotifiedAt = _nearbyRewardAlertTimes[alertKey];
+      if (lastNotifiedAt != null &&
+          now.difference(lastNotifiedAt) < const Duration(hours: 24)) {
+        continue;
+      }
+      final distanceLabel = match.distance < 1000
+          ? '${match.distance.round()} m away'
+          : '${(match.distance / 1000).toStringAsFixed(1)} km away';
+      await notify(
+        userId: user.uid,
+        title: 'Nearby reward available',
+        message:
+            '${voucher['title'] ?? 'A local voucher'} at ${voucher['vendorName'] ?? 'a verified vendor'} is $distanceLabel.',
+        type: 'voucher_nearby',
+        referenceId: match.doc.id,
+      );
+      _nearbyRewardAlertTimes[alertKey] = now;
+      alertCount += 1;
+    }
+    return alertCount;
   }
 
   static Future<void> seedInitialReviewsIfEmpty() async {

@@ -71,6 +71,9 @@ app.*.map.json
 *.pem
 *.p12
 
+# Local credentials
+ors_secrets.json
+
 # Project-specific artifacts & scratch files
 .artifacts/
 migrate_working_dir/

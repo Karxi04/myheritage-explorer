@@ -1,235 +1,738 @@
 part of '../traveler_pages.dart';
 
-class RewardsPage extends StatelessWidget {
-  const RewardsPage({super.key});
+class RewardsPage extends StatefulWidget {
+  const RewardsPage({
+    super.key,
+    this.embedded = false,
+    this.showPointsSummary = true,
+    this.focusVoucherId,
+  });
+
+  final bool embedded;
+  final bool showPointsSummary;
+  final String? focusVoucherId;
+
+  @override
+  State<RewardsPage> createState() => _RewardsPageState();
+}
+
+class _RewardsPageState extends State<RewardsPage> {
+  final TextEditingController searchController = TextEditingController();
+  String searchQuery = '';
+  String category = 'All';
+  String sortMode = 'Recommended';
+  bool favouritesOnly = false;
+  bool nearbyOnly = false;
+  bool loadingLocation = false;
+  Position? cataloguePosition;
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearFilters() {
+    searchController.clear();
+    setState(() {
+      searchQuery = '';
+      category = 'All';
+      sortMode = 'Recommended';
+      favouritesOnly = false;
+      nearbyOnly = false;
+    });
+  }
 
   String _claimLabel({
     required int points,
     required int cost,
+    required int claimedCount,
+    required int? claimLimit,
   }) {
-    if (cost <= 0) return 'Voucher unavailable';
-    if (points < cost) {
-      return 'Need ${cost - points} more points';
+    if (claimLimit != null && claimedCount >= claimLimit) {
+      return 'Claim limit reached';
     }
+    if (cost <= 0) return 'Voucher unavailable';
+    if (points < cost) return 'Need ${cost - points} more points';
     return 'Claim for $cost points';
+  }
+
+  bool _matchesSearch(Map<String, dynamic> voucher) {
+    final query = searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final searchable = [
+      voucher['title'],
+      voucher['description'],
+      voucher['vendorName'],
+      voucher['vendorCategory'],
+      voucher['terms'],
+    ].map((value) => '${value ?? ''}'.toLowerCase()).join(' ');
+    return searchable.contains(query);
+  }
+
+  double? _distanceTo(Map<String, dynamic> voucher) {
+    final position = cataloguePosition;
+    final location = voucher['location'];
+    if (position == null || location is! GeoPoint) return null;
+    return Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      location.latitude,
+      location.longitude,
+    );
+  }
+
+  Future<bool> _loadCataloguePosition() async {
+    if (cataloguePosition != null) return true;
+    if (loadingLocation) return false;
+    setState(() => loadingLocation = true);
+    try {
+      final position = await determinePosition();
+      if (!mounted) return false;
+      setState(() => cataloguePosition = position);
+      return true;
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => loadingLocation = false);
+    }
+  }
+
+  Future<void> _setNearbyOnly(bool selected) async {
+    if (!selected) {
+      setState(() => nearbyOnly = false);
+      return;
+    }
+    if (await _loadCataloguePosition() && mounted) {
+      setState(() => nearbyOnly = true);
+    }
+  }
+
+  Future<void> _setSortMode(String value) async {
+    if (value == 'Nearest' && !await _loadCataloguePosition()) return;
+    if (mounted) setState(() => sortMode = value);
+  }
+
+  Future<void> _confirmClaim(
+    String voucherId,
+    Map<String, dynamic> voucher,
+  ) async {
+    final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Claim this reward?'),
+            content: Text(
+              '${voucher['title'] ?? 'This voucher'} will use $cost reward points and be added to your wallet.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Confirm Claim'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    try {
+      final receipt = await AppServices.claimVoucher(
+        voucherId: voucherId,
+        voucher: voucher,
+      );
+      if (mounted) await showVoucherClaimReceipt(context, receipt);
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
 
+    if (widget.embedded) return _buildRewardsBody(uid);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Rewards'),
+        title: Text(
+          widget.focusVoucherId == null ? 'Rewards' : 'Reward Details',
+        ),
         actions: [
           IconButton(
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const NearbyRewardsPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const NearbyRewardsPage()),
             ),
-            icon: const Icon(Icons.near_me_outlined),
-            tooltip: 'Nearby rewards',
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'Nearby voucher map',
+          ),
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const VoucherWalletPage()),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            tooltip: 'Voucher wallet',
           ),
           IconButton(
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => const VoucherWalletPage(),
+                builder: (_) => const RewardNotificationSettingsPage(),
               ),
             ),
-            icon:
-                const Icon(Icons.account_balance_wallet_outlined),
-            tooltip: 'Voucher wallet',
+            icon: const Icon(Icons.notifications_active_outlined),
+            tooltip: 'Reward notification settings',
           ),
         ],
       ),
-      body: StreamBuilder<
-          DocumentSnapshot<Map<String, dynamic>>>(
-        stream: AppServices.travelerRef(uid).snapshots(),
-        builder: (context, travelerSnapshot) {
-          if (!travelerSnapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+      body: _buildRewardsBody(uid),
+    );
+  }
 
-          final traveler =
-              travelerSnapshot.data?.data() ??
-                  const <String, dynamic>{};
-          final points =
-              (traveler['points'] as num?)?.toInt() ?? 0;
+  Widget _buildRewardsBody(String uid) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: AppServices.travelerRef(uid).snapshots(),
+      builder: (context, travelerSnapshot) {
+        if (travelerSnapshot.hasError) {
+          return emptyState('Unable to load your reward balance');
+        }
+        if (!travelerSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          return StreamBuilder<
-              QuerySnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db
-                .collection('vouchers')
-                .where('status', isEqualTo: 'active')
-                .snapshots(),
-            builder: (context, voucherSnapshot) {
-              if (!voucherSnapshot.hasData) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
+        final traveler =
+            travelerSnapshot.data?.data() ?? const <String, dynamic>{};
+        final points = (traveler['points'] as num?)?.toInt() ?? 0;
+        final rawFavourites = traveler['favoriteVoucherIds'];
+        final favouriteVoucherIds = rawFavourites is Iterable
+            ? rawFavourites.map((value) => '$value').toSet()
+            : <String>{};
 
-              final docs = voucherSnapshot.data!.docs.where((doc) {
-                final voucher = doc.data();
-                final expiry = asDate(voucher['expiresAt']);
-                final inventory =
-                    (voucher['inventoryRemaining'] as num?)
-                            ?.toInt() ??
-                        0;
-                final cost =
-                    (voucher['pointCost'] as num?)?.toInt() ??
-                        0;
-                final vendorId =
-                    '${voucher['vendorId'] ?? ''}'.trim();
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: AppServices.db
+              .collection('vouchers')
+              .where('status', isEqualTo: 'active')
+              .snapshots(),
+          builder: (context, voucherSnapshot) {
+            if (voucherSnapshot.hasError) {
+              return emptyState('Unable to load the reward catalogue');
+            }
+            if (!voucherSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-                return (expiry == null ||
-                        expiry.isAfter(DateTime.now())) &&
-                    inventory > 0 &&
-                    cost > 0 &&
-                    vendorId.isNotEmpty;
-              }).toList();
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AppServices.db
+                  .collection('claimed_vouchers')
+                  .where('userId', isEqualTo: uid)
+                  .snapshots(),
+              builder: (context, claimSnapshot) {
+                final claimedCounts = <String, int>{};
+                for (final claim in claimSnapshot.data?.docs ?? const []) {
+                  final voucherId = '${claim.data()['voucherId'] ?? ''}';
+                  if (voucherId.isNotEmpty) {
+                    claimedCounts[voucherId] =
+                        (claimedCounts[voucherId] ?? 0) + 1;
+                  }
+                }
+                final now = DateTime.now();
+                final available = voucherSnapshot.data!.docs.where((doc) {
+                  if (widget.focusVoucherId != null &&
+                      doc.id != widget.focusVoucherId) {
+                    return false;
+                  }
+                  final voucher = doc.data();
+                  final startsAt = asDate(voucher['startsAt']);
+                  final expiry = asDate(voucher['expiresAt']);
+                  final inventory =
+                      (voucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
+                  final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
+                  return (startsAt == null || !startsAt.isAfter(now)) &&
+                      (expiry == null || expiry.isAfter(now)) &&
+                      inventory > 0 &&
+                      cost > 0 &&
+                      '${voucher['vendorId'] ?? ''}'.trim().isNotEmpty;
+                }).toList();
 
-              if (docs.isEmpty) {
-                return emptyState(
-                  'No rewards available at the moment',
-                );
-              }
+                final categories =
+                    available
+                        .map(
+                          (doc) =>
+                              '${doc.data()['vendorCategory'] ?? ''}'.trim(),
+                        )
+                        .where((value) => value.isNotEmpty)
+                        .toSet()
+                        .toList()
+                      ..sort();
 
-              return ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: docs.length + 1,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return Card(
-                      child: ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.stars_rounded),
-                        ),
-                        title: const Text(
-                          'Your reward points',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: const Text(
-                          'Complete approved cultural tasks to earn more points.',
-                        ),
-                        trailing: Text(
-                          '$points pts',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                final filtered = available.where((doc) {
+                  final voucher = doc.data();
+                  final matchesCategory =
+                      category == 'All' ||
+                      '${voucher['vendorCategory'] ?? ''}' == category;
+                  final matchesFavourite =
+                      !favouritesOnly || favouriteVoucherIds.contains(doc.id);
+                  final distance = _distanceTo(voucher);
+                  final nearbyRadius =
+                      ((voucher['notificationRadiusMeters'] ?? 750) as num)
+                          .toDouble();
+                  final matchesNearby =
+                      !nearbyOnly ||
+                      (distance != null && distance <= nearbyRadius);
+                  return matchesCategory &&
+                      matchesFavourite &&
+                      matchesNearby &&
+                      _matchesSearch(voucher);
+                }).toList();
+
+                switch (sortMode) {
+                  case 'Lowest points':
+                    filtered.sort(
+                      (a, b) => ((a.data()['pointCost'] ?? 0) as num).compareTo(
+                        (b.data()['pointCost'] ?? 0) as num,
                       ),
                     );
-                  }
-
-                  final doc = docs[index - 1];
-                  final voucher = doc.data();
-                  final cost =
-                      (voucher['pointCost'] as num?)?.toInt() ??
-                          0;
-                  final canClaim = cost > 0 && points >= cost;
-
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${voucher['title'] ?? ''}',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                  case 'Expiring soon':
+                    filtered.sort(
+                      (a, b) =>
+                          (asDate(a.data()['expiresAt']) ?? DateTime(2100))
+                              .compareTo(
+                                asDate(b.data()['expiresAt']) ?? DateTime(2100),
                               ),
-                              Chip(label: Text('$cost pts')),
-                            ],
-                          ),
-                          Text(
-                            'Vendor: '
-                            '${voucher['vendorName'] ?? 'Registered vendor'}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
+                    );
+                  case 'Nearest':
+                    filtered.sort(
+                      (a, b) => (_distanceTo(a.data()) ?? double.infinity)
+                          .compareTo(_distanceTo(b.data()) ?? double.infinity),
+                    );
+                  default:
+                    filtered.sort(
+                      (a, b) => ((b.data()['claimCount'] ?? 0) as num)
+                          .compareTo((a.data()['claimCount'] ?? 0) as num),
+                    );
+                }
+
+                final filtersActive =
+                    searchQuery.trim().isNotEmpty ||
+                    category != 'All' ||
+                    sortMode != 'Recommended' ||
+                    favouritesOnly ||
+                    nearbyOnly;
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                  children: [
+                    if (widget.showPointsSummary) ...[
+                      ExplorerCard(
+                        backgroundColor: ExplorerColors.navy,
+                        borderColor: ExplorerColors.navy,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 46,
+                              height: 46,
+                              decoration: const BoxDecoration(
+                                color: ExplorerColors.goldSoft,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.stars_rounded,
+                                color: ExplorerColors.goldDark,
+                              ),
+                            ),
+                            const SizedBox(width: 13),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Reward balance',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Use points to claim an available voucher.',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              '$points pts',
+                              style: const TextStyle(
+                                color: ExplorerColors.gold,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                    ExplorerSectionTitle(
+                      'Find a reward',
+                      subtitle: 'Search by voucher, vendor, or category.',
+                      trailing: filtersActive
+                          ? TextButton(
+                              onPressed: _clearFilters,
+                              child: const Text('Clear filters'),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: searchController,
+                      onChanged: (value) => setState(() => searchQuery = value),
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Search rewards or vendors',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setState(() => searchQuery = '');
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'FILTER BY',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .6,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              avatar: const Icon(Icons.favorite, size: 16),
+                              label: const Text('Favourites'),
+                              selected: favouritesOnly,
+                              onSelected: (selected) =>
+                                  setState(() => favouritesOnly = selected),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${voucher['description'] ?? ''}',
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              avatar: loadingLocation
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.near_me, size: 16),
+                              label: const Text('Nearby'),
+                              selected: nearbyOnly,
+                              onSelected: loadingLocation
+                                  ? null
+                                  : (selected) =>
+                                        unawaited(_setNearbyOnly(selected)),
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Remaining: '
-                            '${voucher['inventoryRemaining'] ?? 0} • '
-                            'Expires: '
-                            '${asDate(voucher['expiresAt']) == null ? '-' : DateFormat.yMMMd().format(asDate(voucher['expiresAt'])!)}',
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: canClaim
-                                  ? () async {
-                                      try {
-                                        await AppServices
-                                            .claimVoucher(
-                                          voucherId: doc.id,
-                                          voucher: voucher,
-                                        );
-                                        if (context.mounted) {
-                                          showMessage(
-                                            context,
-                                            'Voucher claimed successfully.',
-                                          );
-                                        }
-                                      } catch (error) {
-                                        if (context.mounted) {
-                                          showMessage(
-                                            context,
-                                            error
-                                                .toString()
-                                                .replaceFirst(
-                                                  'Exception: ',
-                                                  '',
-                                                ),
-                                            error: true,
-                                          );
-                                        }
-                                      }
-                                    }
-                                  : null,
-                              child: Text(
-                                _claimLabel(
-                                  points: points,
-                                  cost: cost,
-                                ),
+                          ...['All', ...categories].map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FilterChip(
+                                label: Text(item),
+                                selected: category == item,
+                                onSelected: (_) =>
+                                    setState(() => category = item),
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${filtered.length} ${filtered.length == 1 ? 'reward' : 'rewards'} found',
+                            style: const TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const Text(
+                          'Sort: ',
+                          style: TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                        DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: sortMode,
+                            isDense: true,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'Recommended',
+                                child: Text('Recommended'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Lowest points',
+                                child: Text('Lowest points'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Expiring soon',
+                                child: Text('Expiring soon'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Nearest',
+                                child: Text('Nearest to me'),
+                              ),
+                            ],
+                            onChanged: loadingLocation
+                                ? null
+                                : (value) => unawaited(
+                                    _setSortMode(value ?? 'Recommended'),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (filtered.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 36),
+                        child: emptyState(
+                          widget.focusVoucherId != null
+                              ? 'This reward is fully claimed or no longer available'
+                              : available.isEmpty
+                              ? 'No rewards available at the moment'
+                              : 'No rewards match your search',
+                        ),
+                      )
+                    else
+                      ...filtered.map((doc) {
+                        final voucher = doc.data();
+                        final cost =
+                            (voucher['pointCost'] as num?)?.toInt() ?? 0;
+                        final claimedCount = claimedCounts[doc.id] ?? 0;
+                        final rawClaimLimit =
+                            (voucher['perTouristClaimLimit'] as num?)
+                                ?.toInt() ??
+                            0;
+                        final int? claimLimit = rawClaimLimit > 0
+                            ? rawClaimLimit
+                            : null;
+                        final canClaim =
+                            (claimLimit == null || claimedCount < claimLimit) &&
+                            points >= cost;
+                        final favourite = favouriteVoucherIds.contains(doc.id);
+                        final expiry = asDate(voucher['expiresAt']);
+                        final distance = _distanceTo(voucher);
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: ExplorerCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${voucher['title'] ?? 'Voucher'}',
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: favourite
+                                          ? 'Remove from favourites'
+                                          : 'Add to favourites',
+                                      onPressed: () =>
+                                          AppServices.travelerRef(uid).update({
+                                            'favoriteVoucherIds': favourite
+                                                ? FieldValue.arrayRemove([
+                                                    doc.id,
+                                                  ])
+                                                : FieldValue.arrayUnion([
+                                                    doc.id,
+                                                  ]),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
+                                          }),
+                                      icon: Icon(
+                                        favourite
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        color: favourite ? Colors.red : null,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.storefront_outlined,
+                                      size: 16,
+                                      color: ExplorerColors.muted,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        '${voucher['vendorName'] ?? 'Registered vendor'}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 7,
+                                  runSpacing: 7,
+                                  children: [
+                                    ExplorerStatusBadge(
+                                      label: '$cost POINTS',
+                                      tone: ExplorerStatusTone.warning,
+                                      icon: Icons.stars_rounded,
+                                    ),
+                                    ExplorerStatusBadge(
+                                      label:
+                                          '${voucher['inventoryRemaining'] ?? 0} LEFT',
+                                      tone: ExplorerStatusTone.success,
+                                      icon: Icons.inventory_2_outlined,
+                                    ),
+                                    if (expiry != null)
+                                      ExplorerStatusBadge(
+                                        label: expiryCountdownLabel(
+                                          expiry,
+                                        ).toUpperCase(),
+                                        tone: ExplorerStatusTone.navy,
+                                        icon: Icons.timer_outlined,
+                                      ),
+                                    if (distance != null)
+                                      ExplorerStatusBadge(
+                                        label: distance < 1000
+                                            ? '${distance.round()} M AWAY'
+                                            : '${(distance / 1000).toStringAsFixed(1)} KM AWAY',
+                                        tone: ExplorerStatusTone.neutral,
+                                        icon: Icons.near_me_outlined,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 11),
+                                Text(
+                                  '${voucher['description'] ?? ''}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: ExplorerColors.muted,
+                                    height: 1.4,
+                                  ),
+                                ),
+                                if ('${voucher['vendorCategory'] ?? ''}'
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    '${voucher['vendorCategory']}',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.goldDark,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => VoucherDetailPage(
+                                              voucherId: doc.id,
+                                            ),
+                                          ),
+                                        ),
+                                        child: const Text('View Details'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ElevatedButton(
+                                        onPressed: canClaim
+                                            ? () =>
+                                                  _confirmClaim(doc.id, voucher)
+                                            : null,
+                                        child: Text(
+                                          _claimLabel(
+                                            points: points,
+                                            cost: cost,
+                                            claimedCount: claimedCount,
+                                            claimLimit: claimLimit,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -1,0 +1,526 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // Helper Functions
+    // -------------------------------------------------------------------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        (exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+          && (!('role' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+              || get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role in ['admin', 'Admin'])
+          && (!('status' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+              || get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status in ['active', 'ACTIVE']))
+        ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'Admin']
+          && (!('status' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status in ['active', 'ACTIVE']))
+      );
+    }
+
+    function isActiveTraveler() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/travelers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/travelers/$(request.auth.uid)).data.role == 'traveler'
+        && get(/databases/$(database)/documents/travelers/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function validStatus(value) {
+      return value in ['Pending Review', 'Verified', 'Rejected', 'Resolved'];
+    }
+
+    function validVote(value) {
+      return value in ['HAZARD_EXISTS', 'HAZARD_RESOLVED'];
+    }
+
+    function validOptionalSceneMatch(data) {
+      return !('sceneMatchScore' in data)
+        || (data.sceneMatchScore is number
+          && data.sceneMatchScore >= 0
+          && data.sceneMatchScore <= 1);
+    }
+
+    // Ensure clients cannot inject or tamper with server-owned AI analysis fields.
+    // All ai* fields are written exclusively by the Cloud Function (Admin SDK).
+    function hasNoAiFields(data) {
+      return !('aiAnalysisStatus' in data)
+        && !('aiEvidenceWeightMultiplier' in data)
+        && !('aiSceneMatchScore' in data)
+        && !('aiHazardRelevanceScore' in data)
+        && !('aiConditionAssessment' in data)
+        && !('aiConditionConfidence' in data)
+        && !('aiAgreement' in data)
+        && !('aiAnalysisSummary' in data)
+        && !('aiAnalysisCompletedAt' in data)
+        && !('aiAnalysisFailureReason' in data)
+        && !('aiSyntheticImageRisk' in data)
+        && !('aiSyntheticImageConfidence' in data)
+        && !('aiSyntheticImageSummary' in data)
+        && !('aiStatus' in data)
+        && !('aiMultiplier' in data)
+        && !('aiConfidence' in data)
+        && !('aiReasoning' in data)
+        && !('aiSceneMatch' in data)
+        && !('aiHazardRelevance' in data)
+        && !('aiCondition' in data)
+        && !('aiAnalyzedAt' in data)
+        && !('aiModelVersion' in data)
+        && !('aiOriginalPhotoUrl' in data)
+        && !('aiCommunityPhotoUrl' in data);
+    }
+
+    function hasNoServerVoteValidationFields(data) {
+      return !('serverValidationStatus' in data)
+        && !('serverValidatedAt' in data)
+        && !('serverValidationReasons' in data);
+    }
+
+    function hasNoServerConfidence(data) {
+      return !('serverConfidence' in data);
+    }
+
+    function serverConfidenceUnchanged() {
+      return (
+          !('serverConfidence' in resource.data)
+          && !('serverConfidence' in request.resource.data)
+        ) || (
+          'serverConfidence' in resource.data
+          && 'serverConfidence' in request.resource.data
+          && request.resource.data.serverConfidence == resource.data.serverConfidence
+        );
+    }
+
+    function validEvidenceValidation(value) {
+      return value is map
+        && validOptionalSceneMatch(value)
+        && value.isValid == true
+        && value.duplicateDetected == false
+        && value.evidenceSource in ['CAMERA', 'GALLERY']
+        && value.semanticValidationAvailable == false
+        && value.validationLevel in [
+          'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+        ]
+        && value.qualityScore is number
+        && value.qualityScore >= 0
+        && value.qualityScore <= 1
+        && value.overallEvidenceScore is number
+        && value.overallEvidenceScore >= 0
+        && value.overallEvidenceScore <= 1
+        && value.sha256Fingerprint is string
+        && value.sha256Fingerprint.matches('^[0-9a-f]{64}$')
+        && value.perceptualHash is string
+        && value.perceptualHash.matches('^[0-9a-fA-F]{16}$')
+        && value.warnings is list;
+    }
+
+    function canReadHazard(hazardId) {
+      let hazard = get(/databases/$(database)/documents/hazard_reports/$(hazardId));
+      return isAdmin()
+        || (signedIn() && hazard.data.userId == request.auth.uid)
+        || (signedIn() && hazard.data.status == 'Verified');
+    }
+
+    // -------------------------------------------------------------------------
+    // User & Profile Collections (Teammates' Modules)
+    // -------------------------------------------------------------------------
+    match /admins/{adminId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /travelers/{travelerId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && (request.auth.uid == travelerId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /vendors/{vendorId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && (request.auth.uid == vendorId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared / Companion / Non-Safety Features
+    // -------------------------------------------------------------------------
+    match /places/{placeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /place_content/{contentId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    match /cultural_tasks/{taskId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+
+      match /task_submissions/{subId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+        allow update: if isAdmin();
+      }
+    }
+
+    match /task_submissions/{subId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /vouchers/{voucherId} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || (signedIn() && exists(/databases/$(database)/documents/vendors/$(request.auth.uid)));
+    }
+
+    match /claimed_vouchers/{claimId} {
+      allow read: if signedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.travelerId == request.auth.uid ||
+        resource.data.vendorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && (resource.data.vendorId == request.auth.uid || isAdmin());
+    }
+
+    match /redemptions/{redemptionId} {
+      allow read: if signedIn() && (
+        resource.data.vendorId == request.auth.uid ||
+        resource.data.travelerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if signedIn() && (request.resource.data.vendorId == request.auth.uid || isAdmin());
+    }
+
+    match /shared_itineraries/{itineraryId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /itineraries/{itineraryId} {
+      allow read, write: if signedIn() && (resource == null || resource.data.userId == request.auth.uid);
+    }
+
+    match /travel_groups/{groupId} {
+      allow read, write: if signedIn();
+      match /{allSubcollections=**} {
+        allow read, write: if signedIn();
+      }
+    }
+
+    match /sos_alerts/{alertId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Safety Module: Votes Collection Group
+    // -------------------------------------------------------------------------
+    match /{path=**}/votes/{voteId} {
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------------
+    // Safety Module: Hazard Reports
+    // -------------------------------------------------------------------------
+    match /hazard_reports/{hazardId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid)
+        || (signedIn() && resource.data.status == 'Verified');
+
+      allow create: if isActiveTraveler()
+        && hasNoServerConfidence(request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'hazardId', 'userId', 'category', 'severity', 'description', 'imageUrl',
+          'hasPhotoEvidence', 'evidenceStorage', 'evidenceValidationResult',
+          'evidenceSha256', 'evidencePerceptualHash', 'evidenceSource',
+          'latitude', 'longitude', 'status', 'statusHistory', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.hazardId == hazardId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'Pending Review'
+        && request.resource.data.statusHistory is list
+        && request.resource.data.statusHistory.size() == 1
+        && request.resource.data.statusHistory[0].status == 'Pending Review'
+        && request.resource.data.statusHistory[0].changedBy == request.auth.uid
+        && request.resource.data.statusHistory[0].changedAt is timestamp
+        && request.resource.data.category in ['Unsafe walkway', 'Poor lighting', 'Road obstruction', 'Flooding', 'Suspicious activity', 'Other']
+        && request.resource.data.severity in ['Low', 'Medium', 'High']
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.imageUrl is string
+        && request.resource.data.hasPhotoEvidence == true
+        && request.resource.data.evidenceStorage == 'firestore'
+        && validEvidenceValidation(
+          request.resource.data.evidenceValidationResult
+        )
+        && request.resource.data.evidenceSha256 is string
+        && request.resource.data.evidencePerceptualHash is string
+        && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number
+        && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+        && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
+        && request.resource.data.evidenceSha256 == request.resource.data.evidenceValidationResult.sha256Fingerprint
+        && request.resource.data.evidencePerceptualHash == request.resource.data.evidenceValidationResult.perceptualHash
+        && request.resource.data.evidenceSource == request.resource.data.evidenceValidationResult.evidenceSource
+        && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256;
+
+      allow update: if isAdmin()
+        && serverConfidenceUnchanged()
+        && validStatus(request.resource.data.status)
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'reviewedBy', 'reviewedAt', 'updatedAt', 'statusHistory'
+        ])
+        && (
+          (resource.data.status == 'Pending Review'
+            && request.resource.data.status in ['Verified', 'Rejected']
+            && (
+              !('statusHistory' in request.resource.data.diff(resource.data).affectedKeys())
+              || (request.resource.data.statusHistory is list
+                && (
+                  (!('statusHistory' in resource.data) && request.resource.data.statusHistory.size() >= 1)
+                  || ('statusHistory' in resource.data
+                    && resource.data.statusHistory is list
+                    && request.resource.data.statusHistory.size() == resource.data.statusHistory.size() + 1)
+                ))
+            ))
+          || (resource.data.status == 'Verified'
+            && request.resource.data.status == 'Resolved'
+            && (
+              !('statusHistory' in request.resource.data.diff(resource.data).affectedKeys())
+              || (request.resource.data.statusHistory is list
+                && (
+                  (!('statusHistory' in resource.data) && request.resource.data.statusHistory.size() >= 1)
+                  || ('statusHistory' in resource.data
+                    && resource.data.statusHistory is list
+                    && request.resource.data.statusHistory.size() == resource.data.statusHistory.size() + 1)
+                ))
+            ))
+          || (resource.data.status == 'Verified'
+            && request.resource.data.status == 'Verified')
+        );
+
+      allow delete: if false;
+
+      match /audit_logs/{auditId} {
+        allow read: if isAdmin();
+
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'action', 'previousStatus', 'newStatus', 'performedBy',
+            'performedByName', 'performedAt', 'note'
+          ])
+          && request.resource.data.performedBy == request.auth.uid
+          && request.resource.data.performedAt == request.time
+          && request.resource.data.action in [
+            'VERIFIED', 'REJECTED',
+            'REVIEWED_KEEP_VERIFIED', 'MARKED_RESOLVED'
+          ]
+          && (
+            (request.resource.data.action == 'VERIFIED'
+              && request.resource.data.previousStatus == 'Pending Review'
+              && request.resource.data.newStatus == 'Verified'
+              && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Pending Review'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.reviewedBy == request.auth.uid)
+            || (request.resource.data.action == 'REJECTED'
+              && request.resource.data.previousStatus == 'Pending Review'
+              && request.resource.data.newStatus == 'Rejected'
+              && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Pending Review'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Rejected'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.reviewedBy == request.auth.uid)
+            || (request.resource.data.action == 'REVIEWED_KEEP_VERIFIED'
+              && request.resource.data.previousStatus == 'Verified'
+              && request.resource.data.newStatus == 'Verified'
+              && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.reviewedBy == request.auth.uid
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.reviewedAt == request.time)
+            || (request.resource.data.action == 'MARKED_RESOLVED'
+              && request.resource.data.previousStatus == 'Verified'
+              && request.resource.data.newStatus == 'Resolved'
+              && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Resolved'
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.reviewedBy == request.auth.uid)
+          );
+
+        allow update, delete: if false;
+      }
+
+      match /evidence/{evidenceId} {
+        allow read: if canReadHazard(hazardId);
+
+        allow create: if evidenceId == 'photo'
+          && isActiveTraveler()
+          && request.resource.data.keys().hasOnly([
+            'hazardId', 'userId', 'imageBytes', 'contentType',
+            'byteLength', 'sourceSha256', 'perceptualHash',
+            'validationLevel', 'evidenceSource', 'createdAt'
+          ])
+          && request.resource.data.hazardId == hazardId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.imageBytes is bytes
+          && request.resource.data.imageBytes.size() <= 400 * 1024
+          && request.resource.data.byteLength
+            == request.resource.data.imageBytes.size()
+          && request.resource.data.contentType == 'image/jpeg'
+          && request.resource.data.sourceSha256 is string
+          && request.resource.data.perceptualHash is string
+          && request.resource.data.validationLevel in [
+            'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+          ]
+          && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
+          && request.resource.data.createdAt == request.time
+          && getAfter(
+            /databases/$(database)/documents/hazard_reports/$(hazardId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/hazard_reports/$(hazardId)
+          ).data.hasPhotoEvidence == true
+          && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.evidenceSha256 == request.resource.data.sourceSha256
+          && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.evidencePerceptualHash == request.resource.data.perceptualHash;
+
+        allow update, delete: if false;
+      }
+
+      match /votes/{userId} {
+        allow read: if (signedIn() && resource.data.userId == request.auth.uid)
+          || canReadHazard(hazardId);
+        allow create: if isActiveTraveler()
+          && request.resource.data.keys().hasOnly([
+            'userId', 'voteType', 'createdAt', 'distanceFromHazardMeters',
+            'proximityBand', 'isGpsValidated', 'photoUrl', 'hasPhotoEvidence',
+            'evidenceStorage', 'evidenceValidationResult', 'evidenceSha256',
+            'evidencePerceptualHash', 'evidenceSource', 'sceneMatchScore'
+          ])
+          && request.resource.data.createdAt == request.time
+          && userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid
+          && validVote(request.resource.data.voteType)
+          && validOptionalSceneMatch(request.resource.data)
+          && request.resource.data.distanceFromHazardMeters is number
+          && request.resource.data.distanceFromHazardMeters >= 0
+          && request.resource.data.distanceFromHazardMeters <= 500
+          && request.resource.data.proximityBand == (
+            request.resource.data.distanceFromHazardMeters <= 100 ? 'STRONG' :
+            request.resource.data.distanceFromHazardMeters <= 300 ? 'NORMAL' : 'WEAK')
+          && request.resource.data.isGpsValidated == true
+          && request.resource.data.hasPhotoEvidence is bool
+          && request.resource.data.photoUrl is string
+          && (
+            (request.resource.data.hasPhotoEvidence == false
+              && request.resource.data.evidenceStorage == 'none'
+              && !('evidenceValidationResult' in request.resource.data)
+              && !('sceneMatchScore' in request.resource.data))
+            || (
+              request.resource.data.evidenceStorage == 'firestore'
+              && validEvidenceValidation(
+                request.resource.data.evidenceValidationResult
+              )
+              && request.resource.data.evidenceSha256 is string
+              && request.resource.data.evidencePerceptualHash is string
+              && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
+              && request.resource.data.evidenceSha256 == request.resource.data.evidenceValidationResult.sha256Fingerprint
+              && request.resource.data.evidencePerceptualHash == request.resource.data.evidenceValidationResult.perceptualHash
+              && request.resource.data.evidenceSource == request.resource.data.evidenceValidationResult.evidenceSource
+              && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)/evidence/photo).data.sourceSha256 == request.resource.data.evidenceSha256
+            )
+          )
+          && hasNoAiFields(request.resource.data)
+          && hasNoServerVoteValidationFields(request.resource.data)
+          && get(/databases/$(database)/documents/hazard_reports/$(hazardId)).data.status == 'Verified';
+
+        // Votes are immutable from client SDKs.
+        allow update, delete: if false;
+
+        match /evidence/{evidenceId} {
+          allow read: if canReadHazard(hazardId);
+          allow create: if evidenceId == 'photo'
+            && isActiveTraveler()
+            && userId == request.auth.uid
+            && request.resource.data.keys().hasOnly([
+              'hazardId', 'userId', 'imageBytes', 'contentType',
+              'byteLength', 'sourceSha256', 'perceptualHash',
+              'validationLevel', 'evidenceSource', 'sceneMatchScore', 'createdAt'
+            ])
+            && validOptionalSceneMatch(request.resource.data)
+            && request.resource.data.hazardId == hazardId
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.imageBytes is bytes
+            && request.resource.data.imageBytes.size() <= 400 * 1024
+            && request.resource.data.byteLength
+              == request.resource.data.imageBytes.size()
+            && request.resource.data.contentType == 'image/jpeg'
+            && request.resource.data.sourceSha256 is string
+            && request.resource.data.perceptualHash is string
+            && request.resource.data.validationLevel in [
+              'STRONG', 'GOOD', 'ACCEPTABLE', 'LOW_QUALITY'
+            ]
+            && request.resource.data.evidenceSource in ['CAMERA', 'GALLERY']
+            && request.resource.data.createdAt == request.time
+            && get(
+              /databases/$(database)/documents/hazard_reports/$(hazardId)
+            ).data.status == 'Verified'
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.hasPhotoEvidence == true
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.evidenceSha256 == request.resource.data.sourceSha256
+            && getAfter(/databases/$(database)/documents/hazard_reports/$(hazardId)/votes/$(userId)).data.evidencePerceptualHash == request.resource.data.perceptualHash;
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isAdmin()
+        && request.resource.data.notificationId == notificationId
+        && request.resource.data.type == 'hazard_status'
+        && request.resource.data.hazardId is string
+        && request.resource.data.isRead == false
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/hazard_reports/$(request.resource.data.hazardId)).data.userId == request.resource.data.userId;
+
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isRead', 'read', 'readAt'
+        ])
+        && request.resource.data.isRead == true;
+
+      allow delete: if false;
+    }
+  }
+}

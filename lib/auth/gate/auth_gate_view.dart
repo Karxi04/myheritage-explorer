@@ -15,7 +15,10 @@ class AuthGate extends StatelessWidget {
         }
 
         final user = authSnapshot.data;
-        if (user == null) return const RoleSelectPage();
+        if (user == null) {
+          MobileNotificationService.instance.clearPendingPayload();
+          return const RoleSelectPage();
+        }
 
         return _ResolvedRoleGate(key: ValueKey(user.uid), user: user);
       },
@@ -184,6 +187,17 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
       );
     }
 
+    if (profile['status'] != 'active') {
+      return const AccountDisabledPage();
+    }
+
+    if (!widget.user.emailVerified && role != 'admin') {
+      return EmailVerificationPage(user: widget.user);
+    }
+
+    if (role != 'traveler') {
+      MobileNotificationService.instance.clearPendingPayload();
+    }
     if (role == 'admin') {
       if (!kIsWeb) {
         return const PlatformRestrictionPage(

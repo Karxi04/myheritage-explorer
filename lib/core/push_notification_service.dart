@@ -161,7 +161,7 @@ class PushNotificationService {
     );
 
     await _localNotifications.initialize(
-      initializationSettings,
+      settings: initializationSettings,
       onDidReceiveNotificationResponse:
           (
           NotificationResponse response,
@@ -775,14 +775,14 @@ class PushNotificationService {
     });
 
     await _localNotifications.show(
-      DateTime.now()
+      id: DateTime.now()
           .microsecondsSinceEpoch
           .remainder(
         2147483647,
       ),
-      title,
-      body,
-      NotificationDetails(
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
         android:
         androidDetails,
         iOS:

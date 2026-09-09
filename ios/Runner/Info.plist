@@ -26,6 +26,18 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Vendors use the camera to scan tourist voucher QR codes, and travelers can attach evidence to safety reports.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>MyHeritage Explorer uses your location to report hazards, warn you about nearby verified danger zones, and find nearby local business rewards.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Your location is used in the background to notify you when you approach a participating local business with an active reward.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MyHeritage Explorer can use a selected photo as evidence for a safety report.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

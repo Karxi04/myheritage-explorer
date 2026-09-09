@@ -28,9 +28,7 @@ class TravelerNotificationBell extends StatelessWidget {
               tooltip: 'Notifications',
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const NotificationsPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const NotificationsPage()),
               ),
               icon: Icon(
                 unreadCount > 0
@@ -77,9 +75,9 @@ class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
   Future<void> _openPrivateChat(
-      BuildContext context,
-      String chatId,
-      ) async {
+    BuildContext context,
+    String chatId,
+  ) async {
     if (chatId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -108,7 +106,7 @@ class NotificationsPage extends StatelessWidget {
     );
 
     final otherUserId = participantIds.firstWhere(
-          (id) => id != uid,
+      (id) => id != uid,
       orElse: () => '',
     );
 
@@ -148,9 +146,9 @@ class NotificationsPage extends StatelessWidget {
   }
 
   Future<void> _openGroupChat(
-      BuildContext context,
-      String groupId,
-      ) async {
+    BuildContext context,
+    String groupId,
+  ) async {
     if (groupId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -174,9 +172,7 @@ class NotificationsPage extends StatelessWidget {
 
     final group = groupSnapshot.data() ?? const <String, dynamic>{};
 
-    final memberIds = List<String>.from(
-      group['memberIds'] ?? const <String>[],
-    );
+    final memberIds = List<String>.from(group['memberIds'] ?? const <String>[]);
 
     if (!memberIds.contains(uid)) {
       if (context.mounted) {
@@ -203,9 +199,9 @@ class NotificationsPage extends StatelessWidget {
   }
 
   Future<void> _openSos(
-      BuildContext context,
-      String alertId,
-      ) async {
+    BuildContext context,
+    String alertId,
+  ) async {
     if (alertId.isEmpty) return;
 
     final alertSnapshot = await AppServices.db
@@ -242,19 +238,16 @@ class NotificationsPage extends StatelessWidget {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GroupDetailsPage(
-          groupId: groupId,
-          group: group,
-          initialTab: 2,
-        ),
+        builder: (_) =>
+            GroupDetailsPage(groupId: groupId, group: group, initialTab: 2),
       ),
     );
   }
 
   Future<void> _handleNotificationTap(
-      BuildContext context,
-      QueryDocumentSnapshot<Map<String, dynamic>> document,
-      ) async {
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> document,
+  ) async {
     final data = document.data();
 
     if (data['read'] != true) {
@@ -271,19 +264,13 @@ class NotificationsPage extends StatelessWidget {
 
     switch (type) {
       case 'group_message':
-        await _openGroupChat(
-          context,
-          '${data['groupId'] ?? referenceId}',
-        );
+        await _openGroupChat(context, '${data['groupId'] ?? referenceId}');
         return;
 
       case 'private_message':
       case 'private_chat':
       case 'private_location_shared':
-        await _openPrivateChat(
-          context,
-          '${data['chatId'] ?? referenceId}',
-        );
+        await _openPrivateChat(context, '${data['chatId'] ?? referenceId}');
         return;
 
       case 'private_location_request':
@@ -299,29 +286,22 @@ class NotificationsPage extends StatelessWidget {
         }
 
         if (context.mounted && chatId.isNotEmpty) {
-          await _openPrivateChat(
-            context,
-            chatId,
-          );
+          await _openPrivateChat(context, chatId);
         }
         return;
 
       case 'sos':
-        await _openSos(
-          context,
-          referenceId,
-        );
+        await _openSos(context, referenceId);
         return;
 
       case 'companion_group':
         await Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => const CompanionPage(),
-          ),
+          MaterialPageRoute(builder: (_) => const CompanionPage()),
         );
         return;
 
+      case 'itinerary':
       case 'itinerary':
         final itineraryId = '${data['referenceId'] ?? ''}'.trim();
         if (itineraryId.isNotEmpty && context.mounted) {
@@ -335,7 +315,20 @@ class NotificationsPage extends StatelessWidget {
         return;
 
       default:
-      // Generic notifications are simply marked as read.
+        if (type.startsWith('hazard')) {
+          final hazardId = '${data['hazardId'] ?? referenceId}'.trim();
+          if (hazardId.isNotEmpty) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => HazardDetailPage(
+                  hazardId: hazardId,
+                  showStatusHistory: true,
+                ),
+              ),
+            );
+          }
+        }
         return;
     }
   }
@@ -348,6 +341,9 @@ class NotificationsPage extends StatelessWidget {
       'private_location_shared' => Icons.location_on_outlined,
       'sos' => Icons.sos_rounded,
       'companion_group' => Icons.groups_outlined,
+      'itinerary' => Icons.route_outlined,
+      String value when value.startsWith('hazard') =>
+        Icons.warning_amber_rounded,
       _ => Icons.notifications_none,
     };
   }
@@ -357,11 +353,7 @@ class NotificationsPage extends StatelessWidget {
     final uid = AppServices.auth.currentUser?.uid;
 
     if (uid == null) {
-      return const Scaffold(
-        body: Center(
-          child: Text('Please sign in first.'),
-        ),
-      );
+      return const Scaffold(body: Center(child: Text('Please sign in first.')));
     }
 
     return Scaffold(
@@ -372,7 +364,7 @@ class NotificationsPage extends StatelessWidget {
             ExplorerPageHeader(
               title: 'Notifications',
               subtitle:
-              'Messages, safety alerts, location requests and account updates.',
+                  'Messages, safety alerts, location requests and account updates.',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -398,41 +390,31 @@ class NotificationsPage extends StatelessWidget {
                   }
 
                   if (!snapshot.hasData) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
+                    return const Center(child: CircularProgressIndicator());
                   }
 
                   final docs = snapshot.data!.docs.toList()
                     ..sort(
-                          (a, b) =>
-                          (asDate(b.data()['createdAt']) ??
-                              DateTime(2000))
+                      (a, b) =>
+                          (asDate(b.data()['createdAt']) ?? DateTime(2000))
                               .compareTo(
-                            asDate(a.data()['createdAt']) ??
-                                DateTime(2000),
-                          ),
+                                asDate(a.data()['createdAt']) ?? DateTime(2000),
+                              ),
                     );
 
                   if (docs.isEmpty) {
                     return const ExplorerEmptyState(
                       title: 'No notifications yet',
                       subtitle:
-                      'New private messages, group messages and important updates will appear here.',
+                          'New private messages, group messages and important updates will appear here.',
                       icon: Icons.notifications_none_rounded,
                     );
                   }
 
                   return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      18,
-                      16,
-                      30,
-                    ),
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                     itemCount: docs.length,
-                    separatorBuilder: (_, _) =>
-                    const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final document = docs[index];
                       final data = document.data();
@@ -441,8 +423,9 @@ class NotificationsPage extends StatelessWidget {
                       final type = '${data['type'] ?? 'general'}';
 
                       return ExplorerCard(
-                        backgroundColor:
-                        read ? Colors.white : ExplorerColors.navySoft,
+                        backgroundColor: read
+                            ? Colors.white
+                            : ExplorerColors.navySoft,
                         borderColor: read
                             ? ExplorerColors.border
                             : const Color(0xFFB9CBE2),
@@ -461,16 +444,12 @@ class NotificationsPage extends StatelessWidget {
                               foregroundColor: read
                                   ? ExplorerColors.muted
                                   : Colors.white,
-                              child: Icon(
-                                _notificationIcon(type),
-                                size: 21,
-                              ),
+                              child: Icon(_notificationIcon(type), size: 21),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     children: [
@@ -504,9 +483,9 @@ class NotificationsPage extends StatelessWidget {
                                   Text(
                                     createdAt == null
                                         ? 'Recently'
-                                        : DateFormat.yMMMd()
-                                        .add_jm()
-                                        .format(createdAt),
+                                        : DateFormat.yMMMd().add_jm().format(
+                                            createdAt,
+                                          ),
                                     style: const TextStyle(
                                       color: ExplorerColors.muted,
                                       fontSize: 10,

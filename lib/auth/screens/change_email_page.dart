@@ -22,18 +22,29 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
 
   Future<void> updateEmail() async {
     final emailValue = newEmail.text.trim().toLowerCase();
-    if (emailValue.isEmpty || !isValidEmail(emailValue)) {
+    final validEmail = RegExp(
+      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+    ).hasMatch(emailValue);
+    if (emailValue.isEmpty || !validEmail) {
       showMessage(context, 'Enter a valid new email address.', error: true);
       return;
     }
 
     if (password.text.isEmpty) {
-      showMessage(context, 'Enter your password to confirm the change.', error: true);
+      showMessage(
+        context,
+        'Enter your password to confirm the change.',
+        error: true,
+      );
       return;
     }
 
     if (emailValue == AppServices.auth.currentUser?.email) {
-      showMessage(context, 'New email must be different from the current one.', error: true);
+      showMessage(
+        context,
+        'New email must be different from the current one.',
+        error: true,
+      );
       return;
     }
 
@@ -122,7 +133,10 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
                             radius: 30,
                             backgroundColor: ExplorerColors.navySoft,
                             foregroundColor: ExplorerColors.navy,
-                            child: Icon(Icons.alternate_email_rounded, size: 28),
+                            child: Icon(
+                              Icons.alternate_email_rounded,
+                              size: 28,
+                            ),
                           ),
                           const SizedBox(height: 18),
                           Text(
@@ -153,8 +167,9 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
                               labelText: 'Confirm Password',
                               prefixIcon: const Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
-                                onPressed: () =>
-                                    setState(() => hidePassword = !hidePassword),
+                                onPressed: () => setState(
+                                  () => hidePassword = !hidePassword,
+                                ),
                                 icon: Icon(
                                   hidePassword
                                       ? Icons.visibility_off_outlined
@@ -166,7 +181,9 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
                           const SizedBox(height: 24),
                           ElevatedButton(
                             onPressed: busy ? null : updateEmail,
-                            child: Text(busy ? 'Processing...' : 'Send Verification Link'),
+                            child: Text(
+                              busy ? 'Processing...' : 'Send Verification Link',
+                            ),
                           ),
                           const SizedBox(height: 12),
                           const Text(

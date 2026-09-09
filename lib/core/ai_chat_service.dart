@@ -6,8 +6,7 @@ import 'package:firebase_ai/firebase_ai.dart';
 class AiChatService {
   AiChatService._();
 
-  static final _model =
-  FirebaseAI.googleAI().generativeModel(
+  static final _model = FirebaseAI.googleAI().generativeModel(
     model: 'gemini-3.7-flash',
   );
 
@@ -20,104 +19,241 @@ class AiChatService {
   }
 
   // ============================================================
-  // ITINERARY INTENT + SLOT EXTRACTION
+  // DAILY PLANNER INTENT + SLOT EXTRACTION
   // ============================================================
 
-  static Future<Map<String, dynamic>>
-  analyseItineraryMessage({
+  static Future<Map<String, dynamic>> analyseItineraryMessage({
     required String message,
     required Map<String, dynamic> currentDraft,
     String? expectedField,
   }) async {
-    final today =
-        DateTime.now().toIso8601String().split('T').first;
+    final today = DateTime.now().toIso8601String().split('T').first;
 
     final prompt = '''
-You are the intent and travel-preference extractor for
-MyHeritage Explorer, a Malaysian sustainable tourism app.
+You are the intelligent Daily Planner conversation controller for
+MyHeritage Explorer, a Malaysian sustainable tourism application.
 
 Today's date is:
 $today
 
-The user may want the chatbot to create an itinerary by
-collaborating with the application's Daily Planner module.
+The Flutter application performs the real itinerary generation.
+Your job is ONLY to understand the user's intent and extract planner
+preferences from natural language.
 
-The Daily Planner requires these fields:
+============================================================
+REAL DAILY PLANNER FIELDS
+============================================================
 
 1. area
-   Example: George Town, Penang
+Examples:
+- George Town
+- Batu Ferringhi
+- Melaka City
+- Bukit Bintang
+- Ipoh Old Town
+
+Normalize obvious names when useful:
+- Georgetown -> George Town
+- KL -> Kuala Lumpur / requested KL area only when the user is clear
 
 2. date
-   Convert dates such as:
-   "tomorrow"
-   "this Saturday"
-   "30 August"
-   into YYYY-MM-DD.
+This is the trip START date.
+Return YYYY-MM-DD.
+Understand:
+- today
+- tomorrow
+- this Saturday
+- next Monday
+- 30 August
+- 8 September 2026
 
-3. interests
-   ONLY use these official categories:
-   - Heritage
-   - Food
-   - Art
-   - Culture
-   - Nature
+3. dayCount
+Number of travel days.
+Examples:
+- one day -> 1
+- 2-day trip -> 2
+- weekend trip -> 2 when explicitly described as two days
+Do not invent a multi-day trip if the user did not indicate it.
 
-4. budgetLevel
-   ONLY:
-   - Low
-   - Medium
-   - High
+4. interests
+ONLY use these official values:
+- Heritage
+- Food
+- Art
+- Culture
+- Nature
 
-5. travelPace
-   ONLY:
-   - Relaxed
-   - Balanced
-   - Fast
+Mappings:
+- history, historical -> Heritage
+- restaurants, cafe, local cuisine -> Food
+- street art, gallery -> Art
+- traditional, cultural -> Culture
+- park, beach, hiking -> Nature
 
-   If the user says "moderate", use Balanced.
-   If the user says "packed", use Fast.
+5. budgetLevel
+ONLY:
+- Low
+- Medium
+- High
 
-6. availableHours
-   Number of hours available for the itinerary.
+Mappings:
+- cheap, budget -> Low
+- moderate, normal -> Medium
+- premium, expensive -> High
 
-Current itinerary draft:
+6. travelPace
+ONLY:
+- Relaxed
+- Balanced
+- Fast
+
+Mappings:
+- slow, easy -> Relaxed
+- moderate, normal -> Balanced
+- packed, quick -> Fast
+
+7. availableHours
+Number of available hours PER DAY.
+Examples:
+- 4 hours -> 4
+- 6.5 hours -> 6.5
+
+8. preferredStartMinutes
+Minutes after midnight.
+Examples:
+- 9:00 AM -> 540
+- 10 AM -> 600
+- 1:30 PM -> 810
+
+9. foodExplorationEnabled
+Boolean.
+Use true when the user explicitly asks for stronger food exploration,
+food hunting, local food discovery, food crawl, or extra food stops.
+Use false only when the user explicitly turns it off.
+Otherwise return null.
+
+10. interestsMode
+Only relevant when interests are changed during an existing draft.
+Return:
+- "replace" when the user says change/switch interests to something
+- "add" when the user says add/include another interest
+- null otherwise
+
+============================================================
+CURRENT ITINERARY DRAFT
+============================================================
+
 ${jsonEncode(currentDraft)}
 
-The field the application is currently expecting is:
+The application is currently expecting:
 ${expectedField ?? 'none'}
 
 Latest user message:
 $message
 
-IMPORTANT RULES:
+============================================================
+VALID INTENTS
+============================================================
 
-- Never invent a preference the user did not provide.
-- If a current itinerary draft exists, short replies such as
-  "George Town", "Medium", "Relaxed", "6 hours", or
-  "Food and Heritage" should be interpreted according to the
-  expected field.
-- If the user asks to create, make, generate, prepare or plan an
-  itinerary, use intent "create_itinerary".
-- If they are answering an itinerary question already in progress,
-  use intent "continue_itinerary".
-- If they clearly say yes, confirm, generate it, create it now,
-  proceed, go ahead, etc., use intent "confirm".
-- If they say cancel, stop, never mind, reset, etc.,
-  use intent "cancel".
-- Otherwise use intent "other".
+Use ONLY:
 
-Return ONLY one valid JSON object.
+create_itinerary
+continue_itinerary
+update_itinerary
+confirm
+cancel
+suggest_area
+other
 
-Use exactly this structure:
+============================================================
+INTENT RULES
+============================================================
+
+create_itinerary:
+Use when the user wants to create, make, generate, prepare or plan a
+trip/itinerary.
+
+continue_itinerary:
+Use when an itinerary draft is active and the user is answering the
+currently requested field.
+
+update_itinerary:
+Use when the user changes ANY existing preference, even while waiting
+for final confirmation.
+Examples:
+- change location to Georgetown
+- location give me Georgetown
+- actually use Batu Ferringhi
+- change budget to Medium
+- make the pace faster
+- use 8 hours instead
+- make it 2 days
+- start at 10am instead
+- change interests to Food and Heritage
+- also add Nature
+- enable food exploration
+
+confirm:
+ONLY when the user clearly approves generation without changing a
+preference.
+Examples:
+- yes
+- confirm
+- looks good
+- go ahead
+- generate it now
+
+If the user says "yes but change location to George Town", use
+update_itinerary, not confirm.
+
+cancel:
+Use for cancel, stop, never mind, reset itinerary, forget it.
+
+suggest_area:
+Use when the user asks the assistant to recommend a destination instead
+of giving an area.
+Examples:
+- what do you suggest?
+- recommend somewhere
+- where should I go?
+- you choose a location
+Do NOT save those sentences as the area.
+
+other:
+Use when the message is not part of itinerary planning.
+
+============================================================
+EXTRACTION RULES
+============================================================
+
+- Never invent a user preference.
+- Do NOT copy unchanged fields from currentDraft into your response.
+- Return only values actually supplied or changed in the latest message.
+- Multiple fields may be extracted from one message.
+- Short replies should be interpreted according to expectedField.
+- Imperfect grammar and casual English should still be understood.
+- When expectedField is "confirmation", changes take priority over yes/no.
+- If the user asks for a suggestion, area must remain null until the user
+  actually chooses a destination.
+
+============================================================
+OUTPUT
+============================================================
+
+Return ONLY one JSON object in exactly this structure:
 
 {
-  "intent": "create_itinerary",
+  "intent": "other",
   "area": null,
   "date": null,
+  "dayCount": null,
   "interests": [],
+  "interestsMode": null,
   "budgetLevel": null,
   "travelPace": null,
-  "availableHours": null
+  "availableHours": null,
+  "preferredStartMinutes": null,
+  "foodExplorationEnabled": null
 }
 
 Do not include Markdown.
@@ -126,79 +262,146 @@ Do not explain the JSON.
 ''';
 
     final raw = await _generateText(prompt);
-
     return _extractJsonObject(raw);
   }
 
   // ============================================================
-  // INTERNAL MODEL CALL WITH RETRY
+  // APP MODULE ACTION ROUTER
   // ============================================================
 
-  static Future<Map<String, dynamic>>
-  analyseAppAction({
+  static Future<Map<String, dynamic>> analyseAppAction({
     required String message,
     required Map<String, dynamic> appContext,
   }) async {
     final prompt = '''
-You are the intent router for MyHeritage Explorer.
+You are the action router for the MyHeritage Explorer AI assistant.
 
-The chatbot is connected to REAL application modules.
+The assistant can READ real module data and OPEN real module screens.
+Flutter performs the actual actions.
 
-Available modules:
+============================================================
+AVAILABLE MODULES
+============================================================
 
-1. daily_planner
-2. companion
-3. safety
-4. rewards
-5. cultural
-6. notifications
-7. profile
+Daily Planner:
+- saved itineraries
+- latest itinerary
+- itinerary day/stops
+- itinerary editing
+- itinerary rewards/cultural tasks
+- safety checking around itinerary stops
 
-Current real application context:
+Rewards:
+- reward points
+- available vouchers
+- rewards screen
+- voucher wallet
+
+Cultural:
+- active cultural tasks
+- cultural tasks screen
+
+Safety:
+- verified hazards
+- safety screen
+- hazard report form
+
+Companion:
+- active travel groups
+- group members
+- group chat
+- companion screen
+
+Notifications:
+- unread count
+- notifications screen
+
+Profile:
+- traveler profile
+
+============================================================
+REAL APP CONTEXT
+============================================================
 
 ${jsonEncode(appContext)}
 
 Latest user message:
-
 $message
 
-Your job is ONLY to determine what application action the user wants.
-
-Possible actions:
+============================================================
+POSSIBLE ACTIONS
+============================================================
 
 general_chat
+
 show_reward_points
 show_rewards
 open_rewards
 open_voucher_wallet
+
 show_groups
 open_companion
 open_group_chat
 show_group_members
+
 show_hazards
 open_safety
 report_hazard
+
 show_cultural_tasks
 open_cultural_tasks
+
 show_notifications
 open_notifications
+
 show_profile
 open_profile
+
 show_itineraries
 open_itineraries
+describe_latest_itinerary
+open_latest_itinerary
+edit_latest_itinerary
+show_itinerary_rewards
+show_itinerary_cultural_tasks
+check_itinerary_safety
 
-For open_group_chat:
-- targetName should contain the requested group name if supplied.
+============================================================
+TARGET RULES
+============================================================
 
-IMPORTANT:
+For open_group_chat or show_group_members:
+- targetName = requested group name if supplied
+- otherwise null
 
-- Never claim an action was completed.
-- You only select an action.
-- Flutter code performs the actual action.
-- SOS must NEVER be automatically triggered.
-- Voucher claims must NEVER be automatically performed.
-- Hazard reports must NEVER be automatically submitted.
-- If unsure, use general_chat.
+For itinerary-day questions:
+- use describe_latest_itinerary
+- targetNumber = requested day number, e.g. 2 for "what is on day 2?"
+
+For all other actions targetName and targetNumber can be null.
+
+============================================================
+SAFETY RULES
+============================================================
+
+Never claim that Flutter already performed an action.
+Never automatically:
+- trigger SOS
+- share GPS
+- claim a voucher
+- submit a hazard report
+- remove a group member
+- quit a group
+- delete user data
+
+For a request to send SOS, route to open_companion so the user can use
+the existing explicit-confirmation SOS flow.
+
+If unsure, use general_chat.
+
+============================================================
+OUTPUT
+============================================================
 
 Return ONLY JSON:
 
@@ -206,92 +409,108 @@ Return ONLY JSON:
   "action": "general_chat",
   "module": null,
   "targetName": null,
+  "targetNumber": null,
   "confidence": 0.0
 }
+
+Do not include Markdown.
+Do not explain the answer.
 ''';
 
-    final raw =
-    await _generateText(prompt);
-
+    final raw = await _generateText(prompt);
     return _extractJsonObject(raw);
   }
 
+  // ============================================================
+  // INTERNAL MODEL CALL WITH RETRY
+  // ============================================================
 
-
-  static Future<String> _generateText(
-      String prompt,
-      ) async {
+  static Future<String> _generateText(String prompt) async {
     Object? lastError;
 
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        final response =
-        await _model.generateContent(
-          [
-            Content.text(prompt),
-          ],
-        ).timeout(
-          const Duration(seconds: 45),
-        );
+        final response = await _model
+            .generateContent([Content.text(prompt)])
+            .timeout(const Duration(seconds: 45));
 
         final text = response.text?.trim();
-
         if (text == null || text.isEmpty) {
+          throw Exception('The AI assistant returned an empty response.');
+        }
+        return text;
+      } on TimeoutException {
+        lastError = Exception('The AI assistant took too long to respond.');
+      } catch (error) {
+        final lower = error.toString().toLowerCase();
+
+        // Do not hammer App Check when Firebase is already throttling it.
+        if (lower.contains('firebase_app_check') ||
+            lower.contains('too many attempts') ||
+            lower.contains('app check')) {
           throw Exception(
-            'The AI assistant returned an empty response.',
+            'Firebase App Check is rejecting the AI request. Make sure this '
+                'device debug token is registered in Firebase Console, then '
+                'restart the app and try again.',
           );
         }
 
-        return text;
-      } on TimeoutException {
-        lastError = Exception(
-          'The AI assistant took too long to respond.',
-        );
-      } catch (error) {
+        if (lower.contains('permission-denied') ||
+            lower.contains('permission denied') ||
+            lower.contains('unauthenticated')) {
+          throw Exception(
+            'The AI request was rejected because the app does not currently '
+                'have permission to access the AI service.',
+          );
+        }
+
         lastError = error;
       }
 
       if (attempt < 3) {
-        await Future.delayed(
-          Duration(
-            milliseconds: 900 * attempt,
-          ),
-        );
+        await Future.delayed(Duration(milliseconds: 900 * attempt));
       }
     }
 
-    final message =
-        lastError?.toString() ?? '';
+    final message = (lastError?.toString() ?? '')
+        .replaceFirst('Exception: ', '')
+        .trim();
+    final lower = message.toLowerCase();
 
     if (message.contains('500') ||
-        message.contains('INTERNAL') ||
-        message.toLowerCase().contains('high demand')) {
+        lower.contains('internal') ||
+        lower.contains('high demand') ||
+        lower.contains('overloaded') ||
+        lower.contains('unavailable')) {
       throw Exception(
-        'The AI service is temporarily busy because of high '
-            'demand. Please try again in a moment.',
+        'The AI service is temporarily busy. Please try again in a moment.',
       );
     }
 
-    throw Exception(
-      message
-          .replaceFirst('Exception: ', '')
-          .trim()
-          .isEmpty
-          ? 'Unable to contact the AI assistant.'
-          : message.replaceFirst('Exception: ', ''),
-    );
+    if (message.contains('429') ||
+        lower.contains('quota') ||
+        lower.contains('rate limit') ||
+        lower.contains('resource_exhausted')) {
+      throw Exception(
+        'The AI service is receiving too many requests. Please wait a moment '
+            'before trying again.',
+      );
+    }
+
+    if (message.isEmpty) {
+      throw Exception('Unable to contact the AI assistant.');
+    }
+
+    throw Exception(message);
   }
 
   // ============================================================
   // SAFE JSON EXTRACTION
   // ============================================================
 
-  static Map<String, dynamic> _extractJsonObject(
-      String raw,
-      ) {
-    var text = raw.trim();
-
-    text = text
+  static Map<String, dynamic> _extractJsonObject(String raw) {
+    var text = raw
+        .trim()
         .replaceAll('```json', '')
         .replaceAll('```JSON', '')
         .replaceAll('```', '')
@@ -300,24 +519,15 @@ Return ONLY JSON:
     final firstBrace = text.indexOf('{');
     final lastBrace = text.lastIndexOf('}');
 
-    if (firstBrace >= 0 &&
-        lastBrace > firstBrace) {
-      text = text.substring(
-        firstBrace,
-        lastBrace + 1,
-      );
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      text = text.substring(firstBrace, lastBrace + 1);
     }
 
     final decoded = jsonDecode(text);
-
     if (decoded is! Map) {
-      throw const FormatException(
-        'AI response was not a JSON object.',
-      );
+      throw const FormatException('AI response was not a JSON object.');
     }
 
-    return Map<String, dynamic>.from(
-      decoded,
-    );
+    return Map<String, dynamic>.from(decoded);
   }
 }

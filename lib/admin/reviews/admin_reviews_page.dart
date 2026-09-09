@@ -175,12 +175,20 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
             ),
             const SizedBox(height: 22),
             ExplorerCard(
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  ExplorerSearchField(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 980;
+                  final textScaler = MediaQuery.textScalerOf(context);
+                  final scale = textScaler.scale(1.0);
+                  final effectiveSearchWidth = isWide
+                      ? 360.0
+                      : (360.0 * scale).clamp(240.0, constraints.maxWidth);
+                  final effectiveDropdownWidth = (210.0 * scale).clamp(
+                    210.0,
+                    constraints.maxWidth,
+                  );
+
+                  final searchField = ExplorerSearchField(
                     controller: search,
                     hintText: 'Search review, place or user...',
                     width: 340,
@@ -189,6 +197,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                   SizedBox(
                     width: 200,
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: filter,
                       decoration: const InputDecoration(
                         labelText: 'Moderation status',
@@ -208,8 +217,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                         pageLimit = 50;
                       }),
                     ),
-                  ),
-                  ExplorerStatusBadge(
+                  );
+
+                  final queueBadge = ExplorerStatusBadge(
                     label: '${docs.length} IN QUEUE',
                     tone: docs.isEmpty
                         ? ExplorerStatusTone.success
@@ -233,8 +243,34 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                     label: Text(
                       seeding ? 'Syncing...' : 'Sync All Vendor Reviews',
                     ),
-                  ),
-                ],
+                  );
+
+                  if (isWide) {
+                    return Row(
+                      children: [
+                        searchField,
+                        const SizedBox(width: 12),
+                        filterDropdown,
+                        const SizedBox(width: 12),
+                        queueBadge,
+                        const Spacer(),
+                        syncButton,
+                      ],
+                    );
+                  }
+
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      searchField,
+                      filterDropdown,
+                      queueBadge,
+                      syncButton,
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 14),

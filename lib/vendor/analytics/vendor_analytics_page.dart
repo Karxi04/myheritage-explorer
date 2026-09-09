@@ -1,8 +1,303 @@
-﻿
 part of '../vendor_pages.dart';
 
-class VendorAnalyticsPage extends StatelessWidget {
-  const VendorAnalyticsPage({super.key});
+class VendorAnalyticsPage extends StatefulWidget {
+  const VendorAnalyticsPage({super.key, this.voucherId, this.voucherTitle});
+
+  final String? voucherId;
+  final String? voucherTitle;
+
+  @override
+  State<VendorAnalyticsPage> createState() => _VendorAnalyticsPageState();
+}
+
+class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
+  String period = 'All time';
+  DateTimeRange? customRange;
+  bool exporting = false;
+
+  String? get voucherId => widget.voucherId;
+  String? get voucherTitle => widget.voucherTitle;
+
+  bool _matchesPeriod(DateTime? date) {
+    if (period == 'All time') return true;
+    if (date == null) return false;
+    final now = DateTime.now();
+    final start = switch (period) {
+      '7 days' => now.subtract(const Duration(days: 7)),
+      '30 days' => now.subtract(const Duration(days: 30)),
+      'Custom' when customRange != null => customRange!.start,
+      _ => DateTime(2000),
+    };
+    final end = period == 'Custom' && customRange != null
+        ? DateTime(
+            customRange!.end.year,
+            customRange!.end.month,
+            customRange!.end.day,
+            23,
+            59,
+            59,
+          )
+        : now;
+    return !date.isBefore(start) && !date.isAfter(end);
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: customRange,
+    );
+    if (selected != null) {
+      setState(() {
+        customRange = selected;
+        period = 'Custom';
+      });
+    }
+  }
+
+  String get _periodLabel {
+    if (period == 'Custom' && customRange != null) {
+      return '${DateFormat.yMMMd().format(customRange!.start)} to ${DateFormat.yMMMd().format(customRange!.end)}';
+    }
+    return period;
+  }
+
+  String _csvCell(Object? value) {
+    final text = '${value ?? ''}'.replaceAll('"', '""');
+    return '"$text"';
+  }
+
+  String _pdfSafe(String value) => String.fromCharCodes(
+    value.runes.map((character) => character <= 255 ? character : 63),
+  );
+
+  String _exportName(String extension) {
+    final scope = (voucherTitle ?? 'all_vouchers')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    final date = DateFormat('yyyyMMdd').format(DateTime.now());
+    return 'myheritage_${scope.isEmpty ? 'analytics' : scope}_$date.$extension';
+  }
+
+  List<List<String>> _redemptionRows(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+  ) {
+    return redemptions.map((doc) {
+      final data = doc.data();
+      final redeemedAt = asDate(data['redeemedAt']);
+      final method = '${data['redemptionMethod'] ?? ''}' == 'pin'
+          ? '6-digit PIN'
+          : 'QR code';
+      return <String>[
+        '${data['voucherTitle'] ?? 'Voucher'}',
+        redeemedAt == null
+            ? 'Unknown date'
+            : DateFormat.yMMMd().add_jm().format(redeemedAt),
+        method,
+        '${data['pointCost'] ?? 0}',
+        '${data['claimId'] ?? doc.id}',
+      ];
+    }).toList();
+  }
+
+  Future<void> _exportReport({
+    required String format,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+    required num totalIssued,
+    required num totalClaimed,
+    required double redemptionRate,
+    required String peakHourLabel,
+  }) async {
+    if (exporting) return;
+    setState(() => exporting = true);
+    try {
+      final scope = voucherTitle ?? 'All published vouchers';
+      final rows = _redemptionRows(redemptions);
+      late final Uint8List bytes;
+      late final String mimeType;
+      late final String fileName;
+
+      if (format == 'csv') {
+        final csv = StringBuffer()
+          ..writeln(
+            ['MyHeritage Explorer Vendor Analytics'].map(_csvCell).join(','),
+          )
+          ..writeln(['Report scope', scope].map(_csvCell).join(','))
+          ..writeln(['Period', _periodLabel].map(_csvCell).join(','))
+          ..writeln(
+            [
+              'Generated',
+              DateFormat.yMMMd().add_jm().format(DateTime.now()),
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(['Campaign inventory', totalIssued].map(_csvCell).join(','))
+          ..writeln(['Total claimed', totalClaimed].map(_csvCell).join(','))
+          ..writeln(
+            [
+              'Filtered redemptions',
+              redemptions.length,
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(
+            [
+              'Redemption rate',
+              '${redemptionRate.toStringAsFixed(1)}%',
+            ].map(_csvCell).join(','),
+          )
+          ..writeln(
+            ['Peak redemption hour', peakHourLabel].map(_csvCell).join(','),
+          )
+          ..writeln()
+          ..writeln(
+            [
+              'Voucher',
+              'Redeemed at',
+              'Method',
+              'Points',
+              'Claim reference',
+            ].map(_csvCell).join(','),
+          );
+        for (final row in rows) {
+          csv.writeln(row.map(_csvCell).join(','));
+        }
+        bytes = Uint8List.fromList(utf8.encode('\uFEFF$csv'));
+        mimeType = 'text/csv';
+        fileName = _exportName('csv');
+      } else {
+        final document = pw.Document(
+          title: 'MyHeritage Explorer Vendor Analytics',
+          author: 'MyHeritage Explorer',
+        );
+        final navy = PdfColor.fromInt(ExplorerColors.navy.toARGB32());
+        final gold = PdfColor.fromInt(ExplorerColors.gold.toARGB32());
+        document.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(36),
+            header: (_) => pw.Container(
+              padding: const pw.EdgeInsets.only(bottom: 10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border(bottom: pw.BorderSide(color: gold, width: 2)),
+              ),
+              child: pw.Text(
+                'MYHERITAGE EXPLORER',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            footer: (context) => pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'Page ${context.pageNumber} of ${context.pagesCount}',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey600,
+                ),
+              ),
+            ),
+            build: (_) => [
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Vendor Analytics Report',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 23,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text('Scope: ${_pdfSafe(scope)}'),
+              pw.Text('Period: ${_pdfSafe(_periodLabel)}'),
+              pw.Text(
+                'Generated: ${DateFormat.yMMMd().add_jm().format(DateTime.now())}',
+              ),
+              pw.SizedBox(height: 18),
+              pw.TableHelper.fromTextArray(
+                headers: const ['Metric', 'Value'],
+                data: [
+                  ['Campaign inventory', '$totalIssued'],
+                  ['Total claimed', '$totalClaimed'],
+                  ['Filtered redemptions', '${redemptions.length}'],
+                  ['Redemption rate', '${redemptionRate.toStringAsFixed(1)}%'],
+                  ['Peak redemption hour', _pdfSafe(peakHourLabel)],
+                ],
+                headerDecoration: pw.BoxDecoration(color: navy),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+                cellPadding: const pw.EdgeInsets.all(7),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Redemption Details',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.TableHelper.fromTextArray(
+                headers: const [
+                  'Voucher',
+                  'Redeemed at',
+                  'Method',
+                  'Points',
+                  'Claim reference',
+                ],
+                data: rows.isEmpty
+                    ? const [
+                        ['No redemption records', '', '', '', ''],
+                      ]
+                    : rows
+                          .map(
+                            (row) => row.map(_pdfSafe).toList(growable: false),
+                          )
+                          .toList(),
+                headerDecoration: pw.BoxDecoration(color: navy),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 8,
+                ),
+                cellStyle: const pw.TextStyle(fontSize: 7),
+                cellPadding: const pw.EdgeInsets.all(5),
+              ),
+            ],
+          ),
+        );
+        bytes = await document.save();
+        mimeType = 'application/pdf';
+        fileName = _exportName('pdf');
+      }
+
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'MyHeritage Explorer analytics report',
+          text: '$scope - $_periodLabel',
+          files: [XFile.fromData(bytes, mimeType: mimeType, name: fileName)],
+          fileNameOverrides: [fileName],
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          'Unable to export report: ${error.toString().replaceFirst('Exception: ', '')}',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => exporting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,15 +325,18 @@ class VendorAnalyticsPage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final vouchers = voucherSnapshot.data!.docs;
+          final allVouchers = voucherSnapshot.data!.docs;
+          final vouchers = voucherId == null
+              ? allVouchers
+              : allVouchers.where((doc) => doc.id == voucherId).toList();
           final totalIssued = vouchers.fold<num>(
             0,
-            (sum, doc) =>
-                sum + ((doc.data()['inventoryLimit'] ?? 0) as num),
+            (total, doc) =>
+                total + ((doc.data()['inventoryLimit'] ?? 0) as num),
           );
           final totalClaimed = vouchers.fold<num>(
             0,
-            (sum, doc) => sum + ((doc.data()['claimCount'] ?? 0) as num),
+            (total, doc) => total + ((doc.data()['claimCount'] ?? 0) as num),
           );
 
           QueryDocumentSnapshot<Map<String, dynamic>>? topVoucher;
@@ -60,40 +358,86 @@ class VendorAnalyticsPage extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final redemptions = redemptionSnapshot.data!.docs.toList()
-                ..sort(
-                  (a, b) => (asDate(b.data()['redeemedAt']) ??
-                          DateTime(2000))
-                      .compareTo(
-                    asDate(a.data()['redeemedAt']) ?? DateTime(2000),
-                  ),
-                );
+              final redemptions =
+                  redemptionSnapshot.data!.docs
+                      .where(
+                        (doc) =>
+                            (voucherId == null ||
+                                doc.data()['voucherId'] == voucherId) &&
+                            _matchesPeriod(asDate(doc.data()['redeemedAt'])),
+                      )
+                      .toList()
+                    ..sort(
+                      (a, b) =>
+                          (asDate(b.data()['redeemedAt']) ?? DateTime(2000))
+                              .compareTo(
+                                asDate(a.data()['redeemedAt']) ??
+                                    DateTime(2000),
+                              ),
+                    );
 
               final rate = totalClaimed == 0
                   ? 0.0
                   : redemptions.length / totalClaimed * 100;
 
               final byDay = <String, int>{};
+              final byHour = <int, int>{};
               for (final doc in redemptions) {
                 final date = asDate(doc.data()['redeemedAt']);
                 if (date != null) {
                   final key = DateFormat('MM/dd').format(date);
                   byDay[key] = (byDay[key] ?? 0) + 1;
+                  byHour[date.hour] = (byHour[date.hour] ?? 0) + 1;
                 }
               }
+              int? peakHour;
+              for (final entry in byHour.entries) {
+                if (peakHour == null || entry.value > byHour[peakHour]!) {
+                  peakHour = entry.key;
+                }
+              }
+              final peakHourLabel = peakHour == null
+                  ? 'No data yet'
+                  : DateFormat('h a').format(DateTime(2000, 1, 1, peakHour));
               final trend = byDay.entries.toList()
                 ..sort((a, b) => a.key.compareTo(b.key));
               final trendValues = trend
                   .take(8)
                   .map((entry) => entry.value.toDouble())
                   .toList();
+              final interestCounts = <String, int>{};
+              for (final doc in redemptions) {
+                final rawTags = doc.data()['interestTags'];
+                if (rawTags is! Iterable) continue;
+                for (final rawTag in rawTags) {
+                  final tag = '$rawTag'.trim();
+                  if (tag.isNotEmpty) {
+                    interestCounts[tag] = (interestCounts[tag] ?? 0) + 1;
+                  }
+                }
+              }
+              final sortedInterests = interestCounts.entries.toList()
+                ..sort((a, b) => b.value.compareTo(a.value));
+              final topInterests = sortedInterests.take(4).toList();
+              final interestTotal = topInterests.fold<int>(
+                0,
+                (total, entry) => total + entry.value,
+              );
+              const interestColors = [
+                ExplorerColors.navy,
+                ExplorerColors.gold,
+                Color(0xFF5D88C7),
+                Color(0xFFBCC9D8),
+              ];
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                 children: [
-                  const Text(
-                    'Redemption Analytics',
-                    style: TextStyle(
+                  Text(
+                    voucherId == null
+                        ? 'Redemption Analytics'
+                        : '${voucherTitle ?? 'Voucher'} Analytics',
+                    style: const TextStyle(
                       color: ExplorerColors.navy,
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
@@ -101,11 +445,125 @@ class VendorAnalyticsPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Monitor voucher performance and tourist interest trends.',
-                    style: TextStyle(
+                  Text(
+                    voucherId == null
+                        ? 'Monitor voucher performance and tourist interest trends.'
+                        : 'Campaign-specific claims, redemptions and tourist interest.',
+                    style: const TextStyle(
                       color: ExplorerColors.muted,
                       fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final option in const [
+                        'All time',
+                        '7 days',
+                        '30 days',
+                      ])
+                        ChoiceChip(
+                          label: Text(option),
+                          selected: period == option,
+                          onSelected: (_) => setState(() => period = option),
+                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.date_range, size: 18),
+                        label: Text(
+                          period == 'Custom' && customRange != null
+                              ? '${DateFormat.MMMd().format(customRange!.start)} - ${DateFormat.MMMd().format(customRange!.end)}'
+                              : 'Custom',
+                        ),
+                        onPressed: _pickCustomRange,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  ExplorerCard(
+                    backgroundColor: ExplorerColors.navySoft,
+                    borderColor: const Color(0xFFC8D6EA),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: ExplorerColors.navy,
+                          foregroundColor: Colors.white,
+                          child: Icon(Icons.file_download_outlined),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Export this report',
+                                style: TextStyle(
+                                  color: ExplorerColors.navy,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                'Uses the selected period and voucher filter.',
+                                style: TextStyle(
+                                  color: ExplorerColors.muted,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          enabled: !exporting,
+                          tooltip: 'Choose export format',
+                          onSelected: (format) => unawaited(
+                            _exportReport(
+                              format: format,
+                              redemptions: redemptions,
+                              totalIssued: totalIssued,
+                              totalClaimed: totalClaimed,
+                              redemptionRate: rate,
+                              peakHourLabel: peakHourLabel,
+                            ),
+                          ),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'csv',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.table_chart_outlined),
+                                title: Text('Export CSV'),
+                                subtitle: Text('Open in Excel or Sheets'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'pdf',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.picture_as_pdf_outlined),
+                                title: Text('Export PDF'),
+                                subtitle: Text('Share or print a report'),
+                              ),
+                            ),
+                          ],
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: exporting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.more_vert,
+                                    color: ExplorerColors.navy,
+                                  ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -113,22 +571,38 @@ class VendorAnalyticsPage extends StatelessWidget {
                     children: [
                       Expanded(
                         child: ExplorerMetricCard(
-                          label: 'Total Vouchers Issued',
+                          label: voucherId == null
+                              ? 'Total Vouchers Issued'
+                              : 'Campaign Inventory',
                           value: '$totalIssued',
-                          caption: '+12% this month',
+                          caption: voucherId == null
+                              ? '$totalClaimed claimed overall'
+                              : '$totalClaimed claimed for this campaign',
                           compact: true,
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: ExplorerMetricCard(
-                          label: 'Avg. Redemption Rate',
+                          label: period == 'All time'
+                              ? 'Avg. Redemption Rate'
+                              : 'Filtered Redemption Rate',
                           value: '${rate.toStringAsFixed(1)}%',
-                          caption: '+5.4% this month',
+                          caption:
+                              '${redemptions.length} completed redemptions',
                           compact: true,
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 10),
+                  ExplorerMetricCard(
+                    label: 'Peak Redemption Hour',
+                    value: peakHourLabel,
+                    caption: peakHour == null
+                        ? 'Complete a QR redemption to calculate this.'
+                        : '${byHour[peakHour]} redemptions during this hour',
+                    compact: true,
                   ),
                   const SizedBox(height: 10),
                   ExplorerCard(
@@ -161,7 +635,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                topVoucher == null ? 'No voucher data' : '${topVoucher.data()['title'] ?? 'No voucher data'}',
+                                topVoucher == null
+                                    ? 'No voucher data'
+                                    : '${topVoucher.data()['title'] ?? 'No voucher data'}',
                                 style: const TextStyle(
                                   color: ExplorerColors.navy,
                                   fontSize: 16,
@@ -172,8 +648,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                           ),
                         ),
                         ExplorerStatusBadge(
-                          label:
-                              topVoucher == null ? '0 CLAIMS' : '${topVoucher.data()['claimCount'] ?? 0} CLAIMS',
+                          label: topVoucher == null
+                              ? '0 CLAIMS'
+                              : '${topVoucher.data()['claimCount'] ?? 0} CLAIMS',
                           tone: ExplorerStatusTone.warning,
                         ),
                       ],
@@ -182,30 +659,33 @@ class VendorAnalyticsPage extends StatelessWidget {
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Redemption Trend'),
                   const SizedBox(height: 10),
-                  ExplorerCard(
-                    child: SizedBox(
-                      height: 170,
-                      child: CustomPaint(
-                        painter: _VendorLineChartPainter(
-                          values: trendValues.isEmpty
-                              ? const [1, 2, 1.5, 3, 2.7, 4]
-                              : trendValues,
-                        ),
-                        child: const Align(
-                          alignment: Alignment.topLeft,
-                          child: Text(
-                            'CLAIMED / REDEEMED',
-                            style: TextStyle(
-                              color: ExplorerColors.muted,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .5,
+                  if (trendValues.isEmpty)
+                    const ExplorerEmptyState(
+                      title: 'No redemption trend yet',
+                      subtitle: 'Completed QR scans will build this chart.',
+                      icon: Icons.show_chart,
+                    )
+                  else
+                    ExplorerCard(
+                      child: SizedBox(
+                        height: 170,
+                        child: CustomPaint(
+                          painter: _VendorLineChartPainter(values: trendValues),
+                          child: const Align(
+                            alignment: Alignment.topLeft,
+                            child: Text(
+                              'REDEMPTIONS BY DAY',
+                              style: TextStyle(
+                                color: ExplorerColors.muted,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: .5,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Claimed vs Redeemed'),
                   const SizedBox(height: 10),
@@ -223,46 +703,50 @@ class VendorAnalyticsPage extends StatelessWidget {
                   const SizedBox(height: 18),
                   const ExplorerSectionTitle('Interest Tags Distribution'),
                   const SizedBox(height: 10),
-                  ExplorerCard(
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 120,
-                          height: 120,
-                          child: CustomPaint(
-                            painter: _VendorDonutPainter(),
+                  if (topInterests.isEmpty)
+                    const ExplorerEmptyState(
+                      title: 'No interest data yet',
+                      subtitle:
+                          'Anonymous tourist interests are captured at redemption.',
+                      icon: Icons.pie_chart_outline,
+                    )
+                  else
+                    ExplorerCard(
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 120,
+                            height: 120,
+                            child: CustomPaint(
+                              painter: _VendorDonutPainter(
+                                segments: [
+                                  for (var i = 0; i < topInterests.length; i++)
+                                    (
+                                      color: interestColors[i],
+                                      ratio:
+                                          topInterests[i].value / interestTotal,
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 18),
-                        const Expanded(
-                          child: Column(
-                            children: [
-                              _LegendRow(
-                                color: ExplorerColors.navy,
-                                label: 'Heritage',
-                                value: '40%',
-                              ),
-                              _LegendRow(
-                                color: ExplorerColors.gold,
-                                label: 'Food',
-                                value: '25%',
-                              ),
-                              _LegendRow(
-                                color: Color(0xFF5D88C7),
-                                label: 'Local',
-                                value: '20%',
-                              ),
-                              _LegendRow(
-                                color: Color(0xFFBCC9D8),
-                                label: 'Craft',
-                                value: '15%',
-                              ),
-                            ],
+                          const SizedBox(width: 18),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                for (var i = 0; i < topInterests.length; i++)
+                                  _LegendRow(
+                                    color: interestColors[i],
+                                    label: topInterests[i].key,
+                                    value:
+                                        '${(topInterests[i].value / interestTotal * 100).round()}%',
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 20),
                   const ExplorerSectionTitle('Recent Redemptions'),
                   const SizedBox(height: 10),
@@ -274,7 +758,9 @@ class VendorAnalyticsPage extends StatelessWidget {
                       icon: Icons.analytics_outlined,
                     )
                   else
-                    ...redemptions.take(8).map(
+                    ...redemptions
+                        .take(8)
+                        .map(
                           (doc) => Padding(
                             padding: const EdgeInsets.only(bottom: 9),
                             child: ExplorerCard(
@@ -301,7 +787,7 @@ class VendorAnalyticsPage extends StatelessWidget {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Voucher ${doc.data()['voucherId'] ?? ''}',
+                                          '${doc.data()['voucherTitle'] ?? 'Voucher ${doc.data()['voucherId'] ?? ''}'}',
                                           style: const TextStyle(
                                             color: ExplorerColors.navy,
                                             fontSize: 12,
@@ -310,7 +796,16 @@ class VendorAnalyticsPage extends StatelessWidget {
                                         ),
                                         const SizedBox(height: 3),
                                         Text(
-                                          doc.id.toUpperCase(),
+                                          asDate(doc.data()['redeemedAt']) ==
+                                                  null
+                                              ? 'Recently redeemed'
+                                              : DateFormat.yMMMd()
+                                                    .add_jm()
+                                                    .format(
+                                                      asDate(
+                                                        doc.data()['redeemedAt'],
+                                                      )!,
+                                                    ),
                                           style: const TextStyle(
                                             color: ExplorerColors.muted,
                                             fontSize: 9,
@@ -358,19 +853,13 @@ class _LegendRow extends StatelessWidget {
           Container(
             width: 9,
             height: 9,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: ExplorerColors.muted,
-                fontSize: 11,
-              ),
+              style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
             ),
           ),
           Text(
@@ -399,11 +888,7 @@ class _VendorLineChartPainter extends CustomPainter {
       ..strokeWidth = 1;
     for (var i = 1; i < 5; i++) {
       final y = size.height * i / 5;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        grid,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
     if (values.isEmpty) return;
@@ -413,7 +898,7 @@ class _VendorLineChartPainter extends CustomPainter {
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
     final fill = Paint()
-      ..color = ExplorerColors.navySoft.withOpacity(.7)
+      ..color = ExplorerColors.navySoft.withValues(alpha: .7)
       ..style = PaintingStyle.fill;
 
     final path = Path();
@@ -444,10 +929,7 @@ class _VendorLineChartPainter extends CustomPainter {
 }
 
 class _VendorBarChartPainter extends CustomPainter {
-  _VendorBarChartPainter({
-    required this.claimed,
-    required this.redeemed,
-  });
+  _VendorBarChartPainter({required this.claimed, required this.redeemed});
 
   final double claimed;
   final double redeemed;
@@ -487,9 +969,7 @@ class _VendorBarChartPainter extends CustomPainter {
       Paint()..color = ExplorerColors.gold,
     );
 
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
+    final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (final item in [
       ('Claimed', size.width * .22 + barWidth / 2),
@@ -497,18 +977,12 @@ class _VendorBarChartPainter extends CustomPainter {
     ]) {
       textPainter.text = TextSpan(
         text: item.$1,
-        style: const TextStyle(
-          color: ExplorerColors.muted,
-          fontSize: 10,
-        ),
+        style: const TextStyle(color: ExplorerColors.muted, fontSize: 10),
       );
       textPainter.layout();
       textPainter.paint(
         canvas,
-        Offset(
-          item.$2 - textPainter.width / 2,
-          baseline + 4,
-        ),
+        Offset(item.$2 - textPainter.width / 2, baseline + 4),
       );
     }
   }
@@ -519,6 +993,10 @@ class _VendorBarChartPainter extends CustomPainter {
 }
 
 class _VendorDonutPainter extends CustomPainter {
+  _VendorDonutPainter({required this.segments});
+
+  final List<({Color color, double ratio})> segments;
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
@@ -527,22 +1005,15 @@ class _VendorDonutPainter extends CustomPainter {
     final strokeWidth = radius * .45;
     var start = -pi / 2;
 
-    const segments = [
-      (ExplorerColors.navy, .40),
-      (ExplorerColors.gold, .25),
-      (Color(0xFF5D88C7), .20),
-      (Color(0xFFBCC9D8), .15),
-    ];
-
     for (final segment in segments) {
-      final sweep = pi * 2 * segment.$2;
+      final sweep = pi * 2 * segment.ratio;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         start,
         sweep,
         false,
         Paint()
-          ..color = segment.$1
+          ..color = segment.color
           ..style = PaintingStyle.stroke
           ..strokeWidth = strokeWidth
           ..strokeCap = StrokeCap.butt,
@@ -552,6 +1023,6 @@ class _VendorDonutPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _VendorDonutPainter oldDelegate) =>
+      oldDelegate.segments != segments;
 }
-

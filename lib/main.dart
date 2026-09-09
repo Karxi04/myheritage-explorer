@@ -5,15 +5,22 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:workmanager/workmanager.dart';
 
 import 'auth/auth_gate.dart';
 import 'core/app_theme.dart';
-import 'core/helpers.dart';
+import 'core/notification_service.dart';
 import 'core/push_notification_service.dart';
 import 'core/services.dart';
 import 'firebase_options.dart';
+import 'services/background_alert_worker.dart';
+import 'services/mobile_notification_service.dart';
 import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
+
+final appNavigatorKey = GlobalKey<NavigatorState>();
+String? _pendingNotificationPayload;
+bool _openingNotificationDestination = false;
 
 const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
 const _deepLinkEventChannel = EventChannel(
@@ -23,9 +30,7 @@ const _deepLinkEventChannel = EventChannel(
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
@@ -49,13 +54,91 @@ Future<void> main() async {
     );
   }
 
+  await MobileNotificationService.instance.initialize();
+
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await Workmanager().initialize(backgroundAlertDispatcher);
+      await registerBackgroundSafetyWorker();
+    } catch (error) {
+      debugPrint('Background safety worker initialization failed: $error');
+    }
+  }
+
+  SystemNotificationService.instance.onNotificationPayload =
+      _handleNotificationPayload;
+  await SystemNotificationService.instance.init();
+  MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+
   runApp(const MyHeritageApp());
+
+  AppServices.auth.authStateChanges().listen((user) {
+    if (user != null) _openPendingNotificationDestination();
+  });
 
   if (!kIsWeb) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await PushNotificationService.handlePendingInitialNotification();
     });
   }
+}
+
+void _handleNotificationPayload(String? payload) {
+  final value = (payload ?? '').trim();
+  if (value.isEmpty) return;
+  _pendingNotificationPayload = value;
+  _openPendingNotificationDestination();
+}
+
+void _openPendingNotificationDestination() {
+  if (_openingNotificationDestination) return;
+  _openingNotificationDestination = true;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final navigator = appNavigatorKey.currentState;
+    final value = (_pendingNotificationPayload ?? '').trim();
+    if (navigator == null ||
+        value.isEmpty ||
+        AppServices.auth.currentUser == null) {
+      _openingNotificationDestination = false;
+      return;
+    }
+
+    Widget? destination;
+    destination = switch (value) {
+      'rewards' => const RewardsPage(),
+      _ when value.startsWith('reward:') => VoucherDetailPage(
+        voucherId: value.substring('reward:'.length).trim(),
+      ),
+      _ when value.startsWith('claim:') => VoucherWalletPage(
+        focusClaimId: value.substring('claim:'.length).trim(),
+      ),
+      'voucher_wallet' => const VoucherWalletPage(),
+      _ => null,
+    };
+    final itineraryId = _itineraryIdFromNotificationPayload(value);
+    if (destination == null && itineraryId.isNotEmpty) {
+      destination = ItineraryDetailPage(itineraryId: itineraryId);
+    }
+    if (destination == null) {
+      _pendingNotificationPayload = null;
+      _openingNotificationDestination = false;
+      return;
+    }
+
+    _pendingNotificationPayload = null;
+    navigator.push(MaterialPageRoute(builder: (_) => destination!));
+    _openingNotificationDestination = false;
+  });
+}
+
+String _itineraryIdFromNotificationPayload(String? payload) {
+  final value = (payload ?? '').trim();
+  if (value.isEmpty) return '';
+  if (value == 'rewards' || value == 'voucher_wallet') return '';
+  if (value.startsWith('itinerary:')) {
+    return value.substring('itinerary:'.length).trim();
+  }
+  return value;
 }
 
 class MyHeritageApp extends StatelessWidget {
@@ -171,8 +254,7 @@ class _AppEntryState extends State<_AppEntry> {
     final raw = '${value ?? ''}'.trim();
     if (raw.isEmpty) return null;
     final uri = Uri.tryParse(raw);
-    if (uri == null) return null;
-    return _sharedLinkTargetFromUri(uri);
+    return uri == null ? null : _sharedLinkTargetFromUri(uri);
   }
 
   void _handleIncomingDeepLink(Object? value) {
