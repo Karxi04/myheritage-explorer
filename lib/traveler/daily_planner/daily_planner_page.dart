@@ -9,6 +9,10 @@ class PlannerDaySchedule {
     required this.places,
     required this.totalEstimatedMinutes,
     required this.remainingMinutes,
+    this.startMinutes = 9 * 60,
+    this.availableHours = 4.0,
+    this.startTimeLabel = '9:00 AM',
+    this.endTimeLabel = '1:00 PM',
   });
 
   final int dayNumber;
@@ -18,6 +22,12 @@ class PlannerDaySchedule {
   final List<Map<String, dynamic>> places;
   final int totalEstimatedMinutes;
   final int remainingMinutes;
+  final int startMinutes;
+  final double availableHours;
+  final String startTimeLabel;
+  final String endTimeLabel;
+
+  int get availableMinutes => (availableHours * 60).round();
 
   Map<String, dynamic> toMap() => {
     'dayNumber': dayNumber,
@@ -27,6 +37,11 @@ class PlannerDaySchedule {
     'stops': places,
     'totalEstimatedMinutes': totalEstimatedMinutes,
     'remainingMinutes': remainingMinutes,
+    'startMinutes': startMinutes,
+    'availableHours': availableHours,
+    'availableMinutes': availableMinutes,
+    'startTimeLabel': startTimeLabel,
+    'endTimeLabel': endTimeLabel,
   };
 }
 
@@ -3931,6 +3946,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   String selectedStateId = 'penang';
   String selectedStateName = 'Penang';
   String selectedArea = 'George Town';
+  String travelAreaMode = 'single'; // 'single' or 'multiple'
+  final Set<String> selectedAreas = {'George Town'};
   List<MalaysianStateItem> availableStates = MalaysiaLocationService.defaultStates;
   List<String> availableAreas = [
     'George Town',
@@ -3952,6 +3969,8 @@ int get tripDays {
 }
   int selectedDayIndex = 0;
   List<PlannerDaySchedule> generatedDays = [];
+  String scheduleMode = 'same'; // 'same' or 'custom'
+  List<DaySchedulePreference> customDaySchedules = [];
   TimeOfDay startTime = const TimeOfDay(hour: 9, minute: 0);
   double availableHours = 4;
   String budgetLevel = 'Medium';
@@ -3959,6 +3978,9 @@ int get tripDays {
   bool foodExplorationEnabled = false;
   bool loading = false;
   bool saving = false;
+  bool isSaved = false;
+  String? savedItineraryId;
+  String? generationId;
   int totalEstimatedMinutes = 0;
   int remainingMinutes = 0;
   List<Map<String, dynamic>> results = [];
@@ -3967,8 +3989,38 @@ int get tripDays {
   @override
   void initState() {
     super.initState();
+    _syncCustomDaySchedules();
     _loadLocationData();
     _loadSavedPreferences();
+  }
+
+  void _syncCustomDaySchedules({bool forceResetFromCommon = false}) {
+    final count = tripDays;
+    final synced = <DaySchedulePreference>[];
+    for (int i = 0; i < count; i++) {
+      final date = DateTime(tripStartDate.year, tripStartDate.month, tripStartDate.day).add(Duration(days: i));
+      if (!forceResetFromCommon && i < customDaySchedules.length) {
+        final existing = customDaySchedules[i];
+        synced.add(
+          DaySchedulePreference(
+            dayNumber: i + 1,
+            date: date,
+            startMinutes: existing.startMinutes,
+            availableHours: existing.availableHours,
+          ),
+        );
+      } else {
+        synced.add(
+          DaySchedulePreference(
+            dayNumber: i + 1,
+            date: date,
+            startMinutes: preferredStartMinutes,
+            availableHours: availableHours,
+          ),
+        );
+      }
+    }
+    customDaySchedules = synced;
   }
 
   Future<void> _loadLocationData() async {
@@ -3982,6 +4034,8 @@ int get tripDays {
         availableAreas = areas;
         if (!areas.contains(selectedArea) && areas.isNotEmpty) {
           selectedArea = areas.first;
+          selectedAreas.clear();
+          selectedAreas.add(areas.first);
         }
       });
     } catch (_) {}
@@ -3997,6 +4051,10 @@ int get tripDays {
     setState(() {
       availableAreas = areas;
       selectedArea = areas.isNotEmpty ? areas.first : '';
+      selectedAreas.clear();
+      if (areas.isNotEmpty) {
+        selectedAreas.add(areas.first);
+      }
     });
   }
 
@@ -4036,19 +4094,83 @@ int get tripDays {
     } catch (_) {}
   }
 
+  Widget _buildAreaModeTab(String label, String mode) {
+    final isSelected = travelAreaMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          travelAreaMode = mode;
+          if (mode == 'single' && selectedAreas.isNotEmpty) {
+            selectedArea = selectedAreas.first;
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? ExplorerColors.navy : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : ExplorerColors.muted,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScheduleModeTab(String label, String mode) {
+    final isSelected = scheduleMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          scheduleMode = mode;
+          if (mode == 'custom') {
+            _syncCustomDaySchedules();
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? ExplorerColors.navy : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : ExplorerColors.muted,
+          ),
+        ),
+      ),
+    );
+  }
+
   int get preferredStartMinutes => startTime.hour * 60 + startTime.minute;
 
   Future<void> generate() async {
-    if (selectedStateId.trim().isEmpty || selectedArea.trim().isEmpty || selectedInterests.isEmpty) {
+    final areaValid = travelAreaMode == 'multiple'
+        ? selectedAreas.isNotEmpty
+        : selectedArea.trim().isNotEmpty;
+
+    if (selectedStateId.trim().isEmpty || !areaValid || selectedInterests.isEmpty) {
       showMessage(
         context,
-        'Please select a state, area, and at least one travel interest.',
+        travelAreaMode == 'multiple'
+            ? 'Please select a state, at least one travel area, and at least one travel interest.'
+            : 'Please select a state, area, and at least one travel interest.',
         error: true,
       );
       return;
     }
 
-    if (tripEndDate.isBefore(tripStartDate)) {
+    if (!DailyPlannerDateValidator.isDateRangeValid(tripStartDate, tripEndDate)) {
       showMessage(
         context,
         'End date cannot be before start date.',
@@ -4057,23 +4179,38 @@ int get tripDays {
       return;
     }
 
+    final prefs = TravelPreferences(
+      stateId: selectedStateId,
+      stateName: selectedStateName,
+      selectedArea: travelAreaMode == 'multiple'
+          ? selectedAreas.join(', ')
+          : selectedArea,
+      selectedAreas: travelAreaMode == 'multiple' ? selectedAreas.toList() : [selectedArea],
+      travelAreaMode: travelAreaMode,
+      startDate: tripStartDate,
+      endDate: tripEndDate,
+      scheduleMode: scheduleMode,
+      daySchedules: scheduleMode == 'custom' ? customDaySchedules : null,
+      dailyStartMinutes: preferredStartMinutes,
+      availableHours: availableHours,
+      interests: selectedInterests.toList(),
+      budget: budgetLevel,
+      pace: pace,
+      foodExplorationEnabled: foodExplorationEnabled,
+    );
+
+    final validationError = prefs.validate(
+      currentTime: DateTime.now(),
+      allowPastDates: false,
+    );
+    if (validationError != null) {
+      showMessage(context, validationError, error: true);
+      return;
+    }
+
     setState(() => loading = true);
 
     try {
-      final prefs = TravelPreferences(
-        stateId: selectedStateId,
-        stateName: selectedStateName,
-        selectedArea: selectedArea,
-        startDate: tripStartDate,
-        endDate: tripEndDate,
-        dailyStartMinutes: preferredStartMinutes,
-        availableHours: availableHours,
-        interests: selectedInterests.toList(),
-        budget: budgetLevel,
-        pace: pace,
-        foodExplorationEnabled: foodExplorationEnabled,
-      );
-
       final itinerary = await ItineraryRecommendationService.generateItinerary(
         preferences: prefs,
         userId: AppServices.auth.currentUser?.uid ?? 'guest',
@@ -4091,6 +4228,10 @@ int get tripDays {
             places: stopMaps,
             totalEstimatedMinutes: d.totalEstimatedMinutes,
             remainingMinutes: d.remainingMinutes,
+            startMinutes: d.startMinutes,
+            availableHours: d.availableHours,
+            startTimeLabel: d.startTime,
+            endTimeLabel: d.endTime,
           ),
         );
       }
@@ -4100,6 +4241,9 @@ int get tripDays {
         latestGeneratedItinerary = itinerary;
         generatedDays = plannedDays;
         selectedDayIndex = 0;
+        savedItineraryId = null;
+        isSaved = false;
+        generationId = 'gen_${DateTime.now().microsecondsSinceEpoch}';
         if (plannedDays.isNotEmpty) {
           results = plannedDays.first.places;
           totalEstimatedMinutes = plannedDays.first.totalEstimatedMinutes;
@@ -4110,6 +4254,12 @@ int get tripDays {
           remainingMinutes = (availableHours * 60).round();
         }
       });
+
+      if (itinerary.warningMessage != null) {
+        showMessage(context, itinerary.warningMessage!, error: false);
+      } else if (itinerary.areaInclusionNote != null) {
+        showMessage(context, itinerary.areaInclusionNote!, error: false);
+      }
 
       final uid = AppServices.auth.currentUser?.uid;
       if (uid != null) {
@@ -4160,8 +4310,8 @@ int get tripDays {
       final updatedDay = ItineraryRecommendationService.addDessertStopToDay(
         currentDay: currentDayModel,
         availablePlaces: allPlaces,
-        availableHours: availableHours,
-        startMinutes: preferredStartMinutes,
+        availableHours: currentDayModel.availableHours,
+        startMinutes: currentDayModel.startMinutes,
         stateId: selectedStateId,
         stateName: selectedStateName,
         selectedArea: selectedArea,
@@ -4184,11 +4334,18 @@ int get tripDays {
           places: updatedDay.stops.map((s) => s.toMap()).toList(),
           totalEstimatedMinutes: updatedDay.totalEstimatedMinutes,
           remainingMinutes: updatedDay.remainingMinutes,
+          startMinutes: updatedDay.startMinutes,
+          availableHours: updatedDay.availableHours,
+          startTimeLabel: updatedDay.startTime,
+          endTimeLabel: updatedDay.endTime,
         );
         generatedDays = newPlannedDays;
         results = newPlannedDays[selectedDayIndex].places;
         totalEstimatedMinutes = updatedDay.totalEstimatedMinutes;
         remainingMinutes = updatedDay.remainingMinutes;
+        savedItineraryId = null;
+        isSaved = false;
+        generationId = 'gen_${DateTime.now().microsecondsSinceEpoch}';
       });
       if (mounted) {
         showMessage(context, 'Added authentic dessert stop to ${currentDayModel.dateLabel}!');
@@ -4205,16 +4362,38 @@ int get tripDays {
         generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length
         ? generatedDays[selectedDayIndex].places
         : results;
+    final daySched =
+        generatedDays.isNotEmpty && selectedDayIndex < generatedDays.length
+        ? generatedDays[selectedDayIndex]
+        : null;
+    final effectiveStartM = daySched?.startMinutes ?? preferredStartMinutes;
+    final effectiveHours = daySched?.availableHours ?? availableHours;
     return ItinerarySchedulePlanner.plan(
       stops: currentStops,
       pace: pace,
-      availableHours: availableHours,
-      preferredStartMinutes: preferredStartMinutes,
+      availableHours: effectiveHours,
+      preferredStartMinutes: effectiveStartM,
     );
   }
 
   Future<void> save() async {
     if ((results.isEmpty && generatedDays.isEmpty) || saving) return;
+
+    if (isSaved || savedItineraryId != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This itinerary has already been saved.'),
+            backgroundColor: ExplorerColors.navy,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
     final uid = AppServices.auth.currentUser?.uid;
     if (uid == null) {
       showMessage(
@@ -4228,8 +4407,6 @@ int get tripDays {
     setState(() => saving = true);
 
     try {
-      showMessage(context, 'Saving itinerary to your account...');
-
       final allDaysMap = <Map<String, dynamic>>[];
       final allStopsResolved = <Map<String, dynamic>>[];
 
@@ -4238,8 +4415,8 @@ int get tripDays {
           final schedule = ItinerarySchedulePlanner.plan(
             stops: day.places,
             pace: pace,
-            availableHours: availableHours,
-            preferredStartMinutes: preferredStartMinutes,
+            availableHours: day.availableHours,
+            preferredStartMinutes: day.startMinutes,
           );
 
           final dayStops = schedule.stops;
@@ -4251,6 +4428,11 @@ int get tripDays {
             'stops': dayStops,
             'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
             'remainingMinutes': schedule.remainingMinutes,
+            'startMinutes': day.startMinutes,
+            'availableHours': day.availableHours,
+            'availableMinutes': day.availableMinutes,
+            'startTimeLabel': day.startTimeLabel,
+            'endTimeLabel': day.endTimeLabel,
             'budget': 'RM 50 - 150',
             'budgetLevel': budgetLevel,
           });
@@ -4279,19 +4461,29 @@ int get tripDays {
           : selectedArea.trim();
       final tripTitle = tripDays > 1
           ? '$selectedStateName $tripDays-Day Tour'
-          : '$selectedArea Cultural Day';
+          : '$tripArea Cultural Day';
       final tripBudget = ItineraryBudgetEstimator.estimateTrip(
         allDaysMap,
         fallbackStops: allStopsResolved,
       );
 
+      final currentGenId =
+          generationId ?? 'gen_${DateTime.now().microsecondsSinceEpoch}';
+
+      final savedAreaStr = travelAreaMode == 'multiple' && selectedAreas.isNotEmpty
+          ? selectedAreas.join(', ')
+          : selectedArea;
+
       final docRef = await AppServices.db.collection('itineraries').add({
         'userId': uid,
+        'generationId': currentGenId,
         'title': tripTitle,
         'stateId': selectedStateId,
         'stateName': selectedStateName,
-        'selectedArea': selectedArea,
-        'area': selectedArea,
+        'selectedArea': savedAreaStr,
+        'area': savedAreaStr,
+        'travelAreaMode': travelAreaMode,
+        'selectedAreas': selectedAreas.toList(),
         'availableHours': availableHours,
         'dailyHours': availableHours,
         'numberOfDays': tripDays,
@@ -4319,6 +4511,12 @@ int get tripDays {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      setState(() {
+        isSaved = true;
+        savedItineraryId = docRef.id;
+        generationId = currentGenId;
+      });
+
       await AppServices.scheduleTripNotification(
         userId: uid,
         itineraryId: docRef.id,
@@ -4329,12 +4527,14 @@ int get tripDays {
       );
 
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Itinerary saved with trip notifications enabled!',
+              'Itinerary saved successfully!',
             ),
             backgroundColor: ExplorerColors.navy,
+            behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
               label: 'View',
               textColor: ExplorerColors.gold,
@@ -4346,6 +4546,7 @@ int get tripDays {
                       itineraryId: docRef.id,
                       initialItinerary: {
                         'userId': uid,
+                        'generationId': currentGenId,
                         'title': tripTitle,
                         'stateId': selectedStateId,
                         'stateName': selectedStateName,
@@ -4401,6 +4602,7 @@ int get tripDays {
     final scheduledResults = schedule.stops;
     final displayTotalMinutes = schedule.totalEstimatedMinutes;
     final displayRemainingMinutes = schedule.remainingMinutes;
+    final maxSelectableAreas = tripDays * 5;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -4448,119 +4650,286 @@ int get tripDays {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const ExplorerSectionTitle('Trip Preferences'),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(
-                      flex: 4,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Malaysian State *',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<String>(
-                            value: availableStates.any((s) => s.id == selectedStateId)
-                                ? selectedStateId
-                                : 'penang',
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              prefixIcon: Icon(Icons.map_outlined, size: 18),
-                            ),
-                            items: availableStates
-                                .map((s) => DropdownMenuItem(
-                                      value: s.id,
-                                      child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    ))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) _onStateChanged(v);
-                            },
-                          ),
-                        ],
+                    const Text(
+                      'Travel Area Mode:',
+                      style: TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const Spacer(),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: ExplorerColors.border),
+                      ),
+                      child: Row(
                         children: [
-                          const Text(
-                            'Area / City *',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<String>(
-                            value: availableAreas.contains(selectedArea)
-                                ? selectedArea
-                                : (availableAreas.isNotEmpty ? availableAreas.first : null),
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              prefixIcon: Icon(Icons.location_on_outlined, size: 18),
-                            ),
-                            items: availableAreas
-                                .map((a) => DropdownMenuItem(
-                                      value: a,
-                                      child: Text(a, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    ))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) setState(() => selectedArea = v);
-                            },
-                          ),
+                          _buildAreaModeTab('Single Area', 'single'),
+                          _buildAreaModeTab('Multiple Areas', 'multiple'),
                         ],
                       ),
                     ),
                   ],
                 ),
-if (availableAreas.isNotEmpty) ...[
-  const SizedBox(height: 10),
-  Text(
-    'Quick Pick Area ($selectedStateName):',
-    style: const TextStyle(
-      color: ExplorerColors.muted,
-      fontSize: 11,
-      fontWeight: FontWeight.w600,
-    ),
-  ),
-  const SizedBox(height: 6),
-  SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: availableAreas.map((sub) {
-        final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
-        return Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: ChoiceChip(
-            label: Text(sub),
-            labelStyle: TextStyle(
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              color: isSelected ? Colors.white : ExplorerColors.navy,
-            ),
-            selected: isSelected,
-            selectedColor: ExplorerColors.navy,
-            backgroundColor: Colors.white,
-            onSelected: (_) => setState(() => selectedArea = sub),
-          ),
-        );
-      }).toList(),
-    ),
-  ),
-],
+                const SizedBox(height: 10),
+                if (travelAreaMode == 'single') ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Malaysian State *',
+                              style: TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: availableStates.any((s) => s.id == selectedStateId)
+                                  ? selectedStateId
+                                  : 'penang',
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                prefixIcon: Icon(Icons.map_outlined, size: 18),
+                              ),
+                              items: availableStates
+                                  .map((s) => DropdownMenuItem(
+                                        value: s.id,
+                                        child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) _onStateChanged(v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Area / City *',
+                              style: TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: availableAreas.contains(selectedArea)
+                                  ? selectedArea
+                                  : (availableAreas.isNotEmpty ? availableAreas.first : null),
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                prefixIcon: Icon(Icons.location_on_outlined, size: 18),
+                              ),
+                              items: availableAreas
+                                  .map((a) => DropdownMenuItem(
+                                        value: a,
+                                        child: Text(a, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) {
+                                  setState(() {
+                                    selectedArea = v;
+                                    selectedAreas.clear();
+                                    selectedAreas.add(v);
+                                  });
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (availableAreas.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Quick Pick Area ($selectedStateName):',
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: availableAreas.map((sub) {
+                          final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(sub),
+                              labelStyle: TextStyle(
+                                fontSize: 11,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                color: isSelected ? Colors.white : ExplorerColors.navy,
+                              ),
+                              selected: isSelected,
+                              selectedColor: ExplorerColors.navy,
+                              backgroundColor: Colors.white,
+                              onSelected: (_) => setState(() {
+                                selectedArea = sub;
+                                selectedAreas.clear();
+                                selectedAreas.add(sub);
+                              }),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ] else ...[
+                  // Multi-Area Mode UI
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Malaysian State *',
+                                  style: TextStyle(
+                                    color: ExplorerColors.text,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  value: availableStates.any((s) => s.id == selectedStateId)
+                                      ? selectedStateId
+                                      : 'penang',
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    prefixIcon: Icon(Icons.map_outlined, size: 18),
+                                  ),
+                                  items: availableStates
+                                      .map((s) => DropdownMenuItem(
+                                            value: s.id,
+                                            child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v != null) _onStateChanged(v);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Select up to $maxSelectableAreas areas for this $tripDays-day trip (${selectedAreas.length} selected):',
+                              style: const TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (selectedAreas.length < availableAreas.length && selectedAreas.length < maxSelectableAreas)
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(50, 24),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  final toAdd = availableAreas.take(maxSelectableAreas).toList();
+                                  selectedAreas.clear();
+                                  selectedAreas.addAll(toAdd);
+                                  selectedArea = selectedAreas.join(', ');
+                                });
+                                if (availableAreas.length > maxSelectableAreas) {
+                                  showMessage(
+                                    context,
+                                    'Selected $maxSelectableAreas areas (maximum allowed for a $tripDays-day trip).',
+                                    error: false,
+                                  );
+                                }
+                              },
+                              child: const Text('Select All', style: TextStyle(fontSize: 11)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: availableAreas.map((area) {
+                          final isSelected = selectedAreas.contains(area);
+                          return FilterChip(
+                            label: Text(area),
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? Colors.white : ExplorerColors.navy,
+                            ),
+                            selected: isSelected,
+                            selectedColor: ExplorerColors.navy,
+                            backgroundColor: Colors.white,
+                            checkmarkColor: Colors.white,
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  if (selectedAreas.length >= maxSelectableAreas) {
+                                    showMessage(
+                                      context,
+                                      'You have reached the maximum number of areas for this trip.',
+                                      error: false,
+                                    );
+                                  } else {
+                                    selectedAreas.add(area);
+                                  }
+                                } else {
+                                  if (selectedAreas.length > 1) {
+                                    selectedAreas.remove(area);
+                                  }
+                                }
+                                if (selectedAreas.isNotEmpty) {
+                                  selectedArea = selectedAreas.join(', ');
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -4608,13 +4977,15 @@ if (availableAreas.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           InkWell(
                             onTap: () async {
+                              final now = DateTime.now();
+                              final today = DateTime(now.year, now.month, now.day);
                               final picked = await showDatePicker(
                                 context: context,
-                                initialDate: tripStartDate,
-                                firstDate: DateTime.now().subtract(
-                                  const Duration(days: 30),
-                                ),
-                                lastDate: DateTime.now().add(
+                                initialDate: tripStartDate.isBefore(today)
+                                    ? today
+                                    : tripStartDate,
+                                firstDate: today,
+                                lastDate: today.add(
                                   const Duration(days: 730),
                                 ),
                               );
@@ -4631,6 +5002,22 @@ if (availableAreas.isNotEmpty) ...[
                                       const Duration(days: 4),
                                     );
                                   }
+
+                                  // When date changes to today, revalidate currently selected start time
+                                  if (DailyPlannerDateValidator.isTimeInPastForDate(
+                                    targetDate: tripStartDate,
+                                    startHour: startTime.hour,
+                                    startMinute: startTime.minute,
+                                    now: now,
+                                  )) {
+                                    startTime = DailyPlannerDateValidator.getSuggestedStartTimeForToday(now: now);
+                                    showMessage(
+                                      context,
+                                      'Selected start time was in the past for today and has been adjusted. Please review your start time.',
+                                      error: false,
+                                    );
+                                  }
+                                  _syncCustomDaySchedules();
                                 });
                               }
                             },
@@ -4681,7 +5068,7 @@ if (availableAreas.isNotEmpty) ...[
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'End Date (No Day Limit)',
+                            'End Date',
                             style: TextStyle(
                               color: ExplorerColors.text,
                               fontSize: 11,
@@ -4702,7 +5089,10 @@ if (availableAreas.isNotEmpty) ...[
                                 ),
                               );
                               if (picked != null) {
-                                setState(() => tripEndDate = picked);
+                                setState(() {
+                                  tripEndDate = picked;
+                                  _syncCustomDaySchedules();
+                                });
                               }
                             },
                             borderRadius: BorderRadius.circular(10),
@@ -4778,183 +5168,275 @@ if (availableAreas.isNotEmpty) ...[
                   ),
                 ),
                 const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Daily Start Time',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                if (tripDays > 1) ...[
+                  Row(
+                    children: [
+                      const Text(
+                        'Daily Schedule',
+                        style: TextStyle(
+                          color: ExplorerColors.text,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: ExplorerColors.navySoft,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildScheduleModeTab('Same every day', 'same'),
+                            _buildScheduleModeTab('Customize each day', 'custom'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (tripDays == 1 || scheduleMode == 'same') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tripDays > 1 ? 'Start Time (All Days)' : 'Daily Start Time',
+                              style: const TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: startTime,
-                              );
-                              if (picked != null) {
-                                setState(() => startTime = picked);
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: ExplorerColors.border,
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: startTime,
+                                );
+                                if (picked != null) {
+                                  final isToday = DailyPlannerDateValidator.isSameDay(tripStartDate, DateTime.now());
+                                  if (isToday) {
+                                    final timeError = DailyPlannerDateValidator.validateStartDateTime(
+                                      startDate: tripStartDate,
+                                      startHour: picked.hour,
+                                      startMinute: picked.minute,
+                                    );
+                                    if (timeError != null) {
+                                      if (!context.mounted) return;
+                                      showMessage(
+                                        context,
+                                        timeError,
+                                        error: true,
+                                      );
+                                      return;
+                                    }
+                                  }
+                                  setState(() {
+                                    startTime = picked;
+                                    _syncCustomDaySchedules(forceResetFromCommon: true);
+                                  });
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 10,
                                 ),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.access_time,
-                                    size: 16,
-                                    color: ExplorerColors.goldDark,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: ExplorerColors.border,
                                   ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      startTime.format(context),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: ExplorerColors.navy,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.access_time,
+                                      size: 16,
+                                      color: ExplorerColors.goldDark,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        startTime.format(context),
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: ExplorerColors.navy,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 12,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const Icon(
-                                    Icons.arrow_drop_down,
-                                    color: ExplorerColors.muted,
-                                    size: 18,
-                                  ),
-                                ],
+                                    const Icon(
+                                      Icons.arrow_drop_down,
+                                      color: ExplorerColors.muted,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Hours (Per Day)',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tripDays > 1 ? 'Hours (Per Day)' : 'Available Hours',
+                              style: const TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<double>(
-                            isExpanded: true,
-                            isDense: true,
-                            value: availableHours,
-                            selectedItemBuilder: (BuildContext context) {
-                              return const [2.0, 4.0, 6.0, 8.0].map<Widget>((double val) {
-                                return Align(
-                                  alignment: Alignment.centerLeft,
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<double>(
+                              isExpanded: true,
+                              isDense: true,
+                              value: availableHours,
+                              selectedItemBuilder: (BuildContext context) {
+                                return const [2.0, 4.0, 5.0, 6.0, 8.0].map<Widget>((double val) {
+                                  return Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      '${val == val.roundToDouble() ? val.toInt() : val} hrs / day',
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: ExplorerColors.navy,
+                                      ),
+                                    ),
+                                  );
+                                }).toList();
+                              },
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 2.0,
                                   child: Text(
-                                    '${val.toInt()} hrs / day',
+                                    '2 Hours / day (Short)',
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 1,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: FontWeight.w600,
                                       color: ExplorerColors.navy,
                                     ),
                                   ),
-                                );
-                              }).toList();
-                            },
-                            items: const [
-                              DropdownMenuItem(
-                                value: 2,
-                                child: Text(
-                                  '2 Hours / day (Short)',
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: ExplorerColors.navy,
+                                ),
+                                DropdownMenuItem(
+                                  value: 4.0,
+                                  child: Text(
+                                    '4 Hours / day (Half Day)',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 5.0,
+                                  child: Text(
+                                    '5 Hours / day',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 6.0,
+                                  child: Text(
+                                    '6 Hours / day (Standard)',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 8.0,
+                                  child: Text(
+                                    '8 Hours / day (Full Day)',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: ExplorerColors.navy,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (value) => setState(() {
+                                availableHours = value ?? 4.0;
+                                _syncCustomDaySchedules(forceResetFromCommon: true);
+                              }),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 6,
+                                ),
+                                prefixIconConstraints: BoxConstraints(
+                                  minWidth: 24,
+                                  minHeight: 24,
+                                ),
+                                prefixIcon: Padding(
+                                  padding: EdgeInsets.only(left: 6, right: 4),
+                                  child: Icon(
+                                    Icons.schedule,
+                                    size: 16,
+                                    color: ExplorerColors.goldDark,
                                   ),
                                 ),
                               ),
-                              DropdownMenuItem(
-                                value: 4,
-                                child: Text(
-                                  '4 Hours / day (Half Day)',
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: ExplorerColors.navy,
-                                  ),
-                                ),
-                              ),
-                              DropdownMenuItem(
-                                value: 6,
-                                child: Text(
-                                  '6 Hours / day (Standard)',
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: ExplorerColors.navy,
-                                  ),
-                                ),
-                              ),
-                              DropdownMenuItem(
-                                value: 8,
-                                child: Text(
-                                  '8 Hours / day (Full Day)',
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: ExplorerColors.navy,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            onChanged: (value) =>
-                                setState(() => availableHours = value ?? 4),
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 6,
-                              ),
-                              prefixIconConstraints: BoxConstraints(
-                                minWidth: 24,
-                                minHeight: 24,
-                              ),
-                              prefixIcon: Padding(
-                                padding: EdgeInsets.only(left: 6, right: 4),
-                                child: Icon(
-                                  Icons.schedule,
-                                  size: 16,
-                                  color: ExplorerColors.goldDark,
-                                ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (tripDays > 1) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: ExplorerColors.navySoft,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, size: 13, color: ExplorerColors.navy),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              'Applies ${startTime.format(context)} (${availableHours.toInt()} hrs/day) to all $tripDays days.',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: ExplorerColors.navy,
                               ),
                             ),
                           ),
@@ -4962,7 +5444,179 @@ if (availableAreas.isNotEmpty) ...[
                       ),
                     ),
                   ],
-                ),
+                ] else ...[
+                  // Custom Schedule Mode: Render each day's card
+                  Column(
+                    children: customDaySchedules.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final dayPref = entry.value;
+                      final isToday = DailyPlannerDateValidator.isSameDay(dayPref.date, DateTime.now());
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: ExplorerColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: ExplorerColors.navySoft,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'Day ${idx + 1}',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.navy,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  DateFormat('EEE, d MMM').format(dayPref.date) + (isToday ? ' (Today)' : ''),
+                                  style: const TextStyle(
+                                    color: ExplorerColors.navy,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Text(
+                                  '${dayPref.startTimeLabel} → ${dayPref.endTimeLabel}',
+                                  style: const TextStyle(
+                                    color: ExplorerColors.goldDark,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () async {
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: TimeOfDay(
+                                          hour: dayPref.startHour,
+                                          minute: dayPref.startMinute,
+                                        ),
+                                      );
+                                      if (picked != null) {
+                                        if (isToday) {
+                                          final timeError = DailyPlannerDateValidator.validateStartDateTime(
+                                            startDate: dayPref.date,
+                                            startHour: picked.hour,
+                                            startMinute: picked.minute,
+                                          );
+                                          if (timeError != null) {
+                                            if (!context.mounted) return;
+                                            showMessage(context, timeError, error: true);
+                                            return;
+                                          }
+                                        }
+                                        setState(() {
+                                          customDaySchedules[idx] = dayPref.copyWith(
+                                            startMinutes: picked.hour * 60 + picked.minute,
+                                          );
+                                        });
+                                      }
+                                    },
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: ExplorerColors.subtle,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: ExplorerColors.border),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.access_time, size: 14, color: ExplorerColors.goldDark),
+                                          const SizedBox(width: 4),
+                                          Flexible(
+                                            child: Text(
+                                              dayPref.startTimeLabel,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: ExplorerColors.navy,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ),
+                                          const Icon(Icons.arrow_drop_down, color: ExplorerColors.muted, size: 16),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: DropdownButtonFormField<double>(
+                                    isExpanded: true,
+                                    isDense: true,
+                                    value: dayPref.availableHours,
+                                    selectedItemBuilder: (BuildContext context) {
+                                      return const [2.0, 4.0, 5.0, 6.0, 8.0].map<Widget>((double val) {
+                                        return Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '${val == val.roundToDouble() ? val.toInt() : val} hrs',
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: ExplorerColors.navy,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList();
+                                    },
+                                    items: const [
+                                      DropdownMenuItem(value: 2.0, child: Text('2 Hours / day (Short)', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ExplorerColors.navy))),
+                                      DropdownMenuItem(value: 4.0, child: Text('4 Hours / day (Half Day)', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ExplorerColors.navy))),
+                                      DropdownMenuItem(value: 5.0, child: Text('5 Hours / day', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ExplorerColors.navy))),
+                                      DropdownMenuItem(value: 6.0, child: Text('6 Hours / day (Standard)', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ExplorerColors.navy))),
+                                      DropdownMenuItem(value: 8.0, child: Text('8 Hours / day (Full Day)', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ExplorerColors.navy))),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) {
+                                        setState(() {
+                                          customDaySchedules[idx] = dayPref.copyWith(availableHours: val);
+                                        });
+                                      }
+                                    },
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                      prefixIconConstraints: BoxConstraints(minWidth: 20, minHeight: 20),
+                                      prefixIcon: Padding(
+                                        padding: EdgeInsets.only(left: 4, right: 2),
+                                        child: Icon(Icons.schedule, size: 14, color: ExplorerColors.goldDark),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 const Text(
                   'Interests',
@@ -5125,9 +5779,12 @@ if (availableAreas.isNotEmpty) ...[
             trailing: results.isEmpty
                 ? null
                 : IconButton(
-                    tooltip: 'Save itinerary',
+                    tooltip: isSaved ? 'Itinerary already saved' : 'Save itinerary',
                     onPressed: saving ? null : save,
-                    icon: const Icon(Icons.bookmark_add_outlined),
+                    icon: Icon(
+                      isSaved ? Icons.bookmark : Icons.bookmark_add_outlined,
+                      color: isSaved ? ExplorerColors.gold : null,
+                    ),
                   ),
           ),
           if (results.isNotEmpty && totalEstimatedMinutes > 0) ...[
@@ -5249,7 +5906,9 @@ if (generatedDays.isNotEmpty &&
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(double.infinity, 48),
-                      backgroundColor: ExplorerColors.navy,
+                      backgroundColor: isSaved
+                          ? ExplorerColors.navy.withValues(alpha: 0.85)
+                          : ExplorerColors.navy,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -5259,11 +5918,22 @@ if (generatedDays.isNotEmpty &&
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
-                        : const Icon(Icons.bookmark_add_outlined),
+                        : Icon(
+                            isSaved
+                                ? Icons.bookmark_added
+                                : Icons.bookmark_add_outlined,
+                          ),
                     label: Text(
-                      saving ? 'Saving Itinerary...' : 'Save Itinerary',
+                      saving
+                          ? 'Saving Itinerary...'
+                          : isSaved
+                              ? 'Saved to My Itineraries'
+                              : 'Save Itinerary',
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 14,

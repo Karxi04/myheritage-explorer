@@ -120,14 +120,8 @@ class SystemNotificationService {
   }) async {
     if (!_isInitialized) await init();
 
-    // If reminder time is already in the past, show immediate reminder
-    if (reminderTime.isBefore(DateTime.now())) {
-      await showInstantNotification(
-        id: id,
-        title: title,
-        body: body,
-        payload: payload,
-      );
+    // If reminder time is in the past or now, do not fire an immediate duplicate reminder
+    if (!reminderTime.isAfter(DateTime.now())) {
       return;
     }
 
@@ -164,13 +158,7 @@ class SystemNotificationService {
         payload: payload,
       );
     } catch (e) {
-      debugPrint('Schedule notification error, falling back to instant: $e');
-      await showInstantNotification(
-        id: id,
-        title: title,
-        body: body,
-        payload: payload,
-      );
+      debugPrint('Schedule trip notification error: $e');
     }
   }
 

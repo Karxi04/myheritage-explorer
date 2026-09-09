@@ -287,12 +287,21 @@ class MalaysiaLocationService {
 
   /// Validate if a given area belongs to a state
   static bool isAreaInState(String area, String stateId) {
+    final areaLower = area.toLowerCase().trim();
+    if (areaLower.isEmpty ||
+        areaLower == 'all' ||
+        areaLower == 'all areas' ||
+        areaLower == 'all places' ||
+        areaLower == 'statewide' ||
+        areaLower == 'malaysia') {
+      return true;
+    }
+    final normStateId = normalizeStateId(stateId);
     final targetState = defaultStates.firstWhere(
-      (s) => s.id.toLowerCase() == stateId.toLowerCase() || s.name.toLowerCase() == stateId.toLowerCase(),
+      (s) => s.id.toLowerCase() == normStateId || s.name.toLowerCase() == stateId.toLowerCase().trim(),
       orElse: () => const MalaysianStateItem(id: '', name: '', areas: []),
     );
     if (targetState.areas.isEmpty) return true;
-    final areaLower = area.toLowerCase().trim();
     return targetState.areas.any((a) =>
         areaLower.contains(a.toLowerCase()) || a.toLowerCase().contains(areaLower));
   }

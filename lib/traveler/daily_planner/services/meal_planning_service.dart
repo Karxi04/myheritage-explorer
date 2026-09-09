@@ -32,19 +32,19 @@ class MealPlanningService {
     final endMinutes = startMinutes + availableMinutes;
     final eligible = <String>{};
 
-    // Breakfast eligibility: start window overlaps breakfast and starts before 10:00
-    if (startMinutes <= breakfastEnd - 30 && endMinutes >= breakfastStart + 30) {
-      if (startMinutes < 10 * 60) {
-        eligible.add('Breakfast');
-      }
+    // Breakfast eligibility: start window overlaps breakfast (07:00 - 10:30)
+    if (startMinutes >= 6 * 60 && startMinutes < 10 * 60 && endMinutes >= breakfastStart + 30) {
+      eligible.add('Breakfast');
+    } else if (startMinutes < 6 * 60 && endMinutes >= breakfastStart + 60) {
+      eligible.add('Breakfast');
     }
 
-    // Lunch eligibility: window overlaps lunch period
+    // Lunch eligibility: window overlaps lunch period (11:30 - 14:30)
     if (startMinutes <= lunchEnd - 30 && endMinutes >= lunchStart + 30) {
       eligible.add('Lunch');
     }
 
-    // Dinner eligibility: window overlaps dinner period
+    // Dinner eligibility: window overlaps dinner period (17:30 - 21:00)
     if (startMinutes <= dinnerEnd - 30 && endMinutes >= dinnerStart + 30) {
       eligible.add('Dinner');
     }

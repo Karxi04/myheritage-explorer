@@ -142,6 +142,8 @@ class _SharedItineraryContent extends StatefulWidget {
 
 class _SharedItineraryContentState extends State<_SharedItineraryContent> {
   bool _isSaving = false;
+  bool _isSaved = false;
+  String? _savedItineraryId;
 
   List<Map<String, dynamic>> _rawStopsFrom(Object? value) {
     if (value is! List) return const <Map<String, dynamic>>[];
@@ -459,6 +461,21 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+
+    if (_isSaving) return;
+    if (_isSaved || _savedItineraryId != null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('This itinerary has already been saved.'),
+          backgroundColor: ExplorerColors.navy,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       final shouldSignIn = await showDialog<bool>(
@@ -577,11 +594,18 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
             'updatedAt': FieldValue.serverTimestamp(),
           });
 
+      setState(() {
+        _isSaved = true;
+        _savedItineraryId = docRef.id;
+      });
+
       if (mounted) {
+        messenger.hideCurrentSnackBar();
         messenger.showSnackBar(
           SnackBar(
             content: const Text('Itinerary saved to My Itineraries!'),
             backgroundColor: ExplorerColors.navy,
+            behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
               label: 'View',
               textColor: ExplorerColors.gold,
@@ -635,24 +659,42 @@ class _SharedItineraryContentState extends State<_SharedItineraryContent> {
               padding: const EdgeInsets.only(right: 12),
               child: FilledButton.tonalIcon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: ExplorerColors.goldSoft,
-                  foregroundColor: ExplorerColors.goldDark,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  backgroundColor:
+                      _isSaved ? ExplorerColors.gold : ExplorerColors.goldSoft,
+                  foregroundColor:
+                      _isSaved ? Colors.white : ExplorerColors.goldDark,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onPressed: _isSaving ? null : () => _saveToAccount(context, schedule),
+                onPressed:
+                    _isSaving ? null : () => _saveToAccount(context, schedule),
                 icon: _isSaving
                     ? const SizedBox(
                         width: 14,
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.bookmark_add_outlined, size: 16),
+                    : Icon(
+                        _isSaved
+                            ? Icons.bookmark_added
+                            : Icons.bookmark_add_outlined,
+                        size: 16,
+                      ),
                 label: Text(
-                  _isSaving ? 'Saving...' : 'Save',
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                  _isSaving
+                      ? 'Saving...'
+                      : _isSaved
+                          ? 'Saved'
+                          : 'Save',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             )

@@ -753,29 +753,8 @@ class AppServices {
 
       'createdAt': FieldValue.serverTimestamp(),
     });
-    // A client device must never display a local notification intended for a
-    // different account (for example, while an administrator approves a
-    // tourist's task). The Firestore notification is still written above.
-    if (auth.currentUser?.uid == userId) {
-      try {
-        final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
-        final payload = switch (type) {
-          'itinerary' when referenceId != null => 'itinerary:$referenceId',
-          'voucher_nearby' when referenceId != null => 'reward:$referenceId',
-          'voucher_claimed' || 'voucher_redeemed'
-              when referenceId != null && referenceId.isNotEmpty =>
-            'claim:$referenceId',
-          'voucher_claimed' || 'voucher_redeemed' => 'voucher_wallet',
-          _ => null,
-        };
-        await SystemNotificationService.instance.showInstantNotification(
-          id: notifId,
-          title: title,
-          body: message,
-          payload: payload,
-        );
-      } catch (_) {}
-    }
+    // PushNotificationService listens to the Firestore notifications collection
+    // and displays the local heads-up notification with automatic deduplication.
   }
 
   static Future<void> scheduleTripNotification({
@@ -786,23 +765,11 @@ class AppServices {
     required DateTime tripStartDate,
     DateTime? tripEndDate,
   }) async {
+    final reminderDate = nextTripReminderTime(tripStartDate: tripStartDate);
+    if (reminderDate == null || !reminderDate.isAfter(DateTime.now())) return;
+
     final formattedDate =
         '${tripStartDate.day}/${tripStartDate.month}/${tripStartDate.year}';
-    final inAppTitle = '📅 Trip Scheduled: $title';
-    final inAppMessage =
-        'Your itinerary for $area is scheduled for $formattedDate. We will send you a reminder before departure!';
-
-    await notify(
-      userId: userId,
-      title: inAppTitle,
-      message: inAppMessage,
-      type: 'itinerary',
-      referenceId: itineraryId,
-    );
-
-    final reminderDate = nextTripReminderTime(tripStartDate: tripStartDate);
-    if (reminderDate == null) return;
-
     final leadDays = tripReminderLeadDays(
       tripStartDate: tripStartDate,
       reminderTime: reminderDate,
@@ -814,14 +781,18 @@ class AppServices {
         : 'in $leadDays days';
 
     final notifId = itineraryId.hashCode.abs().remainder(100000);
-    await SystemNotificationService.instance.scheduleTripReminder(
-      id: notifId,
-      title: 'Upcoming Trip: $title',
-      body:
-          'Your trip to $area starts $leadLabel ($formattedDate). Open your itinerary to review the route, places, and weather.',
-      reminderTime: reminderDate,
-      payload: 'itinerary:$itineraryId',
-    );
+    try {
+      await SystemNotificationService.instance.scheduleTripReminder(
+        id: notifId,
+        title: 'Upcoming Trip: $title',
+        body:
+            'Your trip to $area starts $leadLabel ($formattedDate). Open your itinerary to review the route, places, and weather.',
+        reminderTime: reminderDate,
+        payload: 'itinerary:$itineraryId',
+      );
+    } catch (e) {
+      debugPrint('Error scheduling trip reminder: $e');
+    }
   }
 
   static DateTime? nextTripReminderTime({
