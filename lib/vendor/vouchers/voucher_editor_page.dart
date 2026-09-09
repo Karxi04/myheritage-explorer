@@ -21,6 +21,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
   late DateTime expiry;
   GeoPoint? voucherLocation;
   bool unlimitedClaimsPerTourist = true;
+  bool locatingShop = false;
   bool busy = false;
 
   @override
@@ -53,6 +54,56 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
 
   DateTime _endOfDay(DateTime value) =>
       DateTime(value.year, value.month, value.day, 23, 59, 59);
+
+  Future<void> _useCurrentShopLocation() async {
+    if (locatingShop) return;
+    setState(() => locatingShop = true);
+    try {
+      final position = await determinePosition();
+      if (!mounted) return;
+      setState(
+        () => voucherLocation = GeoPoint(position.latitude, position.longitude),
+      );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => locatingShop = false);
+    }
+  }
+
+  Future<void> _chooseShopLocationOnMap() async {
+    if (locatingShop) return;
+    setState(() => locatingShop = true);
+
+    var initialLocation = voucherLocation;
+    if (initialLocation == null) {
+      try {
+        final position = await determinePosition();
+        initialLocation = GeoPoint(position.latitude, position.longitude);
+      } catch (_) {
+        initialLocation = const GeoPoint(5.4141, 100.3288);
+      }
+    }
+
+    if (!mounted) return;
+    setState(() => locatingShop = false);
+    final selected = await Navigator.push<GeoPoint>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _VoucherLocationPickerPage(initialLocation: initialLocation!),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() => voucherLocation = selected);
+    }
+  }
 
   Future<void> save() async {
     final cost = int.tryParse(pointCost.text);
@@ -287,29 +338,73 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
               'Set the shop location used for nearby searches and alerts.',
         ),
         const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: () async {
-            try {
-              final position = await determinePosition();
-              setState(
-                () => voucherLocation = GeoPoint(
-                  position.latitude,
-                  position.longitude,
-                ),
-              );
-            } catch (error) {
-              if (context.mounted) {
-                showMessage(context, error.toString(), error: true);
-              }
-            }
-          },
-          icon: const Icon(Icons.my_location),
-          label: Text(
-            voucherLocation == null
-                ? 'Use current shop location'
-                : 'Shop location captured',
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: locatingShop ? null : _useCurrentShopLocation,
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('Use Current'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: locatingShop ? null : _chooseShopLocationOnMap,
+                icon: locatingShop
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Pick on Map'),
+              ),
+            ),
+          ],
         ),
+        if (voucherLocation != null) ...[
+          const SizedBox(height: 10),
+          ExplorerCard(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            backgroundColor: ExplorerColors.successSoft,
+            borderColor: const Color(0xFFB9E2D3),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 19,
+                  backgroundColor: Colors.white,
+                  foregroundColor: ExplorerColors.success,
+                  child: Icon(Icons.location_on_rounded, size: 21),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Shop location selected',
+                        style: TextStyle(
+                          color: ExplorerColors.navy,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${voucherLocation!.latitude.toStringAsFixed(5)}, ${voucherLocation!.longitude.toStringAsFixed(5)}',
+                        style: const TextStyle(
+                          color: ExplorerColors.muted,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.check_circle, color: ExplorerColors.success),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         const ExplorerCard(
           backgroundColor: ExplorerColors.navySoft,
@@ -448,4 +543,188 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       ],
     ),
   );
+}
+
+class _VoucherLocationPickerPage extends StatefulWidget {
+  const _VoucherLocationPickerPage({required this.initialLocation});
+
+  final GeoPoint initialLocation;
+
+  @override
+  State<_VoucherLocationPickerPage> createState() =>
+      _VoucherLocationPickerPageState();
+}
+
+class _VoucherLocationPickerPageState
+    extends State<_VoucherLocationPickerPage> {
+  GoogleMapController? mapController;
+  late LatLng selectedLocation;
+  bool findingCurrentLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedLocation = LatLng(
+      widget.initialLocation.latitude,
+      widget.initialLocation.longitude,
+    );
+  }
+
+  void _selectLocation(LatLng location) {
+    setState(() => selectedLocation = location);
+  }
+
+  Future<void> _moveToCurrentLocation() async {
+    if (findingCurrentLocation) return;
+    setState(() => findingCurrentLocation = true);
+    try {
+      final position = await determinePosition();
+      final location = LatLng(position.latitude, position.longitude);
+      if (!mounted) return;
+      _selectLocation(location);
+      await mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(location, 17),
+      );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => findingCurrentLocation = false);
+    }
+  }
+
+  void _confirmLocation() {
+    Navigator.pop(
+      context,
+      GeoPoint(selectedLocation.latitude, selectedLocation.longitude),
+    );
+  }
+
+  @override
+  void dispose() {
+    mapController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.background,
+      appBar: AppBar(title: const Text('Pinpoint Shop Location')),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: ExplorerCard(
+                backgroundColor: ExplorerColors.navySoft,
+                borderColor: Color(0xFFC8D6EA),
+                child: Row(
+                  children: [
+                    Icon(Icons.touch_app_outlined, color: ExplorerColors.navy),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Tap anywhere on the map or drag the pin to the exact voucher redemption location.',
+                        style: TextStyle(
+                          color: ExplorerColors.navy,
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: selectedLocation,
+                      zoom: 16,
+                    ),
+                    markers: {
+                      Marker(
+                        markerId: const MarkerId('voucher-shop-location'),
+                        position: selectedLocation,
+                        draggable: true,
+                        onDragEnd: _selectLocation,
+                        infoWindow: const InfoWindow(
+                          title: 'Voucher redemption location',
+                        ),
+                      ),
+                    },
+                    compassEnabled: true,
+                    mapToolbarEnabled: false,
+                    zoomControlsEnabled: false,
+                    onTap: _selectLocation,
+                    onMapCreated: (controller) => mapController = controller,
+                  ),
+                  Positioned(
+                    right: 14,
+                    bottom: 14,
+                    child: FloatingActionButton.small(
+                      heroTag: 'voucher-location-current',
+                      tooltip: 'Move pin to my current location',
+                      onPressed: findingCurrentLocation
+                          ? null
+                          : _moveToCurrentLocation,
+                      child: findingCurrentLocation
+                          ? const SizedBox(
+                              width: 19,
+                              height: 19,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.my_location_rounded),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+              child: ExplorerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Selected coordinates',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${selectedLocation.latitude.toStringAsFixed(6)}, ${selectedLocation.longitude.toStringAsFixed(6)}',
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 11),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _confirmLocation,
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Use This Location'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

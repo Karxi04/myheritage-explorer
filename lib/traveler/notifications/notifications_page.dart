@@ -251,8 +251,9 @@ class NotificationsPage extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    final type = '${data['type'] ?? 'general'}';
-    final referenceId = '${data['referenceId'] ?? ''}';
+    final type = '${data['type'] ?? 'general'}'.trim().toLowerCase();
+    final referenceId = '${data['referenceId'] ?? data['voucherId'] ?? ''}'
+        .trim();
 
     switch (type) {
       case 'group_message':
@@ -294,6 +295,9 @@ class NotificationsPage extends StatelessWidget {
         return;
 
       case 'voucher_nearby':
+      case 'nearby_voucher':
+      case 'nearby_reward':
+      case 'voucher_nearby_digest':
         if (referenceId.isNotEmpty) {
           await Navigator.push(
             context,
@@ -307,13 +311,6 @@ class NotificationsPage extends StatelessWidget {
             MaterialPageRoute(builder: (_) => const NearbyRewardsPage()),
           );
         }
-        return;
-
-      case 'voucher_nearby_digest':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const NearbyRewardsPage()),
-        );
         return;
 
       case 'voucher_claimed':
@@ -367,7 +364,10 @@ class NotificationsPage extends StatelessWidget {
       'private_location_shared' => Icons.location_on_outlined,
       'sos' => Icons.sos_rounded,
       'companion_group' => Icons.groups_outlined,
-      'voucher_nearby' || 'voucher_nearby_digest' => Icons.near_me_outlined,
+      'voucher_nearby' ||
+      'nearby_voucher' ||
+      'nearby_reward' ||
+      'voucher_nearby_digest' => Icons.near_me_outlined,
       'voucher_claimed' => Icons.card_giftcard_outlined,
       'voucher_redeemed' => Icons.redeem_outlined,
       'itinerary' => Icons.route_outlined,

@@ -300,7 +300,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                                 ),
                                 const SizedBox(height: 3),
                                 const Text(
-                                  'Sorted from nearest to farthest',
+                                  'Sorted nearest first • 750 m fair range',
                                   style: TextStyle(
                                     color: Colors.white70,
                                     fontSize: 11,

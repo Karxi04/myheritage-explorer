@@ -7,6 +7,7 @@ void main() {
     expect(AppServices.nearbyRewardRadiusMeters, 750);
     expect(AppServices.rewardPageReadLimit, 25);
     expect(AppServices.nearbyRewardCandidateReadLimit, 25);
+    expect(AppServices.nearbyRewardCheckCooldown, const Duration(minutes: 10));
     expect(AppServices.nearbyRewardAlertCooldown, const Duration(hours: 6));
     expect(
       AppServices.repeatedNearbyRewardAlertCooldown,

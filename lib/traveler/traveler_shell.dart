@@ -101,7 +101,7 @@ class _TravelerShellState extends State<TravelerShell>
         settings = AndroidSettings(
           accuracy: LocationAccuracy.medium,
           distanceFilter: 150,
-          intervalDuration: Duration(minutes: 2),
+          intervalDuration: AppServices.nearbyRewardCheckCooldown,
           foregroundNotificationConfig: const ForegroundNotificationConfig(
             notificationTitle: 'Nearby reward alerts are active',
             notificationText:
@@ -134,7 +134,7 @@ class _TravelerShellState extends State<TravelerShell>
             final now = DateTime.now();
             if (_lastBackgroundRewardCheck != null &&
                 now.difference(_lastBackgroundRewardCheck!) <
-                    const Duration(minutes: 2)) {
+                    AppServices.nearbyRewardCheckCooldown) {
               return;
             }
             _lastBackgroundRewardCheck = now;

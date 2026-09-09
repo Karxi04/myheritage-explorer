@@ -61,7 +61,7 @@ class AppServices {
   static const int rewardPageReadLimit = 25;
   static const int nearbyRewardCandidateReadLimit = 25;
   static const int vendorAnalyticsReadLimit = 100;
-  static const Duration nearbyRewardCheckCooldown = Duration(minutes: 30);
+  static const Duration nearbyRewardCheckCooldown = Duration(minutes: 10);
   static const Duration nearbyRewardAlertCooldown = Duration(hours: 6);
   static const Duration repeatedNearbyRewardAlertCooldown = Duration(hours: 24);
   static const double _nearbyRewardCellSizeDegrees = 0.01;

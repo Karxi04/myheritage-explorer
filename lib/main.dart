@@ -44,18 +44,7 @@ Future<void> main() async {
           final navigator = appNavigatorKey.currentState;
           if (navigator == null) return;
 
-          final type = '${data['type'] ?? ''}';
-          final referenceId = '${data['referenceId'] ?? ''}'.trim();
-          final destination = switch (type) {
-            'voucher_nearby' when referenceId.isNotEmpty => VoucherDetailPage(
-              voucherId: referenceId,
-            ),
-            'voucher_nearby_digest' => const NearbyRewardsPage(),
-            'voucher_claimed' || 'voucher_redeemed' => VoucherWalletPage(
-              focusClaimId: referenceId.isEmpty ? null : referenceId,
-            ),
-            _ => const NotificationsPage(),
-          };
+          final destination = _notificationDestination(data);
 
           navigator.push(MaterialPageRoute(builder: (_) => destination));
         });
@@ -92,6 +81,26 @@ Future<void> main() async {
   }
 }
 
+Widget _notificationDestination(Map<String, dynamic> data) {
+  final type = '${data['type'] ?? ''}'.trim().toLowerCase();
+  final referenceId = '${data['referenceId'] ?? data['voucherId'] ?? ''}'
+      .trim();
+
+  return switch (type) {
+    'voucher_nearby' ||
+    'nearby_voucher' ||
+    'nearby_reward' ||
+    'voucher_nearby_digest' =>
+      referenceId.isEmpty
+          ? const NearbyRewardsPage()
+          : VoucherDetailPage(voucherId: referenceId),
+    'voucher_claimed' || 'voucher_redeemed' => VoucherWalletPage(
+      focusClaimId: referenceId.isEmpty ? null : referenceId,
+    ),
+    _ => const NotificationsPage(),
+  };
+}
+
 void _handleNotificationPayload(String? payload) {
   final value = (payload ?? '').trim();
   if (value.isEmpty) return;
@@ -102,7 +111,7 @@ void _handleNotificationPayload(String? payload) {
 void _openPendingNotificationDestination() {
   if (_openingNotificationDestination) return;
   _openingNotificationDestination = true;
-  WidgetsBinding.instance.addPostFrameCallback((_) {
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
     final navigator = appNavigatorKey.currentState;
     final value = (_pendingNotificationPayload ?? '').trim();
     if (navigator == null ||
@@ -112,47 +121,71 @@ void _openPendingNotificationDestination() {
       return;
     }
 
-    Widget? destination;
-    destination = switch (value) {
-      'rewards' => const RewardsPage(),
-      _ when value.startsWith('reward:') => VoucherDetailPage(
-        voucherId: value.substring('reward:'.length).trim(),
-      ),
-      _ when value.startsWith('claim:') => VoucherWalletPage(
-        focusClaimId: value.substring('claim:'.length).trim(),
-      ),
-      'voucher_wallet' => const VoucherWalletPage(),
-      'nearby_rewards' => const NearbyRewardsPage(),
-      _ => null,
-    };
-    final itineraryId = _itineraryIdFromNotificationPayload(value);
-    if (destination == null && itineraryId.isNotEmpty) {
-      destination = ItineraryDetailPage(itineraryId: itineraryId);
-    }
-    if (destination == null) {
-      _pendingNotificationPayload = null;
+    try {
+      final destination = await _notificationPayloadDestination(value);
+      if (_pendingNotificationPayload == value) {
+        _pendingNotificationPayload = null;
+      }
+      if (navigator.mounted) {
+        navigator.push(MaterialPageRoute(builder: (_) => destination));
+      }
+    } finally {
       _openingNotificationDestination = false;
-      return;
     }
-
-    _pendingNotificationPayload = null;
-    navigator.push(MaterialPageRoute(builder: (_) => destination!));
-    _openingNotificationDestination = false;
   });
 }
 
-String _itineraryIdFromNotificationPayload(String? payload) {
-  final value = (payload ?? '').trim();
-  if (value.isEmpty) return '';
-  if (value == 'rewards' ||
-      value == 'voucher_wallet' ||
-      value == 'nearby_rewards') {
-    return '';
+Future<Widget> _notificationPayloadDestination(String value) async {
+  if (value == 'rewards') return const RewardsPage();
+  if (value == 'voucher_wallet') return const VoucherWalletPage();
+  if (value == 'nearby_rewards') return const NearbyRewardsPage();
+
+  for (final prefix in const [
+    'reward:',
+    'voucher:',
+    'voucher_nearby:',
+    'nearby_reward:',
+  ]) {
+    if (value.startsWith(prefix)) {
+      final voucherId = value.substring(prefix.length).trim();
+      return voucherId.isEmpty
+          ? const NearbyRewardsPage()
+          : VoucherDetailPage(voucherId: voucherId);
+    }
   }
+
+  if (value.startsWith('claim:')) {
+    final claimId = value.substring('claim:'.length).trim();
+    return VoucherWalletPage(focusClaimId: claimId.isEmpty ? null : claimId);
+  }
+
   if (value.startsWith('itinerary:')) {
-    return value.substring('itinerary:'.length).trim();
+    final itineraryId = value.substring('itinerary:'.length).trim();
+    return itineraryId.isEmpty
+        ? const NotificationsPage()
+        : ItineraryDetailPage(itineraryId: itineraryId);
   }
-  return value;
+
+  // Older notification builds stored only a raw document ID. Resolve the
+  // document type before navigating so a voucher can never be mistaken for an
+  // itinerary.
+  try {
+    final voucher = await AppServices.db
+        .collection('vouchers')
+        .doc(value)
+        .get();
+    if (voucher.exists) return VoucherDetailPage(voucherId: value);
+
+    final itinerary = await AppServices.db
+        .collection('itineraries')
+        .doc(value)
+        .get();
+    if (itinerary.exists) return ItineraryDetailPage(itineraryId: value);
+  } catch (_) {
+    // The notifications page is the safe fallback when the legacy ID cannot be
+    // resolved, including while offline.
+  }
+  return const NotificationsPage();
 }
 
 class MyHeritageApp extends StatelessWidget {
