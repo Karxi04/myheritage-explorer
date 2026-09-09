@@ -15,6 +15,10 @@ import 'firebase_options.dart';
 import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
 
+final appNavigatorKey = GlobalKey<NavigatorState>();
+String? _pendingNotificationPayload;
+bool _openingNotificationDestination = false;
+
 const _deepLinkMethodChannel = MethodChannel('myheritage_explorer/deep_links');
 const _deepLinkEventChannel = EventChannel(
   'myheritage_explorer/deep_link_events',
@@ -22,7 +26,6 @@ const _deepLinkEventChannel = EventChannel(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -49,12 +52,81 @@ Future<void> main() async {
     );
   }
 
+  SystemNotificationService.instance.onNotificationPayload =
+      _handleNotificationPayload;
+  SystemNotificationService.instance.init();
+  MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+
   runApp(const MyHeritageApp());
+
+  AppServices.auth.authStateChanges().listen((user) {
+    if (user != null) _openPendingNotificationDestination();
+  });
 
   if (!kIsWeb) {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await PushNotificationService.handlePendingInitialNotification();
     });
+  }
+}
+
+void _handleNotificationPayload(String? payload) {
+  final value = (payload ?? '').trim();
+  if (value.isEmpty) return;
+  _pendingNotificationPayload = value;
+  _openPendingNotificationDestination();
+}
+
+void _openPendingNotificationDestination() {
+  if (_openingNotificationDestination) return;
+  _openingNotificationDestination = true;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final navigator = appNavigatorKey.currentState;
+    final value = (_pendingNotificationPayload ?? '').trim();
+    if (navigator == null ||
+        value.isEmpty ||
+        AppServices.auth.currentUser == null) {
+      _openingNotificationDestination = false;
+      return;
+    }
+
+    Widget? destination;
+    destination = switch (value) {
+      'rewards' => const RewardsPage(),
+      _ when value.startsWith('reward:') => VoucherDetailPage(
+        voucherId: value.substring('reward:'.length).trim(),
+      ),
+      _ when value.startsWith('claim:') => VoucherWalletPage(
+        focusClaimId: value.substring('claim:'.length).trim(),
+      ),
+      'voucher_wallet' => const VoucherWalletPage(),
+      _ => null,
+    };
+    final itineraryId = _itineraryIdFromNotificationPayload(value);
+    if (destination == null && itineraryId.isNotEmpty) {
+      destination = ItineraryDetailPage(itineraryId: itineraryId);
+    }
+    if (destination == null) {
+      _pendingNotificationPayload = null;
+      _openingNotificationDestination = false;
+      return;
+    }
+
+    _pendingNotificationPayload = null;
+    navigator.push(MaterialPageRoute(builder: (_) => destination!));
+    _openingNotificationDestination = false;
+  });
+}
+
+String _itineraryIdFromNotificationPayload(String? payload) {
+  final value = (payload ?? '').trim();
+  if (value.isEmpty) return '';
+  if (value == 'rewards' || value == 'voucher_wallet') return '';
+  if (value.startsWith('itinerary:')) {
+    return value.substring('itinerary:'.length).trim();
+  }
+  return value;
+}
   }
 }
 
@@ -144,6 +216,13 @@ class _AppEntryState extends State<_AppEntry> {
     }
   }
 
+// Backward compatibility for the previous long itinerary links.
+    if (encodedItinerary != null && encodedItinerary.isNotEmpty) {
+      return SharedItineraryPage(encodedItinerary: encodedItinerary);
+    }
+    return null;
+  }
+
   @override
   void dispose() {
     _deepLinkSubscription?.cancel();
@@ -208,6 +287,7 @@ class _AppEntryState extends State<_AppEntry> {
 
     if (_initialDeepLinkTarget != null) {
       return _initialDeepLinkTarget!.page();
+    }
     }
 
     return const AuthGate();

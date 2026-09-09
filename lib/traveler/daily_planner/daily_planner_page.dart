@@ -178,20 +178,20 @@ class GeoapifyPlanner {
             final code = codes[idx].toInt();
             final temp = temps.isNotEmpty ? temps[idx].round() : 30;
             final rain = rains.isNotEmpty ? rains[idx].toDouble() : 0.0;
-            final severity = _weatherSeverity(
-              weatherCode: code,
-              precipitationMm: rain,
-              temperatureC: temp,
-            );
-            final isRainy =
-                severity == 'thunderstorm' ||
-                severity == 'heavy_rain' ||
-                severity == 'moderate_rain' ||
-                severity == 'light_showers';
-            final weatherCopy = _weatherCopy(
-              severity: severity,
-              temperatureC: temp,
-            );
+final severity = _weatherSeverity(
+  weatherCode: code,
+  precipitationMm: rain,
+  temperatureC: temp,
+);
+final isRainy =
+    severity == 'thunderstorm' ||
+    severity == 'heavy_rain' ||
+    severity == 'moderate_rain' ||
+    severity == 'light_showers';
+final weatherCopy = _weatherCopy(
+  severity: severity,
+  temperatureC: temp,
+);
 
             return {
               'temperature': '$temp°C',
@@ -1994,9 +1994,11 @@ class GeoapifyPlanner {
     for (final doc in snapshot.docs) {
       final data = doc.data();
       final vendorId = '${data['vendorId'] ?? ''}'.trim();
+      final startsAt = asDate(data['startsAt']);
       final expiry = asDate(data['expiresAt']);
       final inventory = (data['inventoryRemaining'] as num?)?.round() ?? 0;
       if (vendorId.isEmpty || inventory <= 0) continue;
+      if (startsAt != null && startsAt.isAfter(now)) continue;
       if (expiry != null && expiry.isBefore(now)) continue;
       result.putIfAbsent(vendorId, () => []).add({'id': doc.id, ...data});
     }
@@ -2339,12 +2341,12 @@ class GeoapifyPlanner {
         final candidateName = _normalize('${candidate['name'] ?? ''}');
         final identity = _placeIdentity(candidate);
         final candidateKeys = _allPlaceKeys(candidate);
-        if (selectedNames.contains(candidateName) ||
-            selectedIdentities.contains(identity) ||
-            candidateKeys.any((k) => selectedIdentities.contains(k)) ||
-            (usedKeys != null &&
-                (usedKeys.contains('name:$candidateName') ||
-                 candidateKeys.any((k) => usedKeys.contains(k))))) {
+if (selectedNames.contains(candidateName) ||
+    selectedIdentities.contains(identity) ||
+    candidateKeys.any((k) => selectedIdentities.contains(k)) ||
+    (usedKeys != null &&
+        (usedKeys.contains('name:$candidateName') ||
+         candidateKeys.any((k) => usedKeys.contains(k))))) {
           continue;
         }
         final previousLocation = selected.isEmpty
@@ -2402,6 +2404,10 @@ class GeoapifyPlanner {
         if (travelMinutes + visitMinutes + bufferMinutes > remaining) continue;
 
         // Opening hours verification based on estimated visit time
+        final currentDayMinute =
+            (preferredStartMinutes ?? 9 * 60) +
+            (availableMinutes - remaining) +
+            travelMinutes;
         final window = ItinerarySchedulePlanner._openingWindow(
           '${candidate['openingHours'] ?? ''}',
         );
@@ -2668,15 +2674,15 @@ class GeoapifyPlanner {
         '${next['openingHours'] ?? ''}',
       );
       final opensAt = win?.open24Hours == true ? 0 : (win?.opens ?? 9 * 60);
-      final mealSlot = _mealSlotForLabel('${next['mealRole'] ?? ''}');
-      var effectiveArrival = max(accumulatedTime + travel, opensAt);
-      if (mealSlot != null && effectiveArrival < mealSlot.start) {
-        effectiveArrival = mealSlot.start;
-      }
-      accumulatedTime =
-          effectiveArrival +
-          ((next['durationMinutes'] as num?)?.round() ?? 60) +
-          buffer;
+final mealSlot = _mealSlotForLabel('${next['mealRole'] ?? ''}');
+var effectiveArrival = max(accumulatedTime + travel, opensAt);
+if (mealSlot != null && effectiveArrival < mealSlot.start) {
+  effectiveArrival = mealSlot.start;
+}
+accumulatedTime =
+    effectiveArrival +
+    ((next['durationMinutes'] as num?)?.round() ?? 60) +
+    buffer;
     }
 
     selected
@@ -3140,11 +3146,11 @@ class GeoapifyPlanner {
         ? 0.30
         : 0.0;
 
-    final weatherBonus = _weatherScore(
-      place,
-      weatherSeverity: weatherSeverity,
-      isRainy: isRainy,
-    );
+final weatherBonus = _weatherScore(
+  place,
+  weatherSeverity: weatherSeverity,
+  isRainy: isRainy,
+);
 
     return (score / 5) * 0.48 +
         min(reviewCount / 10, 1.0) * 0.18 +
@@ -3942,13 +3948,12 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   final selectedInterests = <String>{'Heritage'};
   DateTime tripStartDate = DateTime.now().add(const Duration(days: 1));
   DateTime tripEndDate = DateTime.now().add(const Duration(days: 1));
-  int get tripDays {
-    final s = DateTime(tripStartDate.year, tripStartDate.month, tripStartDate.day);
-    final e = DateTime(tripEndDate.year, tripEndDate.month, tripEndDate.day);
-    final diff = e.difference(s).inDays + 1;
-    return diff < 1 ? 1 : diff;
-  }
-
+int get tripDays {
+  final s = DateTime(tripStartDate.year, tripStartDate.month, tripStartDate.day);
+  final e = DateTime(tripEndDate.year, tripEndDate.month, tripEndDate.day);
+  final diff = e.difference(s).inDays + 1;
+  return diff < 1 ? 1 : diff;
+}
   int selectedDayIndex = 0;
   List<PlannerDaySchedule> generatedDays = [];
   TimeOfDay startTime = const TimeOfDay(hour: 9, minute: 0);
@@ -4271,6 +4276,9 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
         });
       }
 
+      final tripArea = area.text.trim().isEmpty
+          ? activeHub.name
+          : area.text.trim();
       final tripTitle = tripDays > 1
           ? '$selectedStateName $tripDays-Day Tour'
           : '$selectedArea Cultural Day';
@@ -4385,6 +4393,24 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   }
 
   @override
+  void dispose() {
+    area.dispose();
+    super.dispose();
+  }
+
+  String _extractShortArea(String fullAddress) {
+    if (fullAddress.isEmpty) return area.text.trim();
+    final parts = fullAddress.split(',');
+    if (parts.length >= 2) {
+      final town = parts[parts.length - 2]
+          .replaceAll(RegExp(r'\d+'), '')
+          .trim();
+      if (town.isNotEmpty && town.length < 24) return town;
+    }
+    return parts.first.trim();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final schedule = _currentSchedule();
     final scheduledResults = schedule.stops;
@@ -4472,6 +4498,43 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                             onChanged: (v) {
                               if (v != null) _onStateChanged(v);
                             },
+                          )
+                        : null,
+                  ),
+                ),
+                if (showSuggestions && suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 180),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: ExplorerColors.goldSoft),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: suggestions.length,
+                      separatorBuilder: (_, __) => const Divider(
+                        height: 1,
+                        color: ExplorerColors.goldSoft,
+                      ),
+                      itemBuilder: (context, index) {
+                        final sub = suggestions[index];
+                        return ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.place,
+                            size: 18,
+                            color: ExplorerColors.navy,
                           ),
                         ],
                       ),
@@ -4515,35 +4578,41 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                     ),
                   ],
                 ),
-                if (availableAreas.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Quick Pick Area ($selectedStateName):',
-                    style: const TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: availableAreas.map((sub) {
-                        final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
-                            label: Text(sub),
-                            labelStyle: TextStyle(
-                              fontSize: 11,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                              color: isSelected ? Colors.white : ExplorerColors.navy,
-                            ),
-                            selected: isSelected,
-                            selectedColor: ExplorerColors.navy,
-                            backgroundColor: Colors.white,
-                            onSelected: (_) => setState(() => selectedArea = sub),
+if (availableAreas.isNotEmpty) ...[
+  const SizedBox(height: 10),
+  Text(
+    'Quick Pick Area ($selectedStateName):',
+    style: const TextStyle(
+      color: ExplorerColors.muted,
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+    ),
+  ),
+  const SizedBox(height: 6),
+  SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: availableAreas.map((sub) {
+        final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
+        return Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: ChoiceChip(
+            label: Text(sub),
+            labelStyle: TextStyle(
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? Colors.white : ExplorerColors.navy,
+            ),
+            selected: isSelected,
+            selectedColor: ExplorerColors.navy,
+            backgroundColor: Colors.white,
+            onSelected: (_) => setState(() => selectedArea = sub),
+          ),
+        );
+      }).toList(),
+    ),
+  ),
+]
                           ),
                         );
                       }).toList(),
@@ -4612,6 +4681,13 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
                                   tripStartDate = picked;
                                   if (tripEndDate.isBefore(tripStartDate)) {
                                     tripEndDate = tripStartDate;
+                                  } else if (tripEndDate
+                                          .difference(tripStartDate)
+                                          .inDays >
+                                      4) {
+                                    tripEndDate = tripStartDate.add(
+                                      const Duration(days: 4),
+                                    );
                                   }
                                 });
                               }
@@ -5160,27 +5236,30 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
             const SizedBox(height: 10),
           ],
           if (scheduledResults.isNotEmpty) ...[
-            ItineraryTimelineSummary(schedule: schedule),
-            const SizedBox(height: 10),
-            if (selectedInterests.contains('Food')) ...[
-              Wrap(
-                spacing: 8,
-                children: [
-                  ActionChip(
-                    avatar: const Icon(Icons.icecream_outlined, size: 16, color: ExplorerColors.navy),
-                    label: const Text(
-                      '+ Add Dessert Stop',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                        color: ExplorerColors.navy,
+if (generatedDays.isNotEmpty &&
+                selectedDayIndex < generatedDays.length) ...[
+              ItineraryTimelineSummary(schedule: schedule),
+              const SizedBox(height: 10),
+              if (selectedInterests.contains('Food')) ...[
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ActionChip(
+                      avatar: const Icon(Icons.icecream_outlined, size: 16, color: ExplorerColors.navy),
+                      label: const Text(
+                        '+ Add Dessert Stop',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          color: ExplorerColors.navy,
+                        ),
                       ),
+                      backgroundColor: ExplorerColors.goldSoft,
+                      onPressed: _addDessertStop,
                     ),
-                    backgroundColor: ExplorerColors.goldSoft,
-                    onPressed: _addDessertStop,
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
             ],
           ],

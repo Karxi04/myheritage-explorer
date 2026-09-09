@@ -1,4 +1,3 @@
-﻿
 part of '../vendor_pages.dart';
 
 class VendorVouchersPage extends StatefulWidget {
@@ -10,6 +9,56 @@ class VendorVouchersPage extends StatefulWidget {
 
 class _VendorVouchersPageState extends State<VendorVouchersPage> {
   String filter = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final uid = AppServices.auth.currentUser?.uid;
+      if (uid == null) return;
+      try {
+        await AppServices.archiveExpiredVouchers(uid);
+      } catch (_) {
+        // Expiry is also derived in the UI, so archival remains best-effort.
+      }
+    });
+  }
+
+  Future<void> _archiveVoucher(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final claimCount = (doc.data()['claimCount'] as num?)?.toInt() ?? 0;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Remove this voucher?'),
+            content: Text(
+              claimCount > 0
+                  ? '$claimCount ${claimCount == 1 ? 'tourist has' : 'tourists have'} claimed this voucher. It will be removed from new claims, but existing holders can still redeem it.'
+                  : 'It will be removed from the tourist catalogue and archived for your records.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await doc.reference.update({
+      'status': 'archived',
+      'archivedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (mounted) showMessage(context, 'Voucher removed from new claims.');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +73,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
             tooltip: 'Create voucher',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const VoucherEditorPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const VoucherEditorPage()),
             ),
             icon: const Icon(Icons.add_circle_outline),
           ),
@@ -35,9 +82,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => const VoucherEditorPage(),
-          ),
+          MaterialPageRoute(builder: (_) => const VoucherEditorPage()),
         ),
         icon: const Icon(Icons.add),
         label: const Text('New Voucher'),
@@ -55,29 +100,52 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
           final docs = snapshot.data!.docs.toList()
             ..sort(
               (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
-                  .compareTo(
-                asDate(a.data()['createdAt']) ?? DateTime(2000),
-              ),
+                  .compareTo(asDate(a.data()['createdAt']) ?? DateTime(2000)),
             );
 
           final filtered = docs.where((doc) {
             final data = doc.data();
+            final startsAt = asDate(data['startsAt']);
+            final scheduled =
+                startsAt != null && startsAt.isAfter(DateTime.now());
             final expiry = asDate(data['expiresAt']);
+            final expired = expiry != null && !expiry.isAfter(DateTime.now());
+            final remaining =
+                (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
             return switch (filter) {
-              'Active' => data['status'] == 'active' &&
-                  (expiry == null || expiry.isAfter(DateTime.now())),
-              'Inactive' => data['status'] != 'active',
-              'Expired' =>
-                expiry != null && expiry.isBefore(DateTime.now()),
+              'Active' =>
+                data['status'] == 'active' &&
+                    !scheduled &&
+                    !expired &&
+                    remaining > 0,
+              'Scheduled' => data['status'] == 'active' && scheduled,
+              'Inactive' => data['status'] == 'inactive',
+              'Sold out' => !expired && remaining <= 0,
+              'Expired' => expired || data['status'] == 'expired',
+              'Archived' => data['status'] == 'archived',
               _ => true,
             };
           }).toList();
+          final activeCount = docs.where((doc) {
+            final data = doc.data();
+            final startsAt = asDate(data['startsAt']);
+            final expiry = asDate(data['expiresAt']);
+            return data['status'] == 'active' &&
+                (startsAt == null || !startsAt.isAfter(DateTime.now())) &&
+                (expiry == null || expiry.isAfter(DateTime.now())) &&
+                ((data['inventoryRemaining'] as num?)?.toInt() ?? 0) > 0;
+          }).length;
+          final totalClaims = docs.fold<int>(
+            0,
+            (total, doc) =>
+                total + ((doc.data()['claimCount'] as num?)?.toInt() ?? 0),
+          );
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 90),
             children: [
               const Text(
-                'Published Rewards Management',
+                'Voucher management',
                 style: TextStyle(
                   color: ExplorerColors.navy,
                   fontSize: 23,
@@ -87,30 +155,71 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Create, edit and monitor voucher availability.',
-                style: TextStyle(
-                  color: ExplorerColors.muted,
-                  fontSize: 12,
-                ),
+                'Publish rewards, monitor availability, and open claim history.',
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
               ),
               const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _VendorStat(
+                      value: '${docs.length}',
+                      label: 'PUBLISHED\nVOUCHERS',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _VendorStat(
+                      value: '$activeCount',
+                      label: 'ACTIVE\nNOW',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _VendorStat(
+                      value: '$totalClaims',
+                      label: 'TOTAL\nCLAIMS',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'FILTER BY STATUS',
+                style: TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .6,
+                ),
+              ),
+              const SizedBox(height: 7),
               SizedBox(
                 height: 34,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: ['All', 'Active', 'Inactive', 'Expired']
-                      .map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(item),
-                            selected: filter == item,
-                            onSelected: (_) =>
-                                setState(() => filter = item),
-                          ),
-                        ),
-                      )
-                      .toList(),
+                  children:
+                      [
+                            'All',
+                            'Active',
+                            'Scheduled',
+                            'Inactive',
+                            'Sold out',
+                            'Expired',
+                            'Archived',
+                          ]
+                          .map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(item),
+                                selected: filter == item,
+                                onSelected: (_) =>
+                                    setState(() => filter = item),
+                              ),
+                            ),
+                          )
+                          .toList(),
                 ),
               ),
               const SizedBox(height: 16),
@@ -125,10 +234,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                 ...filtered.map(
                   (doc) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _voucherCard(
-                      context,
-                      doc,
-                    ),
+                    child: _voucherCard(context, doc),
                   ),
                 ),
             ],
@@ -143,23 +249,34 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data();
+    final startsAt = asDate(data['startsAt']);
+    final scheduled = startsAt != null && startsAt.isAfter(DateTime.now());
     final expiry = asDate(data['expiresAt']);
-    final expired =
-        expiry != null && expiry.isBefore(DateTime.now());
-    final active = data['status'] == 'active' && !expired;
-    final remaining = data['inventoryRemaining'] ?? 0;
-    final limit = data['inventoryLimit'] ?? 0;
+    final expired = expiry != null && !expiry.isAfter(DateTime.now());
+    final archived = data['status'] == 'archived';
+    final remaining = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
+    final limit = (data['inventoryLimit'] as num?)?.toInt() ?? 0;
+    final soldOut = remaining <= 0 && !expired;
+    final active =
+        data['status'] == 'active' && !scheduled && !expired && !soldOut;
 
     return ExplorerCard(
       padding: EdgeInsets.zero,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VendorVoucherHistoryPage(
+            voucherId: doc.id,
+            voucherTitle: '${data['title'] ?? 'Voucher'}',
+          ),
+        ),
+      ),
       child: Column(
         children: [
           Container(
-            height: 92,
+            height: 72,
             decoration: BoxDecoration(
-              color: active
-                  ? ExplorerColors.goldSoft
-                  : ExplorerColors.subtle,
+              color: active ? ExplorerColors.goldSoft : ExplorerColors.subtle,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
@@ -167,9 +284,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
             child: Center(
               child: Icon(
                 Icons.local_activity_outlined,
-                color: active
-                    ? ExplorerColors.goldDark
-                    : ExplorerColors.muted,
+                color: active ? ExplorerColors.goldDark : ExplorerColors.muted,
                 size: 42,
               ),
             ),
@@ -188,14 +303,24 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                           ExplorerStatusBadge(
                             label: expired
                                 ? 'EXPIRED'
+                                : archived
+                                ? 'ARCHIVED'
+                                : scheduled
+                                ? 'SCHEDULED'
+                                : soldOut
+                                ? 'SOLD OUT'
                                 : active
-                                    ? 'ACTIVE'
-                                    : 'INACTIVE',
+                                ? 'ACTIVE'
+                                : 'INACTIVE',
                             tone: expired
                                 ? ExplorerStatusTone.danger
+                                : scheduled
+                                ? ExplorerStatusTone.warning
+                                : archived || soldOut
+                                ? ExplorerStatusTone.neutral
                                 : active
-                                    ? ExplorerStatusTone.success
-                                    : ExplorerStatusTone.neutral,
+                                ? ExplorerStatusTone.success
+                                : ExplorerStatusTone.neutral,
                           ),
                           const Spacer(),
                           Text(
@@ -226,9 +351,19 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      const Text(
+                        'Tap this voucher to view its claim and redemption history.',
+                        style: TextStyle(
+                          color: ExplorerColors.navy,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
                       Text(
-                        '$remaining/$limit remaining â€¢ ${data['claimCount'] ?? 0} claimed'
-                        '${expiry == null ? '' : ' â€¢ ${DateFormat.yMMMd().format(expiry)}'}',
+                        '$remaining/$limit remaining - ${data['claimCount'] ?? 0} claimed'
+                        '${scheduled ? ' - Starts ${DateFormat.yMMMd().format(startsAt)}' : ''}'
+                        '${expiry == null ? '' : ' - ${DateFormat.yMMMd().format(expiry)}'}',
                         style: const TextStyle(
                           color: ExplorerColors.muted,
                           fontSize: 9,
@@ -249,6 +384,18 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                           ),
                         ),
                       );
+                    } else if (value == 'analytics') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => VendorAnalyticsPage(
+                            voucherId: doc.id,
+                            voucherTitle: '${data['title'] ?? 'Voucher'}',
+                          ),
+                        ),
+                      );
+                    } else if (value == 'archive') {
+                      await _archiveVoucher(doc);
                     } else {
                       await doc.reference.update({
                         'status': value,
@@ -261,15 +408,26 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
                       value: 'edit',
                       child: Text('Edit Voucher'),
                     ),
-                    PopupMenuItem(
-                      value:
-                          data['status'] == 'active' ? 'inactive' : 'active',
-                      child: Text(
-                        data['status'] == 'active'
-                            ? 'Deactivate'
-                            : 'Activate',
-                      ),
+                    const PopupMenuItem(
+                      value: 'analytics',
+                      child: Text('View Analytics'),
                     ),
+                    if (!expired && !archived)
+                      PopupMenuItem(
+                        value: data['status'] == 'active'
+                            ? 'inactive'
+                            : 'active',
+                        child: Text(
+                          data['status'] == 'active'
+                              ? 'Deactivate'
+                              : 'Activate',
+                        ),
+                      ),
+                    if (!archived)
+                      const PopupMenuItem(
+                        value: 'archive',
+                        child: Text('Archive Voucher'),
+                      ),
                   ],
                 ),
               ],
@@ -280,4 +438,3 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
     );
   }
 }
-

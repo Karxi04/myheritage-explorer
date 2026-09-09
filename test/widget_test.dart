@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myheritage_explorer/core/helpers.dart';
 import 'package:myheritage_explorer/core/services.dart';
 import 'package:myheritage_explorer/traveler/traveler_pages.dart';
 import 'package:myheritage_explorer/traveler/daily_planner/models/place_model.dart';
@@ -10,6 +11,43 @@ import 'package:myheritage_explorer/traveler/daily_planner/services/itinerary_re
 void main() {
   test('basic Flutter test environment works', () {
     expect(1 + 1, 2);
+  });
+
+  test('voucher expiry countdown produces useful labels', () {
+    final now = DateTime(2026, 8, 29, 10);
+    expect(
+      expiryCountdownLabel(DateTime(2026, 9, 2, 10), now: now),
+      'Expires in 4 days',
+    );
+    expect(
+      expiryCountdownLabel(DateTime(2026, 8, 30, 10), now: now),
+      'Expires tomorrow',
+    );
+    expect(expiryCountdownLabel(now, now: now), 'Expired');
+  });
+
+  test('reward reminder notification ids are deterministic and distinct', () {
+    expect(
+      stableNotificationId('claim-123', 3),
+      stableNotificationId('claim-123', 3),
+    );
+    expect(
+      stableNotificationId('claim-123', 3),
+      isNot(stableNotificationId('claim-123', 1)),
+    );
+  });
+
+  test('voucher redemption sessions use a versioned QR and short expiry', () {
+    final session = VoucherRedemptionSession(
+      claimId: 'claim-123',
+      token: 'temporary-token',
+      pin: '123456',
+      expiresAt: DateTime(2026, 9, 2, 12, 3),
+    );
+
+    expect(session.qrPayload, 'MHE1|claim-123|temporary-token');
+    expect(AppServices.redemptionSessionDuration, const Duration(minutes: 3));
+    expect(session.pin, matches(RegExp(r'^\d{6}$')));
   });
 
   test('review model flags negative text with a high star rating', () {

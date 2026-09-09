@@ -76,10 +76,56 @@ class TravelerNotificationBell extends StatelessWidget {
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
+Future<void> _handleNotificationTap(
+    BuildContext context,
+    DocumentReference<Map<String, dynamic>> reference,
+    Map<String, dynamic> data,
+  ) async {
+    await reference.update({'read': true});
+
+    final type = '${data['type'] ?? ''}';
+    final referenceId = '${data['referenceId'] ?? ''}'.trim();
+    final chatId = '${data['chatId'] ?? ''}'.trim();
+    final groupId = '${data['groupId'] ?? ''}'.trim();
+
+    if (!context.mounted) return;
+
+    // Handle async routes (chats & SOS alerts)
+    if (type == 'private_chat' || (type == 'chat' && chatId.isNotEmpty)) {
+      await _openPrivateChat(context, chatId.isNotEmpty ? chatId : referenceId);
+      return;
+    }
+    if (type == 'group_chat' || (type == 'chat' && groupId.isNotEmpty)) {
+      await _openGroupChat(context, groupId.isNotEmpty ? groupId : referenceId);
+      return;
+    }
+    if (type == 'sos') {
+      await _openSos(context, referenceId);
+      return;
+    }
+
+    // Handle standard static destination routes
+    final Widget? destination = switch (type) {
+      'itinerary' when referenceId.isNotEmpty => ItineraryDetailPage(
+        itineraryId: referenceId,
+      ),
+      'rewards' => const RewardsPage(),
+      'voucher_wallet' => const VoucherWalletPage(),
+      _ => null,
+    };
+
+    if (destination != null && context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => destination),
+      );
+    }
+  }
+
   Future<void> _openPrivateChat(
-      BuildContext context,
-      String chatId,
-      ) async {
+    BuildContext context,
+    String chatId,
+  ) async {
     if (chatId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -108,7 +154,7 @@ class NotificationsPage extends StatelessWidget {
     );
 
     final otherUserId = participantIds.firstWhere(
-          (id) => id != uid,
+      (id) => id != uid,
       orElse: () => '',
     );
 
@@ -148,9 +194,9 @@ class NotificationsPage extends StatelessWidget {
   }
 
   Future<void> _openGroupChat(
-      BuildContext context,
-      String groupId,
-      ) async {
+    BuildContext context,
+    String groupId,
+  ) async {
     if (groupId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -203,9 +249,9 @@ class NotificationsPage extends StatelessWidget {
   }
 
   Future<void> _openSos(
-      BuildContext context,
-      String alertId,
-      ) async {
+    BuildContext context,
+    String alertId,
+  ) async {
     if (alertId.isEmpty) return;
 
     final alertSnapshot = await AppServices.db
@@ -249,6 +295,19 @@ class NotificationsPage extends StatelessWidget {
         ),
       ),
     );
+  }
+      ),
+      'voucher_nearby' when referenceId.isNotEmpty => VoucherDetailPage(
+        voucherId: referenceId,
+      ),
+      'voucher_claimed' || 'voucher_redeemed' when referenceId.isNotEmpty =>
+        VoucherWalletPage(focusClaimId: referenceId),
+      'voucher_nearby' => const RewardsPage(),
+      'voucher_claimed' || 'voucher_redeemed' => const VoucherWalletPage(),
+      _ => null,
+    };
+    if (destination == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => destination));
   }
 
   Future<void> _handleNotificationTap(
@@ -431,18 +490,16 @@ class NotificationsPage extends StatelessWidget {
                       30,
                     ),
                     itemCount: docs.length,
-                    separatorBuilder: (_, _) =>
-                    const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final document = docs[index];
-                      final data = document.data();
+separatorBuilder: (_, _) => const SizedBox(height: 10),
+itemBuilder: (context, index) {
+  final document = docs[index];
+  final data = document.data();
                       final read = data['read'] == true;
                       final createdAt = asDate(data['createdAt']);
                       final type = '${data['type'] ?? 'general'}';
 
                       return ExplorerCard(
-                        backgroundColor:
-                        read ? Colors.white : ExplorerColors.navySoft,
+backgroundColor: read ? Colors.white : ExplorerColors.navySoft,
                         borderColor: read
                             ? ExplorerColors.border
                             : const Color(0xFFB9CBE2),
@@ -504,9 +561,7 @@ class NotificationsPage extends StatelessWidget {
                                   Text(
                                     createdAt == null
                                         ? 'Recently'
-                                        : DateFormat.yMMMd()
-                                        .add_jm()
-                                        .format(createdAt),
+: DateFormat.yMMMd().add_jm().format(createdAt),
                                     style: const TextStyle(
                                       color: ExplorerColors.muted,
                                       fontSize: 10,

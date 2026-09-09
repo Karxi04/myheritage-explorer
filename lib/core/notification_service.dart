@@ -176,6 +176,53 @@ class SystemNotificationService {
     }
   }
 
+  Future<void> scheduleRewardExpiryReminder({
+    required int id,
+    required String voucherTitle,
+    required String claimId,
+    required DateTime reminderTime,
+    required int daysRemaining,
+  }) async {
+    if (!_isInitialized) await init();
+    if (!reminderTime.isAfter(DateTime.now())) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'myheritage_reward_expiry',
+      'Reward Expiry Reminders',
+      channelDescription: 'Reminders before claimed reward vouchers expire.',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+      macOS: darwinDetails,
+    );
+
+    try {
+      await _notificationsPlugin.zonedSchedule(
+        id,
+        'Voucher expiring soon',
+        daysRemaining == 1
+            ? '$voucherTitle expires tomorrow.'
+            : '$voucherTitle expires in $daysRemaining days.',
+        tz.TZDateTime.from(reminderTime, tz.local),
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: claimId.isEmpty ? 'voucher_wallet' : 'claim:$claimId',
+      );
+    } catch (e) {
+      debugPrint('Schedule reward expiry notification error: $e');
+    }
+  }
+
   Future<void> cancelNotification(int id) async {
     try {
       await _notificationsPlugin.cancel(id);

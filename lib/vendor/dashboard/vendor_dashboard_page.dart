@@ -1,11 +1,7 @@
-﻿
 part of '../vendor_pages.dart';
 
 class VendorDashboardPage extends StatelessWidget {
-  const VendorDashboardPage({
-    super.key,
-    required this.profile,
-  });
+  const VendorDashboardPage({super.key, required this.profile});
 
   final Map<String, dynamic> profile;
 
@@ -33,8 +29,8 @@ class VendorDashboardPage extends StatelessWidget {
                 '${profile['businessName'] ?? 'V'}'.trim().isEmpty
                     ? 'V'
                     : '${profile['businessName'] ?? 'V'}'
-                        .trim()[0]
-                        .toUpperCase(),
+                          .trim()[0]
+                          .toUpperCase(),
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
@@ -65,10 +61,7 @@ class VendorDashboardPage extends StatelessWidget {
           const SizedBox(height: 9),
           const Text(
             'Manage your vendor profile and track active vouchers.',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 18),
           ExplorerCard(
@@ -76,9 +69,7 @@ class VendorDashboardPage extends StatelessWidget {
             borderColor: ExplorerColors.navy,
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const VendorQrScannerPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const VendorQrScannerPage()),
             ),
             child: Row(
               children: [
@@ -120,10 +111,7 @@ class VendorDashboardPage extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Colors.white,
-                ),
+                const Icon(Icons.chevron_right, color: Colors.white),
               ],
             ),
           ),
@@ -131,9 +119,7 @@ class VendorDashboardPage extends StatelessWidget {
           ExplorerCard(
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const VoucherEditorPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const VoucherEditorPage()),
             ),
             child: const Row(
               children: [
@@ -169,10 +155,7 @@ class VendorDashboardPage extends StatelessWidget {
                     ],
                   ),
                 ),
-                Icon(
-                  Icons.chevron_right,
-                  color: ExplorerColors.muted,
-                ),
+                Icon(Icons.chevron_right, color: ExplorerColors.muted),
               ],
             ),
           ),
@@ -186,8 +169,9 @@ class VendorDashboardPage extends StatelessWidget {
                 .snapshots(),
             builder: (context, voucherSnapshot) {
               final vouchers = voucherSnapshot.data?.docs ?? const [];
-              final active =
-                  vouchers.where((doc) => doc.data()['status'] == 'active').length;
+              final active = vouchers
+                  .where((doc) => doc.data()['status'] == 'active')
+                  .length;
               final claimed = vouchers.fold<num>(
                 0,
                 (sum, doc) => sum + ((doc.data()['claimCount'] ?? 0) as num),
@@ -229,26 +213,15 @@ class VendorDashboardPage extends StatelessWidget {
             },
           ),
           const SizedBox(height: 22),
-          ExplorerSectionTitle(
-            'Recent Redemptions',
-            trailing: TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const VendorAnalyticsPage(),
-                ),
-              ),
-              child: const Text('View All'),
-            ),
-          ),
+          const ExplorerSectionTitle('Voucher Claim & Redemption History'),
           const SizedBox(height: 10),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: AppServices.db
-                .collection('redemptions')
+                .collection('vouchers')
                 .where('vendorId', isEqualTo: uid)
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
+            builder: (context, voucherSnapshot) {
+              if (!voucherSnapshot.hasData) {
                 return const ExplorerCard(
                   child: Center(
                     child: Padding(
@@ -259,92 +232,96 @@ class VendorDashboardPage extends StatelessWidget {
                 );
               }
 
-              final docs = snapshot.data!.docs.toList()
+              final vouchers = voucherSnapshot.data!.docs.toList()
                 ..sort(
-                  (a, b) => (asDate(b.data()['redeemedAt']) ??
-                          DateTime(2000))
+                  (a, b) => (asDate(b.data()['createdAt']) ?? DateTime(2000))
                       .compareTo(
-                    asDate(a.data()['redeemedAt']) ?? DateTime(2000),
-                  ),
+                        asDate(a.data()['createdAt']) ?? DateTime(2000),
+                      ),
                 );
 
-              if (docs.isEmpty) {
+              if (vouchers.isEmpty) {
                 return const ExplorerEmptyState(
-                  title: 'No redemptions yet',
+                  title: 'No published vouchers yet',
                   subtitle:
-                      'Completed QR redemptions will appear here.',
-                  icon: Icons.qr_code_scanner,
+                      'Publish a voucher to begin tracking claims and redemptions.',
+                  icon: Icons.confirmation_number_outlined,
                 );
               }
 
-              return Column(
-                children: docs
-                    .take(5)
-                    .map(
-                      (doc) => Padding(
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: AppServices.db
+                    .collection('claimed_vouchers')
+                    .where('vendorId', isEqualTo: uid)
+                    .snapshots(),
+                builder: (context, claimSnapshot) {
+                  final claims = claimSnapshot.data?.docs ?? const [];
+                  return Column(
+                    children: vouchers.map((voucherDoc) {
+                      final voucherClaims = claims
+                          .where(
+                            (claim) =>
+                                claim.data()['voucherId'] == voucherDoc.id,
+                          )
+                          .toList();
+                      final redeemed = voucherClaims
+                          .where(
+                            (claim) => claim.data()['status'] == 'redeemed',
+                          )
+                          .length;
+                      final title =
+                          '${voucherDoc.data()['title'] ?? 'Published voucher'}';
+
+                      return Padding(
                         padding: const EdgeInsets.only(bottom: 9),
                         child: ExplorerCard(
-                          padding: const EdgeInsets.all(12),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => VendorVoucherHistoryPage(
+                                voucherId: voucherDoc.id,
+                                voucherTitle: title,
+                              ),
+                            ),
+                          ),
                           child: Row(
                             children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                decoration: const BoxDecoration(
-                                  color: ExplorerColors.goldSoft,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.check,
-                                  color: ExplorerColors.goldDark,
-                                  size: 18,
-                                ),
+                              const CircleAvatar(
+                                backgroundColor: ExplorerColors.goldSoft,
+                                foregroundColor: ExplorerColors.goldDark,
+                                child: Icon(Icons.history),
                               ),
-                              const SizedBox(width: 11),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'ID: ${doc.id.substring(0, min(8, doc.id.length)).toUpperCase()}',
+                                      title,
                                       style: const TextStyle(
                                         color: ExplorerColors.navy,
-                                        fontSize: 11,
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
-                                    const SizedBox(height: 3),
+                                    const SizedBox(height: 4),
                                     Text(
-                                      'Voucher ${doc.data()['voucherId'] ?? ''}',
+                                      '${voucherClaims.length} claims • $redeemed redeemed',
                                       style: const TextStyle(
                                         color: ExplorerColors.muted,
-                                        fontSize: 10,
+                                        fontSize: 11,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              Text(
-                                asDate(doc.data()['redeemedAt']) == null
-                                    ? 'Recently'
-                                    : DateFormat.MMMd()
-                                        .add_jm()
-                                        .format(
-                                          asDate(
-                                            doc.data()['redeemedAt'],
-                                          )!,
-                                        ),
-                                style: const TextStyle(
-                                  color: ExplorerColors.muted,
-                                  fontSize: 9,
-                                ),
-                              ),
+                              const Icon(Icons.chevron_right),
                             ],
                           ),
                         ),
-                      ),
-                    )
-                    .toList(),
+                      );
+                    }).toList(),
+                  );
+                },
               );
             },
           ),
@@ -355,10 +332,7 @@ class VendorDashboardPage extends StatelessWidget {
 }
 
 class _VendorStat extends StatelessWidget {
-  const _VendorStat({
-    required this.value,
-    required this.label,
-  });
+  const _VendorStat({required this.value, required this.label});
 
   final String value;
   final String label;
@@ -366,10 +340,7 @@ class _VendorStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ExplorerCard(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 15,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 15),
       child: Column(
         children: [
           Text(
@@ -396,4 +367,3 @@ class _VendorStat extends StatelessWidget {
     );
   }
 }
-

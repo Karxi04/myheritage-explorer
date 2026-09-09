@@ -78,8 +78,10 @@ part 'companion/private_chats_page.dart';
 part 'companion/private_chat_page.dart';
 
 part 'rewards/rewards_page.dart';
+part 'rewards/voucher_detail_page.dart';
 part 'rewards/nearby_rewards_page.dart';
 part 'rewards/voucher_wallet_page.dart';
+part 'rewards/reward_notification_settings_page.dart';
 
 part 'weather/weather_reminder_page.dart';
 part 'chatbot/chatbot_page.dart';
