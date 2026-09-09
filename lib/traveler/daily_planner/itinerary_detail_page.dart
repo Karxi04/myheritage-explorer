@@ -612,57 +612,82 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                       ),
                     )
                   else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ...mainScheduledStops.asMap().entries.map((entry) {
-                          final stop = entry.value;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 11),
-                            child: _SavedItineraryStopCard(
-                              number: entry.key + 1,
-                              stop: stop,
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => PlaceDetailPage(
-                                    placeId: '${stop['placeId'] ?? ''}',
-                                    place: stop,
-                                  ),
-                                ),
-                              ),
-                            ),
+                    StreamBuilder<List<HazardReport>>(
+                      stream: HazardReportService().watchVerifiedReports(),
+                      builder: (context, hazardSnapshot) {
+                        final warnings = const ItinerarySafetyService()
+                            .checkStops(
+                              scheduledStops,
+                              hazardSnapshot.data ?? const [],
+                            );
+                        List<ItineraryHazardWarning> warningsFor(
+                          Map<String, dynamic> stop,
+                        ) {
+                          final stopIndex = scheduledStops.indexWhere(
+                            (candidate) => identical(candidate, stop),
                           );
-                        }),
-                        if (optionalFoodStops.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          const ExplorerSectionTitle(
-                            'Optional Food Exploration',
-                            subtitle:
-                                'Extra food stops saved from food exploration mode.',
-                          ),
-                          const SizedBox(height: 10),
-                          ...optionalFoodStops.asMap().entries.map((entry) {
-                            final stop = entry.value;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 11),
-                              child: _SavedItineraryStopCard(
-                                number: entry.key + 1,
-                                stop: stop,
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => PlaceDetailPage(
-                                      placeId: '${stop['placeId'] ?? ''}',
-                                      place: stop,
+                          return warnings
+                              .where(
+                                (warning) => warning.stopIndex == stopIndex,
+                              )
+                              .toList();
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ...mainScheduledStops.asMap().entries.map((entry) {
+                              final stop = entry.value;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 11),
+                                child: _SavedItineraryStopCard(
+                                  number: entry.key + 1,
+                                  stop: stop,
+                                  warnings: warningsFor(stop),
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PlaceDetailPage(
+                                        placeId: '${stop['placeId'] ?? ''}',
+                                        place: stop,
+                                      ),
                                     ),
                                   ),
                                 ),
+                              );
+                            }),
+                            if (optionalFoodStops.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              const ExplorerSectionTitle(
+                                'Optional Food Exploration',
+                                subtitle:
+                                    'Extra food stops saved from food exploration mode.',
                               ),
-                            );
-                          }),
-                        ],
-                      ],
+                              const SizedBox(height: 10),
+                              ...optionalFoodStops.asMap().entries.map((entry) {
+                                final stop = entry.value;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 11),
+                                  child: _SavedItineraryStopCard(
+                                    number: entry.key + 1,
+                                    stop: stop,
+                                    warnings: warningsFor(stop),
+                                    onTap: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PlaceDetailPage(
+                                          placeId: '${stop['placeId'] ?? ''}',
+                                          place: stop,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                   const SizedBox(height: 16),
                   Wrap(
@@ -943,11 +968,13 @@ class _SavedItineraryStopCard extends StatelessWidget {
     required this.number,
     required this.stop,
     required this.onTap,
+    required this.warnings,
   });
 
   final int number;
   final Map<String, dynamic> stop;
   final VoidCallback onTap;
+  final List<ItineraryHazardWarning> warnings;
 
   @override
   Widget build(BuildContext context) {
@@ -1098,6 +1125,10 @@ class _SavedItineraryStopCard extends StatelessWidget {
                         const SizedBox(height: 9),
                         ScheduleNoteList(notes: scheduleNotes),
                       ],
+                      if (warnings.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _ItineraryHazardBanner(warnings: warnings),
+                      ],
                     ],
                   ),
                 ),
@@ -1112,4 +1143,142 @@ class _SavedItineraryStopCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ItineraryHazardBanner extends StatelessWidget {
+  const _ItineraryHazardBanner({required this.warnings});
+
+  final List<ItineraryHazardWarning> warnings;
+
+  @override
+  Widget build(BuildContext context) {
+    final ordered = [...warnings]
+      ..sort((a, b) {
+        final severity = b.severityRank.compareTo(a.severityRank);
+        return severity != 0
+            ? severity
+            : a.distanceMeters.compareTo(b.distanceMeters);
+      });
+    final primary = ordered.first;
+    final headline = ordered.length == 1
+        ? '${primary.hazard.severity}-severity hazard nearby'
+        : '${ordered.length} active hazards nearby';
+
+    return Material(
+      color: ExplorerColors.dangerSoft,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _showItinerarySafetyWarnings(context, ordered),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: ExplorerColors.danger,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: const TextStyle(
+                        color: ExplorerColors.danger,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${primary.hazard.category} - ${primary.distanceLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _showItinerarySafetyWarnings(
+  BuildContext context,
+  List<ItineraryHazardWarning> warnings,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Active hazards near this stop',
+              style: TextStyle(
+                color: ExplorerColors.navy,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Verified community reports within 500 metres.',
+              style: TextStyle(color: ExplorerColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: warnings.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (_, index) {
+                  final warning = warnings[index];
+                  return ExplorerCard(
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              HazardDetailPage(hazardId: warning.hazard.id),
+                        ),
+                      );
+                    },
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: ExplorerColors.danger,
+                      ),
+                      title: Text(
+                        '${warning.hazard.severity}-severity ${warning.hazard.category}',
+                      ),
+                      subtitle: Text(
+                        '${warning.distanceLabel} - Official status: Verified',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

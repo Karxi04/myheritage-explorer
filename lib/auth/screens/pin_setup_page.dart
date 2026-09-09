@@ -54,8 +54,10 @@ class _PinSetupPageState extends State<PinSetupPage> {
     final controller = isConfirming ? confirmController : pinController;
     if (controller.text.isNotEmpty) {
       setState(() {
-        controller.text =
-            controller.text.substring(0, controller.text.length - 1);
+        controller.text = controller.text.substring(
+          0,
+          controller.text.length - 1,
+        );
       });
     }
   }
@@ -63,7 +65,6 @@ class _PinSetupPageState extends State<PinSetupPage> {
   Future<void> _savePin() async {
     await PinService.setPin(confirmController.text);
     PinService.authorizeSession();
-    
     if (!mounted) return;
 
     try {
@@ -241,7 +242,10 @@ class _PinSetupPageState extends State<PinSetupPage> {
                 width: 60,
                 child: IconButton(
                   onPressed: _onBackspace,
-                  icon: const Icon(Icons.backspace_outlined, color: ExplorerColors.navy),
+                  icon: const Icon(
+                    Icons.backspace_outlined,
+                    color: ExplorerColors.navy,
+                  ),
                 ),
               ),
             ],

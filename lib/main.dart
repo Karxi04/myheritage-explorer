@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:workmanager/workmanager.dart';
 
 import 'auth/auth_gate.dart';
 import 'core/app_theme.dart';
@@ -12,6 +13,8 @@ import 'core/notification_service.dart';
 import 'core/push_notification_service.dart';
 import 'core/services.dart';
 import 'firebase_options.dart';
+import 'services/background_alert_worker.dart';
+import 'services/mobile_notification_service.dart';
 import 'shared/shared_itinerary_page.dart';
 import 'traveler/traveler_pages.dart';
 
@@ -26,9 +29,8 @@ const _deepLinkEventChannel = EventChannel(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
@@ -52,9 +54,20 @@ Future<void> main() async {
     );
   }
 
+  await MobileNotificationService.instance.initialize();
+
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await Workmanager().initialize(backgroundAlertDispatcher);
+      await registerBackgroundSafetyWorker();
+    } catch (error) {
+      debugPrint('Background safety worker initialization failed: $error');
+    }
+  }
+
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
-  SystemNotificationService.instance.init();
+  await SystemNotificationService.instance.init();
   MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
 
   runApp(const MyHeritageApp());
@@ -241,8 +254,7 @@ class _AppEntryState extends State<_AppEntry> {
     final raw = '${value ?? ''}'.trim();
     if (raw.isEmpty) return null;
     final uri = Uri.tryParse(raw);
-    if (uri == null) return null;
-    return _sharedLinkTargetFromUri(uri);
+    return uri == null ? null : _sharedLinkTargetFromUri(uri);
   }
 
   void _handleIncomingDeepLink(Object? value) {
