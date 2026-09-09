@@ -8,66 +8,184 @@ import 'malaysia_location_service.dart';
 import 'meal_planning_service.dart';
 import 'place_repository.dart';
 
+/// Central recommendation engine for Malaysian Daily Planner itineraries
 class ItineraryRecommendationService {
+  const ItineraryRecommendationService._();
+
   static final List<String> _recentRecommendationHistory = [];
 
-  /// Generate a complete multi-day or single-day itinerary based on user preferences
-  static Future<ItineraryModel> generateItinerary({
-    required TravelPreferences preferences,
-    String userId = '',
-    List<String> previouslyVisitedPlaceIds = const [],
-    List<PlaceModel>? candidatePlaces,
-    Set<String>? recentlyRecommendedPlaceIds,
-    int? randomSeed,
-  }) async {
-    final validationError = preferences.validate();
-    if (validationError != null) {
-      throw Exception(validationError);
+  static const Set<String> _mainlandAreas = {
+    'butterworth',
+    'bukit mertajam',
+    'nibong tebal',
+    'seberang perai',
+    'perai',
+    'seberang jaya',
+    'raja uda',
+    'chai leng park',
+  };
+
+  /// Geographically cluster selected areas into day-groups using average linkage distance
+  static List<List<String>> _clusterAreasForDays({
+    required List<String> selectedAreas,
+    required int numberOfDays,
+    required List<PlaceModel> places,
+  }) {
+    if (selectedAreas.isEmpty) {
+      return List.generate(numberOfDays, (_) => <String>[]);
+    }
+    if (numberOfDays <= 1) {
+      return [List<String>.from(selectedAreas)];
     }
 
-    if (recentlyRecommendedPlaceIds != null) {
-      _recentRecommendationHistory.addAll(recentlyRecommendedPlaceIds);
-    }
-
-    // 1. Retrieve all active places for the selected Malaysian state
-    List<PlaceModel> allStatePlaces = candidatePlaces ?? [];
-    if (allStatePlaces.isEmpty) {
-      allStatePlaces = await PlaceRepository.getPlacesForState(preferences.stateId);
-      if (allStatePlaces.isEmpty) {
-        await PlaceRepository.seedInitialPlacesIfEmpty();
-        allStatePlaces = await PlaceRepository.getPlacesForState(preferences.stateId);
-        if (allStatePlaces.isEmpty) {
-          throw Exception(
-            'No attractions found for ${preferences.stateName}. Please select another Malaysian state.',
-          );
-        }
+    // Compute centroid coordinates for each area from places
+    final centroids = <String, (double, double)>{};
+    for (final area in selectedAreas) {
+      final areaKey = area.toLowerCase();
+      final matchingPlaces = places.where((p) =>
+          p.area.toLowerCase().contains(areaKey) ||
+          areaKey.contains(p.area.toLowerCase())).toList();
+      if (matchingPlaces.isNotEmpty) {
+        final avgLat = matchingPlaces.fold<double>(0, (s, p) => s + p.latitude) / matchingPlaces.length;
+        final avgLng = matchingPlaces.fold<double>(0, (s, p) => s + p.longitude) / matchingPlaces.length;
+        centroids[area] = (avgLat, avgLng);
+      } else {
+        centroids[area] = (5.4164, 100.3327); // Default
       }
     }
 
-    List<Map<String, dynamic>> activeTasks = const [];
-    try {
-      activeTasks = await CulturalTaskService.loadActiveTasks();
-    } catch (_) {}
+    double geoDist(String a1, String a2) {
+      final c1 = centroids[a1] ?? (5.4164, 100.3327);
+      final c2 = centroids[a2] ?? (5.4164, 100.3327);
+      final dLat = (c1.$1 - c2.$1) * 111.0;
+      final dLng = (c1.$2 - c2.$2) * 111.0 * cos(c1.$1 * pi / 180);
+      var dist = sqrt(dLat * dLat + dLng * dLng);
 
-    final scopedPlaces = _filterPlacesForSelectedArea(allStatePlaces, preferences);
-    if (scopedPlaces.isEmpty) {
-      final areaDisplay = preferences.isMultiAreaMode
-          ? preferences.selectedAreas.join(', ')
-          : preferences.selectedArea;
+      // Mainland vs Island bridge crossing penalty
+      final isM1 = _mainlandAreas.any((m) => a1.toLowerCase().contains(m));
+      final isM2 = _mainlandAreas.any((m) => a2.toLowerCase().contains(m));
+      if (isM1 != isM2) {
+        dist += 20.0;
+      }
+      return dist;
+    }
+
+    // Agglomerative clustering with average linkage
+    final clusters = selectedAreas.map((a) => [a]).toList();
+
+    while (clusters.length > numberOfDays) {
+      int? bestI, bestJ;
+      double minDist = double.infinity;
+
+      for (var i = 0; i < clusters.length; i++) {
+        for (var j = i + 1; j < clusters.length; j++) {
+          double totalDist = 0.0;
+          for (final a1 in clusters[i]) {
+            for (final a2 in clusters[j]) {
+              totalDist += geoDist(a1, a2);
+            }
+          }
+          final avgDist = totalDist / (clusters[i].length * clusters[j].length);
+          if (avgDist < minDist) {
+            minDist = avgDist;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+
+      if (bestI != null && bestJ != null) {
+        clusters[bestI].addAll(clusters[bestJ]);
+        clusters.removeAt(bestJ);
+      } else {
+        break;
+      }
+    }
+
+    while (clusters.length < numberOfDays) {
+      clusters.add(<String>[]);
+    }
+
+    return clusters;
+  }
+
+  /// Generate a complete multi-day or single-day itinerary based on preferences
+  static Future<ItineraryModel> generateItinerary({
+    required TravelPreferences preferences,
+    String userId = '',
+    List<PlaceModel>? candidatePlaces,
+    List<Map<String, dynamic>>? culturalTasks,
+    Set<String>? previouslyVisitedPlaceIds,
+    Set<String>? recentlyRecommendedPlaceIds,
+    int? randomSeed,
+  }) async {
+    // 1. Strict validation
+    final validationError = preferences.validate(allowPastDates: true);
+    if (validationError != null) {
+      throw ArgumentError(validationError);
+    }
+
+    // 2. Fetch or use provided places strictly scoped to state
+    List<PlaceModel> places;
+    if (candidatePlaces != null && candidatePlaces.isNotEmpty) {
+      places = candidatePlaces.where((p) => p.stateId == preferences.stateId).toList();
+    } else {
+      places = await PlaceRepository.getPlacesForState(preferences.stateId);
+      if (places.isEmpty) {
+        places = PlaceRepository.getHeritageCatalogue()
+            .where((p) => p.stateId == preferences.stateId)
+            .toList();
+      }
+    }
+
+    if (places.isEmpty) {
       throw Exception(
-        'No matching places found in $areaDisplay. Please choose another area or add more verified vendors there.',
+        'No places available for ${preferences.stateName}. Please ensure places data is seeded.',
       );
     }
 
+    // Filter places by area selection
+    final scopedPlaces = _filterPlacesForSelectedArea(places, preferences);
+    if (scopedPlaces.isEmpty) {
+      throw Exception(
+        'No places found matching "${preferences.selectedArea}" in ${preferences.stateName}.',
+      );
+    }
+
+    // Fetch active cultural tasks
+    List<Map<String, dynamic>> activeTasks = culturalTasks ?? const [];
+    if (culturalTasks == null) {
+      try {
+        activeTasks = await CulturalTaskService.fetchActiveTasks(stateId: preferences.stateId);
+      } catch (_) {
+        activeTasks = const [];
+      }
+    }
+
     final totalDays = preferences.numberOfDays;
-    final globalSelectedIds = <String>{...previouslyVisitedPlaceIds};
+    final globalSelectedIds = <String>{
+      ...?previouslyVisitedPlaceIds,
+      ...?recentlyRecommendedPlaceIds,
+    };
 
     final generatedDays = <ItineraryDayModel>[];
     final allStops = <ItineraryStopModel>[];
 
+    // Compute area clusters per day for multi-day / multi-area itineraries
+    final dayAreaClusters = preferences.isMultiAreaMode
+        ? _clusterAreasForDays(
+            selectedAreas: preferences.selectedAreas,
+            numberOfDays: totalDays,
+            places: scopedPlaces,
+          )
+        : List.generate(totalDays, (_) => [preferences.selectedArea]);
+
+    final daySchedules = preferences.getEffectiveDaySchedules();
+
     for (var dayIdx = 0; dayIdx < totalDays; dayIdx++) {
       final dayNumber = dayIdx + 1;
-      final dayDate = preferences.startDate.add(Duration(days: dayIdx));
+      final daySchedule = daySchedules[dayIdx];
+      final dayDate = daySchedule.date;
       final dateLabel = 'Day $dayNumber (${DateFormat("d MMM").format(dayDate)})';
 
       // Day focus rotation for rich variety across multi-day trips
@@ -76,10 +194,8 @@ class ItineraryRecommendationService {
         dayIndex: dayIdx,
       );
 
-      // Day primary area for multi-area distribution across multi-day trips
-      final dayPrimaryArea = preferences.isMultiAreaMode && preferences.selectedAreas.isNotEmpty
-          ? preferences.selectedAreas[dayIdx % preferences.selectedAreas.length]
-          : (preferences.isMultiAreaMode ? null : preferences.selectedArea);
+      final assignedAreas = dayAreaClusters[dayIdx];
+      final dayPrimaryArea = assignedAreas.isNotEmpty ? assignedAreas.first : null;
 
       final dayStops = _generateSingleDay(
         dayNumber: dayNumber,
@@ -89,6 +205,9 @@ class ItineraryRecommendationService {
         dayInterests: dayInterests,
         globallyUsedIds: globalSelectedIds,
         dayIndex: dayIdx,
+        dayStartMinutes: daySchedule.startMinutes,
+        dayAvailableHours: daySchedule.availableHours,
+        dayAssignedAreas: assignedAreas,
         dayPrimaryArea: dayPrimaryArea,
         randomSeed: randomSeed,
       );
@@ -102,7 +221,7 @@ class ItineraryRecommendationService {
       for (final stop in dayStops) {
         totalDayMinutes += stop.durationMinutes + stop.travelMinutesBefore;
       }
-      final availableTotalMinutes = (preferences.availableHours * 60).round();
+      final availableTotalMinutes = (daySchedule.availableHours * 60).round();
       final remainingMin = max(0, availableTotalMinutes - totalDayMinutes);
 
       generatedDays.add(ItineraryDayModel(
@@ -114,6 +233,11 @@ class ItineraryRecommendationService {
         remainingMinutes: remainingMin,
         budget: _calculateDayBudget(dayStops, preferences.budget),
         budgetLevel: preferences.budget,
+        startTime: daySchedule.startTimeLabel,
+        startMinutes: daySchedule.startMinutes,
+        availableHours: daySchedule.availableHours,
+        availableMinutes: daySchedule.availableMinutes,
+        endTime: daySchedule.endTimeLabel,
       ));
     }
 
@@ -122,6 +246,26 @@ class ItineraryRecommendationService {
         : (preferences.isMultiAreaMode
             ? '${preferences.stateName} Multi-Area Tour'
             : '${preferences.selectedArea} Cultural Day');
+
+    // Warning message for limited hours / closed places
+    String? warningMessage;
+    if (allStops.isEmpty) {
+      warningMessage = 'Limited places are available during your selected travel hours. Try changing your start time or duration.';
+    }
+
+    // Area inclusion note when not all selected areas fit due to time constraints
+    String? areaInclusionNote;
+    if (preferences.isMultiAreaMode && preferences.selectedAreas.isNotEmpty && allStops.isNotEmpty) {
+      final visitedAreaKeys = allStops.map((s) => _areaKey(s.area)).toSet();
+      final includedAreas = preferences.selectedAreas.where((a) {
+        final aKey = _areaKey(a);
+        return visitedAreaKeys.any((v) => v.contains(aKey) || aKey.contains(v));
+      }).toList();
+
+      if (includedAreas.length < preferences.selectedAreas.length) {
+        areaInclusionNote = '${includedAreas.length} of your ${preferences.selectedAreas.length} selected areas were included based on your available travel time.';
+      }
+    }
 
     return ItineraryModel(
       id: '',
@@ -141,11 +285,13 @@ class ItineraryRecommendationService {
       pace: preferences.pace,
       days: generatedDays,
       stops: allStops,
+      warningMessage: warningMessage,
+      areaInclusionNote: areaInclusionNote,
       status: 'generated',
     );
   }
 
-  /// Generate stops for a single day fitting the available hours and meal rules
+  /// Generate stops for a single day fitting the available hours, opening times, and meal rules
   static List<ItineraryStopModel> _generateSingleDay({
     required int dayNumber,
     required TravelPreferences preferences,
@@ -154,16 +300,25 @@ class ItineraryRecommendationService {
     required List<String> dayInterests,
     required Set<String> globallyUsedIds,
     required int dayIndex,
+    int? dayStartMinutes,
+    double? dayAvailableHours,
+    List<String> dayAssignedAreas = const [],
     String? dayPrimaryArea,
     int? randomSeed,
   }) {
-    // 1. Filter places strictly belonging to state & active
-    final candidates = availablePlaces.where((p) => p.isActive).toList();
+    final startMinutes = dayStartMinutes ?? preferences.dailyStartMinutes;
+    final dailyAvailableMinutes = ((dayAvailableHours ?? preferences.availableHours) * 60).round();
+    final endMinutes = startMinutes + dailyAvailableMinutes;
+
+    // Filter places strictly belonging to state, active, and open during travel window
+    final candidates = availablePlaces.where((p) {
+      if (!p.isActive) return false;
+      return p.isOpenDuring(startMinutes, endMinutes);
+    }).toList();
+
     if (candidates.isEmpty) return [];
 
     final hasFoodInterest = preferences.interests.contains('Food');
-    final dailyAvailableMinutes = (preferences.availableHours * 60).round();
-    final startMinutes = preferences.dailyStartMinutes;
 
     // Check eligible meal types for this specific day window
     final eligibleMeals = MealPlanningService.getEligibleMealTypes(
@@ -196,6 +351,7 @@ class ItineraryRecommendationService {
         dayInterests: dayInterests,
         hasCulturalTask: task != null,
         isUsedGlobally: globallyUsedIds.contains(place.placeId),
+        dayAssignedAreas: dayAssignedAreas,
         dayPrimaryArea: dayPrimaryArea,
       );
       final score = baseScore + (rand.nextDouble() * 0.05);
@@ -209,14 +365,15 @@ class ItineraryRecommendationService {
         currentMinute <= MealPlanningService.breakfastEnd - 20) {
       final breakfastCandidates = scoredAll.where((sp) {
         if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 5) return false;
+        if (!sp.place.isOpenAtMinute(currentMinute)) return false;
         return MealPlanningService.isFoodPlace(sp.place);
       }).toList();
 
-      // Sort by active/primary area or proximity
-      if (dayPrimaryArea != null && dayPrimaryArea.isNotEmpty) {
+      // Sort by assigned areas or primary area
+      if (dayAssignedAreas.isNotEmpty) {
         breakfastCandidates.sort((a, b) {
-          final aMatch = a.place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase()) ? 0 : 1;
-          final bMatch = b.place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase()) ? 0 : 1;
+          final aMatch = dayAssignedAreas.any((area) => a.place.area.toLowerCase().contains(area.toLowerCase())) ? 0 : 1;
+          final bMatch = dayAssignedAreas.any((area) => b.place.area.toLowerCase().contains(area.toLowerCase())) ? 0 : 1;
           if (aMatch != bMatch) return aMatch.compareTo(bMatch);
           return b.score.compareTo(a.score);
         });
@@ -244,7 +401,7 @@ class ItineraryRecommendationService {
       seenCategories.add(p.category);
     }
 
-    while (remainingMinutes >= 30) {
+    while (remainingMinutes >= 20) {
       // 1. Check if we reached Lunch window
       if (eligibleMeals.contains('Lunch') &&
           mealTracker.canServe('Lunch') &&
@@ -253,6 +410,7 @@ class ItineraryRecommendationService {
         final lunchCandidates = scoredAll.where((sp) {
           if (dayUsedPlaceIds.contains(sp.place.placeId)) return false;
           if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 6) return false;
+          if (!sp.place.isOpenAtMinute(currentMinute)) return false;
           return MealPlanningService.isFoodPlace(sp.place);
         }).toList();
 
@@ -299,6 +457,7 @@ class ItineraryRecommendationService {
         final dinnerCandidates = scoredAll.where((sp) {
           if (dayUsedPlaceIds.contains(sp.place.placeId)) return false;
           if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 6) return false;
+          if (!sp.place.isOpenAtMinute(currentMinute)) return false;
           return MealPlanningService.isFoodPlace(sp.place);
         }).toList();
 
@@ -343,8 +502,8 @@ class ItineraryRecommendationService {
         if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > daySelectedPlaces.length + 3) {
           return false;
         }
-        // If food interest is not selected, skip food places
         if (!hasFoodInterest && MealPlanningService.isFoodPlace(sp.place)) return false;
+        if (!sp.place.isOpenAtMinute(currentMinute)) return false;
         return true;
       }).toList();
 
@@ -436,7 +595,8 @@ class ItineraryRecommendationService {
                   stateId: stateId,
                 ))
             .toList();
-    final dailyAvailableMin = (availableHours * 60).round();
+    final effectiveAvailHours = currentDay.availableHours > 0 ? currentDay.availableHours : availableHours;
+    final dailyAvailableMin = (effectiveAvailHours * 60).round();
     final usedMinutes = currentDay.usedScheduleMinutes;
     final remainingMin = dailyAvailableMin - usedMinutes;
 
@@ -448,18 +608,15 @@ class ItineraryRecommendationService {
     PlaceModel? lastStopPlace;
     if (currentDay.stops.isNotEmpty) {
       final lastStop = currentDay.stops.last;
-      lastStopPlace = localPlaces.firstWhere(
-        (p) => p.placeId == lastStop.placeId,
-        orElse: () => PlaceModel(
-          placeId: lastStop.placeId,
-          name: lastStop.name,
-          stateId: stateId,
-          stateName: stateName,
-          area: lastStop.area,
-          category: lastStop.category,
-          latitude: lastStop.latitude,
-          longitude: lastStop.longitude,
-        ),
+      lastStopPlace = PlaceModel(
+        placeId: lastStop.placeId,
+        name: lastStop.name,
+        stateId: lastStop.stateId,
+        stateName: lastStop.stateName,
+        area: lastStop.area,
+        category: lastStop.category,
+        latitude: lastStop.latitude,
+        longitude: lastStop.longitude,
       );
     }
 
@@ -471,29 +628,35 @@ class ItineraryRecommendationService {
     );
 
     if (dessertCandidate == null) {
-      throw Exception('Not enough remaining time to add a dessert stop.');
+      throw Exception('No suitable dessert or tea vendor available that fits the schedule.');
     }
 
-    final updatedPlaces = currentDay.stops.map((s) {
-      final base = localPlaces.firstWhere(
-        (p) => p.placeId == s.placeId,
-        orElse: () => PlaceModel(
-          placeId: s.placeId,
-          name: s.name,
-          stateId: stateId,
-          stateName: stateName,
-          area: s.area,
-          category: s.category,
-          estimatedVisitMinutes: s.durationMinutes,
-          latitude: s.latitude,
-          longitude: s.longitude,
-          primaryImageUrl: s.imageUrl,
-          publicRating: s.publicRating,
-          trustLabel: s.trustLabel,
-        ),
-      );
-      return base.copyWith(estimatedVisitMinutes: s.durationMinutes);
-    }).toList();
+    final updatedPlaces = currentDay.stops.map<PlaceModel>((s) => PlaceModel(
+      placeId: s.placeId,
+      name: s.name,
+      stateId: s.stateId,
+      stateName: s.stateName,
+      area: s.area,
+      category: s.category,
+      interestTags: s.tags,
+      description: s.description,
+      formattedAddress: s.formattedAddress,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      estimatedVisitMinutes: s.durationMinutes,
+      estimatedBudget: s.budgetLevel,
+      openingHours: s.openingHours,
+      publicRating: s.publicRating,
+      primaryImageUrl: s.imageUrl,
+      imageUrls: s.imageUrls,
+      trustLabel: s.trustLabel,
+      vendorId: s.vendorId,
+      culturalTaskId: s.culturalTaskId,
+      culturalTask: s.culturalTask,
+      phone: s.phone,
+      website: s.website,
+      mealRole: s.mealRole,
+    )).toList();
 
     updatedPlaces.add(dessertCandidate);
 
@@ -555,6 +718,7 @@ class ItineraryRecommendationService {
     required List<String> dayInterests,
     required bool hasCulturalTask,
     required bool isUsedGlobally,
+    List<String> dayAssignedAreas = const [],
     String? dayPrimaryArea,
   }) {
     double score = 0.0;
@@ -581,23 +745,27 @@ class ItineraryRecommendationService {
       score += 15.0;
     }
 
-    // 4. Verification & Trust (Weight: 10)
-    if (place.isVerified || place.trustLabel == 'Verified Place' || place.trustLabel == 'High Trust') {
+    // 4. Budget match (Weight: 10)
+    if (preferences.budget.toLowerCase() == place.estimatedBudget.toLowerCase()) {
       score += 10.0;
     }
 
-    // 5. Area proximity & multi-area scoring (Weight: 20)
-    if (preferences.isMultiAreaMode) {
-      if (dayPrimaryArea != null && dayPrimaryArea.isNotEmpty &&
-          place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase())) {
-        score += 20.0;
-      } else if (preferences.selectedAreas.any((a) => place.area.toLowerCase().contains(a.toLowerCase()))) {
-        score += 12.0;
+    // 5. Area proximity & Day cluster focus (Weight: 25)
+    final pAreaKey = _areaKey(place.area);
+    if (dayAssignedAreas.isNotEmpty) {
+      final isAssigned = dayAssignedAreas.any((a) {
+        final aKey = _areaKey(a);
+        return pAreaKey.contains(aKey) || aKey.contains(pAreaKey);
+      });
+      if (isAssigned) {
+        score += 25.0;
+      } else {
+        score -= 25.0;
       }
-    } else {
-      if (preferences.selectedArea != 'All Areas' &&
-          place.area.toLowerCase().contains(preferences.selectedArea.toLowerCase())) {
-        score += 15.0;
+    } else if (dayPrimaryArea != null && dayPrimaryArea.isNotEmpty) {
+      final targetKey = _areaKey(dayPrimaryArea);
+      if (pAreaKey.contains(targetKey) || targetKey.contains(pAreaKey)) {
+        score += 20.0;
       }
     }
 
@@ -641,7 +809,7 @@ class ItineraryRecommendationService {
 
       final stopStart = currentMinutes;
       final stopEnd = stopStart + place.estimatedVisitMinutes;
-      currentMinutes = stopEnd; // Sequential exact scheduling (no phantom gap jumps)
+      currentMinutes = stopEnd; // Sequential exact scheduling
 
       final timeLabel = '${_formatMinutes(stopStart)} - ${_formatMinutes(stopEnd)}';
 
@@ -861,12 +1029,28 @@ class ItineraryRecommendationService {
           'tanjung bungah',
           'tanjung bunga',
           'floating mosque',
-          'shamrock beach',
+          'masjid terapung',
+          'avatar secret garden',
+        ]);
+        break;
+      case 'tanjung tokong':
+        aliases.addAll(const [
+          'tanjung tokong',
+          'straits quay',
+          'tesco tg tokong',
+        ]);
+        break;
+      case 'pulau tikus':
+        aliases.addAll(const [
+          'pulau tikus',
+          'wat chayamangkalaram',
+          'dhammikarama',
         ]);
         break;
       case 'bukit mertajam':
         aliases.addAll(const [
           'bukit mertajam',
+          'bm',
           'mertajam',
           'cherok tokun',
           'st anne',

@@ -205,6 +205,11 @@ class ItineraryDayModel {
     this.remainingMinutes = 0,
     this.budget = 'RM 50 - 150',
     this.budgetLevel = 'Medium',
+    this.startTime = '9:00 AM',
+    this.startMinutes = 540,
+    this.availableHours = 4.0,
+    this.availableMinutes = 240,
+    this.endTime = '1:00 PM',
   });
 
   final int dayNumber;
@@ -216,6 +221,21 @@ class ItineraryDayModel {
   final int remainingMinutes;
   final String budget;
   final String budgetLevel;
+  final String startTime;
+  final int startMinutes;
+  final double availableHours;
+  final int availableMinutes;
+  final String endTime;
+
+  DateTime get startDateTime {
+    final h = (startMinutes ~/ 60) % 24;
+    final m = startMinutes % 60;
+    return DateTime(date.year, date.month, date.day, h, m);
+  }
+
+  DateTime get endDateTime {
+    return startDateTime.add(Duration(minutes: availableMinutes));
+  }
 
   factory ItineraryDayModel.fromMap(Map<String, dynamic> data) {
     final rawStops = data['stops'];
@@ -236,6 +256,24 @@ class ItineraryDayModel {
       parsedDate = DateTime.tryParse(dateVal) ?? DateTime.now();
     }
 
+    final startM = (data['startMinutes'] as num?)?.toInt() ?? 540;
+    final availH = (data['availableHours'] as num?)?.toDouble() ?? 4.0;
+    final availM = (data['availableMinutes'] as num?)?.toInt() ?? (availH * 60).round();
+    final startH = (startM ~/ 60) % 24;
+    final startMin = startM % 60;
+    final startP = startH >= 12 ? 'PM' : 'AM';
+    final dispStartH = startH == 0 ? 12 : (startH > 12 ? startH - 12 : startH);
+    final dispStartM = startMin.toString().padLeft(2, '0');
+    final defaultStartLabel = '$dispStartH:$dispStartM $startP';
+
+    final endM = startM + availM;
+    final endH = (endM ~/ 60) % 24;
+    final endMin = endM % 60;
+    final endP = endH >= 12 ? 'PM' : 'AM';
+    final dispEndH = endH == 0 ? 12 : (endH > 12 ? endH - 12 : endH);
+    final dispEndM = endMin.toString().padLeft(2, '0');
+    final defaultEndLabel = '$dispEndH:$dispEndM $endP';
+
     return ItineraryDayModel(
       dayNumber: (data['dayNumber'] as num?)?.toInt() ?? 1,
       date: parsedDate,
@@ -246,6 +284,11 @@ class ItineraryDayModel {
       remainingMinutes: (data['remainingMinutes'] as num?)?.toInt() ?? 0,
       budget: '${data['budget'] ?? 'RM 50 - 150'}',
       budgetLevel: '${data['budgetLevel'] ?? 'Medium'}',
+      startTime: data['startTime']?.toString() ?? data['dailyStartTime']?.toString() ?? defaultStartLabel,
+      startMinutes: startM,
+      availableHours: availH,
+      availableMinutes: availM,
+      endTime: data['endTime']?.toString() ?? data['dailyEndTime']?.toString() ?? defaultEndLabel,
     );
   }
 
@@ -253,6 +296,40 @@ class ItineraryDayModel {
   int get travelMinutes => stops.fold<int>(0, (sum, s) => sum + s.travelMinutesBefore);
   int get usedScheduleMinutes => plannedActivityMinutes + travelMinutes;
   int get mealMinutes => stops.where((s) => s.mealRole != null || s.category == 'Food').fold<int>(0, (sum, s) => sum + s.durationMinutes);
+
+  ItineraryDayModel copyWith({
+    int? dayNumber,
+    DateTime? date,
+    String? dateLabel,
+    List<ItineraryStopModel>? stops,
+    Map<String, dynamic>? weather,
+    int? totalEstimatedMinutes,
+    int? remainingMinutes,
+    String? budget,
+    String? budgetLevel,
+    String? startTime,
+    int? startMinutes,
+    double? availableHours,
+    int? availableMinutes,
+    String? endTime,
+  }) {
+    return ItineraryDayModel(
+      dayNumber: dayNumber ?? this.dayNumber,
+      date: date ?? this.date,
+      dateLabel: dateLabel ?? this.dateLabel,
+      stops: stops ?? this.stops,
+      weather: weather ?? this.weather,
+      totalEstimatedMinutes: totalEstimatedMinutes ?? this.totalEstimatedMinutes,
+      remainingMinutes: remainingMinutes ?? this.remainingMinutes,
+      budget: budget ?? this.budget,
+      budgetLevel: budgetLevel ?? this.budgetLevel,
+      startTime: startTime ?? this.startTime,
+      startMinutes: startMinutes ?? this.startMinutes,
+      availableHours: availableHours ?? this.availableHours,
+      availableMinutes: availableMinutes ?? this.availableMinutes,
+      endTime: endTime ?? this.endTime,
+    );
+  }
 
   Map<String, dynamic> toMap() => {
     'dayNumber': dayNumber,
@@ -264,6 +341,11 @@ class ItineraryDayModel {
     'remainingMinutes': remainingMinutes,
     'budget': budget,
     'budgetLevel': budgetLevel,
+    'startTime': startTime,
+    'startMinutes': startMinutes,
+    'availableHours': availableHours,
+    'availableMinutes': availableMinutes,
+    'endTime': endTime,
   };
 }
 
@@ -286,6 +368,8 @@ class ItineraryModel {
     required this.pace,
     required this.days,
     required this.stops,
+    this.warningMessage,
+    this.areaInclusionNote,
     this.status = 'saved',
     this.createdAt,
     this.updatedAt,
@@ -308,6 +392,8 @@ class ItineraryModel {
   final String pace;
   final List<ItineraryDayModel> days;
   final List<ItineraryStopModel> stops;
+  final String? warningMessage;
+  final String? areaInclusionNote;
   final String status;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -394,6 +480,8 @@ class ItineraryModel {
       pace: '${data['travelPace'] ?? data['pace'] ?? 'Balanced'}',
       days: parsedDays,
       stops: parsedStops,
+      warningMessage: data['warningMessage']?.toString(),
+      areaInclusionNote: data['areaInclusionNote']?.toString(),
       createdAt: created,
       updatedAt: updated,
     );
@@ -417,6 +505,8 @@ class ItineraryModel {
     String? pace,
     List<ItineraryDayModel>? days,
     List<ItineraryStopModel>? stops,
+    String? warningMessage,
+    String? areaInclusionNote,
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -439,6 +529,8 @@ class ItineraryModel {
       pace: pace ?? this.pace,
       days: days ?? this.days,
       stops: stops ?? this.stops,
+      warningMessage: warningMessage ?? this.warningMessage,
+      areaInclusionNote: areaInclusionNote ?? this.areaInclusionNote,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -451,25 +543,21 @@ class ItineraryModel {
     'stateId': stateId,
     'stateName': stateName,
     'selectedArea': selectedArea,
-    'area': selectedArea,
-    'startDate': Timestamp.fromDate(startDate),
-    'endDate': Timestamp.fromDate(endDate),
+    'startDate': startDate.toIso8601String(),
+    'endDate': endDate.toIso8601String(),
     'numberOfDays': numberOfDays,
-    'dayCount': numberOfDays,
     'dailyStartTime': dailyStartTime,
     'dailyEndTime': dailyEndTime,
     'availableHours': availableHours,
-    'dailyHours': availableHours,
     'interests': interests,
-    'budget': budget,
-    'budgetLevel': budget,
     'budgetPreference': budget,
     'travelPace': pace,
-    'pace': pace,
     'days': days.map((d) => d.toMap()).toList(),
     'stops': stops.map((s) => s.toMap()).toList(),
     'status': status,
-    'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
+    if (warningMessage != null) 'warningMessage': warningMessage,
+    if (areaInclusionNote != null) 'areaInclusionNote': areaInclusionNote,
+    if (createdAt != null) 'createdAt': createdAt,
+    if (updatedAt != null) 'updatedAt': updatedAt,
   };
 }

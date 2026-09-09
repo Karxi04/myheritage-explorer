@@ -415,4 +415,92 @@ class PlaceModel {
     }
     return 'Penang';
   }
+
+  /// Parse opening and closing minutes of day from openingHours or openingTime/closingTime
+  (int, int)? _parseOpeningClosingMinutes() {
+    final hLower = openingHours.toLowerCase().trim();
+    if (hLower.contains('24 hour') ||
+        hLower.contains('24h') ||
+        hLower.contains('24-hour') ||
+        hLower.contains('24 hours')) {
+      return (0, 1440);
+    }
+
+    final matches = RegExp(r'(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})').allMatches(openingHours);
+    if (matches.isNotEmpty) {
+      final first = matches.first;
+      final last = matches.last;
+      final openH = int.tryParse(first.group(1) ?? '') ?? 9;
+      final openMin = int.tryParse(first.group(2) ?? '') ?? 0;
+      final closeH = int.tryParse(last.group(3) ?? '') ?? 18;
+      final closeMin = int.tryParse(last.group(4) ?? '') ?? 0;
+      final openM = openH * 60 + openMin;
+      final closeM = (closeH == 0 && closeMin == 0) ? 1440 : closeH * 60 + closeMin;
+      return (openM, closeM);
+    }
+
+    // Fallback to openingTime / closingTime fields
+    final openParts = openingTime.split(':');
+    final closeParts = closingTime.split(':');
+    if (openParts.length == 2 && closeParts.length == 2) {
+      final openH = int.tryParse(openParts[0]) ?? 9;
+      final openMin = int.tryParse(openParts[1]) ?? 0;
+      final closeH = int.tryParse(closeParts[0]) ?? 18;
+      final closeMin = int.tryParse(closeParts[1]) ?? 0;
+      final openM = openH * 60 + openMin;
+      final closeM = (closeH == 0 && closeMin == 0) ? 1440 : closeH * 60 + closeMin;
+      return (openM, closeM);
+    }
+
+    return (9 * 60, 18 * 60);
+  }
+
+  /// Check if this place is open at the given minute of the day (0..1439)
+  bool isOpenAtMinute(int minuteOfDay) {
+    if (!isActive) return false;
+    final hLower = openingHours.toLowerCase();
+    if (hLower.contains('24 hour') ||
+        hLower.contains('24h') ||
+        hLower.contains('24-hour') ||
+        hLower.contains('24 hours')) {
+      return true;
+    }
+
+    final parsed = _parseOpeningClosingMinutes();
+    if (parsed == null) return true;
+
+    final openM = parsed.$1;
+    final closeM = parsed.$2;
+
+    final m = minuteOfDay % 1440;
+    if (closeM > openM) {
+      return m >= openM && m < closeM;
+    } else {
+      // Crosses midnight (e.g. 18:00 - 02:00 or 12:00 - 01:00)
+      return m >= openM || m < closeM;
+    }
+  }
+
+  /// Check if this place is open during a travel time window [startMinute, endMinute]
+  bool isOpenDuring(int startMinute, int endMinute) {
+    if (!isActive) return false;
+    final hLower = openingHours.toLowerCase();
+    if (hLower.contains('24 hour') ||
+        hLower.contains('24h') ||
+        hLower.contains('24-hour') ||
+        hLower.contains('24 hours')) {
+      return true;
+    }
+
+    final parsed = _parseOpeningClosingMinutes();
+    if (parsed == null) return true;
+
+    final duration = endMinute - startMinute;
+    if (duration <= 0) return isOpenAtMinute(startMinute);
+
+    for (int t = startMinute; t < endMinute; t += 20) {
+      if (isOpenAtMinute(t)) return true;
+    }
+    return isOpenAtMinute(startMinute) || isOpenAtMinute(endMinute - 1);
+  }
 }

@@ -243,7 +243,6 @@ void main() {
 
   group('Requirement 4: Strict Same-State Isolation & Validation', () {
     test('Same-state rule strictly prohibits cross-state areas', () {
-      // 1. Single area from different state
       final crossStatePref = TravelPreferences(
         stateId: 'penang',
         selectedArea: 'Jonker Walk & Heritage Core', // Melaka
@@ -251,7 +250,6 @@ void main() {
       expect(crossStatePref.isValid, isFalse);
       expect(crossStatePref.validate(), contains('does not belong to Penang'));
 
-      // 2. Multi-area containing an area from different state
       final crossMultiPref = TravelPreferences(
         stateId: 'penang',
         travelAreaMode: 'multiple',
@@ -289,6 +287,211 @@ void main() {
 
       expect(itinerary.days.first.totalEstimatedMinutes, lessThanOrEqualTo(120));
       expect(itinerary.stops.length, inInclusiveRange(1, 3));
+    });
+  });
+
+  group('New Requirements A - G: Cross-Midnight, Area Limits & Smart Clustering', () {
+    test('Test A: 12:00 AM -> 5:00 AM calculates 5.0 available hours correctly', () {
+      final hours = TravelPreferences.calculateAvailableHoursFromTimes(
+        startHour: 0,
+        startMinute: 0,
+        endHour: 5,
+        endMinute: 0,
+      );
+      expect(hours, 5.0);
+
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 0, // 12:00 AM
+        availableHours: 5.0,
+      );
+      expect(pref.dailyStartTimeLabel, '12:00 AM');
+      expect(pref.dailyEndTimeLabel, '5:00 AM');
+    });
+
+    test('Test B: 10:00 PM -> 2:00 AM calculates 4.0 hours across midnight', () {
+      final hours = TravelPreferences.calculateAvailableHoursFromTimes(
+        startHour: 22,
+        startMinute: 0,
+        endHour: 2,
+        endMinute: 0,
+      );
+      expect(hours, 4.0);
+
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 22 * 60, // 10:00 PM
+        availableHours: 4.0,
+      );
+      expect(pref.dailyStartTimeLabel, '10:00 PM');
+      expect(pref.dailyEndTimeLabel, '2:00 AM');
+    });
+
+    test('Test C: 12 AM - 5 AM excludes closed daytime attractions and excludes forced standard meals', () async {
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        selectedArea: 'George Town',
+        dailyStartMinutes: 0, // 12:00 AM
+        availableHours: 5.0,
+        interests: ['Heritage', 'Food'],
+      );
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: allCatalogPlaces,
+      );
+
+      // Normal closed daytime museums (09:30 - 17:00) must be excluded
+      final stopNames = itinerary.stops.map((s) => s.name).toList();
+      expect(stopNames.contains('Pinang Peranakan Mansion'), isFalse);
+      expect(stopNames.contains('Cheong Fatt Tze - The Blue Mansion'), isFalse);
+
+      // Must not create standard breakfast or lunch during 12 AM - 5 AM
+      for (final stop in itinerary.stops) {
+        expect(stop.mealRole, isNot('Breakfast'));
+        expect(stop.mealRole, isNot('Lunch'));
+        expect(stop.mealRole, isNot('Dinner'));
+      }
+    });
+
+    test('Test D: 1-day trip selecting more than 5 areas is blocked by validation', () {
+      final start = DateTime(2026, 9, 10);
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        travelAreaMode: 'multiple',
+        startDate: start,
+        endDate: start, // 1 day
+        selectedAreas: [
+          'George Town',
+          'Tanjung Bungah',
+          'Batu Ferringhi',
+          'Butterworth',
+          'Bukit Mertajam',
+          'Balik Pulau', // 6 areas > max 5
+        ],
+      );
+
+      expect(pref.isValid, isFalse);
+      expect(pref.validate(), contains('You can select up to 5 areas for this 1-day trip.'));
+    });
+
+    test('Test E: 2-day trip dynamically allows up to 10 areas and blocks 11', () {
+      final start = DateTime(2026, 9, 10);
+      final valid2DayPref = TravelPreferences(
+        stateId: 'penang',
+        travelAreaMode: 'multiple',
+        startDate: start,
+        endDate: start.add(const Duration(days: 1)), // 2 days -> max 10
+        selectedAreas: [
+          'George Town',
+          'Tanjung Bungah',
+          'Batu Ferringhi',
+          'Butterworth',
+          'Bukit Mertajam',
+          'Balik Pulau',
+          'Air Itam',
+          'Bayan Lepas',
+        ],
+      );
+      expect(valid2DayPref.isValid, isTrue);
+
+      final invalid2DayPref = TravelPreferences(
+        stateId: 'penang',
+        travelAreaMode: 'multiple',
+        startDate: start,
+        endDate: start.add(const Duration(days: 1)), // 2 days -> max 10
+        selectedAreas: [
+          'George Town',
+          'Tanjung Bungah',
+          'Batu Ferringhi',
+          'Butterworth',
+          'Bukit Mertajam',
+          'Balik Pulau',
+          'Air Itam',
+          'Bayan Lepas',
+          'Teluk Bahang',
+          'Nibong Tebal',
+          'Extra Area', // 11 areas > max 10
+        ],
+      );
+      expect(invalid2DayPref.isValid, isFalse);
+      expect(invalid2DayPref.validate(), contains('You can select up to 10 areas for this 2-day trip.'));
+    });
+
+    test('Test F: 5 selected areas but only realistic ones fit within 6 hours generates route and area note', () async {
+      final start = DateTime(2026, 9, 10);
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        travelAreaMode: 'multiple',
+        startDate: start,
+        endDate: start, // 1 day
+        availableHours: 6.0,
+        dailyStartMinutes: 9 * 60,
+        selectedAreas: [
+          'George Town',
+          'Tanjung Bungah',
+          'Batu Ferringhi',
+          'Butterworth',
+          'Bukit Mertajam',
+        ],
+        interests: ['Heritage', 'Nature'],
+      );
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: allCatalogPlaces,
+      );
+
+      expect(itinerary.stops.isNotEmpty, isTrue);
+      expect(itinerary.days.first.totalEstimatedMinutes, lessThanOrEqualTo(360));
+
+      final visitedAreas = itinerary.stops.map((s) => s.area).toSet();
+      if (visitedAreas.length < 5) {
+        expect(itinerary.areaInclusionNote, isNotNull);
+        expect(itinerary.areaInclusionNote, contains('of your 5 selected areas were included'));
+      }
+    });
+
+    test('Test G: Multi-day selected areas distribute geographically across different days based on proximity', () async {
+      final start = DateTime(2026, 9, 10);
+      final pref = TravelPreferences(
+        stateId: 'penang',
+        travelAreaMode: 'multiple',
+        startDate: start,
+        endDate: start.add(const Duration(days: 2)), // 3 days
+        availableHours: 5.0,
+        dailyStartMinutes: 9 * 60,
+        selectedAreas: [
+          'George Town',
+          'Tanjung Bungah',
+          'Batu Ferringhi',
+          'Butterworth',
+          'Bukit Mertajam',
+          'Balik Pulau',
+        ],
+        interests: ['Heritage', 'Nature', 'Food'],
+      );
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: pref,
+        candidatePlaces: allCatalogPlaces,
+      );
+
+      expect(itinerary.days.length, 3);
+      expect(itinerary.days[0].stops.isNotEmpty, isTrue);
+      expect(itinerary.days[1].stops.isNotEmpty, isTrue);
+      expect(itinerary.days[2].stops.isNotEmpty, isTrue);
+
+      final day1Areas = itinerary.days[0].stops.map((s) => s.area.toLowerCase()).toSet();
+      final day2Areas = itinerary.days[1].stops.map((s) => s.area.toLowerCase()).toSet();
+      final day3Areas = itinerary.days[2].stops.map((s) => s.area.toLowerCase()).toSet();
+
+      final allDayAreas = [day1Areas, day2Areas, day3Areas];
+      final mainlandDay = allDayAreas.indexWhere((areas) =>
+          areas.any((a) => a.contains('butterworth') || a.contains('bukit mertajam')));
+      expect(mainlandDay, isNot(-1), reason: 'At least one day should focus on the mainland cluster');
     });
   });
 }

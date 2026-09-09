@@ -6,6 +6,13 @@ class CulturalTaskService {
   static DateTime? _cacheTime;
   static const Duration _cacheTtl = Duration(minutes: 5);
 
+  /// Fetch active cultural tasks, optionally filtering by stateId
+  static Future<List<Map<String, dynamic>>> fetchActiveTasks({String? stateId, bool forceRefresh = false}) async {
+    final tasks = await loadActiveTasks(forceRefresh: forceRefresh);
+    if (stateId == null || stateId.isEmpty) return tasks;
+    return tasks.where((t) => t['stateId'] == null || t['stateId'] == '' || t['stateId'] == stateId).toList();
+  }
+
   /// Load active cultural tasks from Firestore
   static Future<List<Map<String, dynamic>>> loadActiveTasks({bool forceRefresh = false}) async {
     if (!forceRefresh &&
