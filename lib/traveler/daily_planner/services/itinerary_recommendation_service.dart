@@ -51,8 +51,11 @@ class ItineraryRecommendationService {
 
     final scopedPlaces = _filterPlacesForSelectedArea(allStatePlaces, preferences);
     if (scopedPlaces.isEmpty) {
+      final areaDisplay = preferences.isMultiAreaMode
+          ? preferences.selectedAreas.join(', ')
+          : preferences.selectedArea;
       throw Exception(
-        'No matching places found in ${preferences.selectedArea}. Please choose another area or add more verified vendors there.',
+        'No matching places found in $areaDisplay. Please choose another area or add more verified vendors there.',
       );
     }
 
@@ -73,6 +76,11 @@ class ItineraryRecommendationService {
         dayIndex: dayIdx,
       );
 
+      // Day primary area for multi-area distribution across multi-day trips
+      final dayPrimaryArea = preferences.isMultiAreaMode && preferences.selectedAreas.isNotEmpty
+          ? preferences.selectedAreas[dayIdx % preferences.selectedAreas.length]
+          : (preferences.isMultiAreaMode ? null : preferences.selectedArea);
+
       final dayStops = _generateSingleDay(
         dayNumber: dayNumber,
         preferences: preferences,
@@ -81,6 +89,7 @@ class ItineraryRecommendationService {
         dayInterests: dayInterests,
         globallyUsedIds: globalSelectedIds,
         dayIndex: dayIdx,
+        dayPrimaryArea: dayPrimaryArea,
         randomSeed: randomSeed,
       );
 
@@ -110,7 +119,9 @@ class ItineraryRecommendationService {
 
     final tripTitle = totalDays > 1
         ? '${preferences.stateName} ($totalDays-Day Tour)'
-        : '${preferences.selectedArea} Cultural Day';
+        : (preferences.isMultiAreaMode
+            ? '${preferences.stateName} Multi-Area Tour'
+            : '${preferences.selectedArea} Cultural Day');
 
     return ItineraryModel(
       id: '',
@@ -143,6 +154,7 @@ class ItineraryRecommendationService {
     required List<String> dayInterests,
     required Set<String> globallyUsedIds,
     required int dayIndex,
+    String? dayPrimaryArea,
     int? randomSeed,
   }) {
     // 1. Filter places strictly belonging to state & active
@@ -184,6 +196,7 @@ class ItineraryRecommendationService {
         dayInterests: dayInterests,
         hasCulturalTask: task != null,
         isUsedGlobally: globallyUsedIds.contains(place.placeId),
+        dayPrimaryArea: dayPrimaryArea,
       );
       final score = baseScore + (rand.nextDouble() * 0.05);
       scoredAll.add(_ScoredPlace(place: place, score: score, task: task));
@@ -198,6 +211,16 @@ class ItineraryRecommendationService {
         if (globallyUsedIds.contains(sp.place.placeId) && scoredAll.length > 5) return false;
         return MealPlanningService.isFoodPlace(sp.place);
       }).toList();
+
+      // Sort by active/primary area or proximity
+      if (dayPrimaryArea != null && dayPrimaryArea.isNotEmpty) {
+        breakfastCandidates.sort((a, b) {
+          final aMatch = a.place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase()) ? 0 : 1;
+          final bMatch = b.place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase()) ? 0 : 1;
+          if (aMatch != bMatch) return aMatch.compareTo(bMatch);
+          return b.score.compareTo(a.score);
+        });
+      }
 
       if (breakfastCandidates.isNotEmpty) {
         final bPlace = breakfastCandidates.first.place;
@@ -234,6 +257,19 @@ class ItineraryRecommendationService {
         }).toList();
 
         if (lunchCandidates.isNotEmpty) {
+          // Sort lunch candidates prioritizing local vendors in the active area
+          if (lastSelectedPlace != null) {
+            final lsp = lastSelectedPlace;
+            lunchCandidates.sort((a, b) {
+              final aSame = a.place.area.toLowerCase() == lsp.area.toLowerCase() ? 0 : 1;
+              final bSame = b.place.area.toLowerCase() == lsp.area.toLowerCase() ? 0 : 1;
+              if (aSame != bSame) return aSame.compareTo(bSame);
+              final tA = MealPlanningService.estimateTravelMinutes(lsp, a.place);
+              final tB = MealPlanningService.estimateTravelMinutes(lsp, b.place);
+              return tA.compareTo(tB);
+            });
+          }
+
           final lPlace = lunchCandidates.first.place;
           final travel = lastSelectedPlace != null
               ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, lPlace)
@@ -267,6 +303,19 @@ class ItineraryRecommendationService {
         }).toList();
 
         if (dinnerCandidates.isNotEmpty) {
+          // Sort dinner candidates prioritizing local vendors in the active area
+          if (lastSelectedPlace != null) {
+            final lsp = lastSelectedPlace;
+            dinnerCandidates.sort((a, b) {
+              final aSame = a.place.area.toLowerCase() == lsp.area.toLowerCase() ? 0 : 1;
+              final bSame = b.place.area.toLowerCase() == lsp.area.toLowerCase() ? 0 : 1;
+              if (aSame != bSame) return aSame.compareTo(bSame);
+              final tA = MealPlanningService.estimateTravelMinutes(lsp, a.place);
+              final tB = MealPlanningService.estimateTravelMinutes(lsp, b.place);
+              return tA.compareTo(tB);
+            });
+          }
+
           final dPlace = dinnerCandidates.first.place;
           final travel = lastSelectedPlace != null
               ? MealPlanningService.estimateTravelMinutes(lastSelectedPlace, dPlace)
@@ -301,7 +350,7 @@ class ItineraryRecommendationService {
 
       if (availableAttractions.isEmpty) break;
 
-      // Select diverse attraction
+      // Select diverse attraction along continuous geographic corridor
       PlaceModel? bestFitPlace;
       int bestFitTravel = 0;
       int bestFitDuration = 0;
@@ -359,7 +408,7 @@ class ItineraryRecommendationService {
     // 4. Arrange visiting sequence and schedule timeline
     return _buildScheduledStops(
       places: daySelectedPlaces,
-      startMinutes: preferences.dailyStartMinutes,
+      startMinutes: startMinutes,
       dayNumber: dayNumber,
       stateId: preferences.stateId,
       stateName: preferences.stateName,
@@ -482,6 +531,23 @@ class ItineraryRecommendationService {
     );
   }
 
+  /// Alias for backward compatibility
+  static ItineraryDayModel? attachDessertToDay({
+    required ItineraryDayModel currentDay,
+    required List<PlaceModel> availablePlaces,
+    required String stateId,
+    required String stateName,
+    required double dailyAvailableHours,
+    required int startMinutes,
+  }) => addDessertStopToDay(
+    currentDay: currentDay,
+    availablePlaces: availablePlaces,
+    availableHours: dailyAvailableHours,
+    startMinutes: startMinutes,
+    stateId: stateId,
+    stateName: stateName,
+  );
+
   /// Compute suitability score based on weighted factors
   static double _calculateSuitabilityScore({
     required PlaceModel place,
@@ -489,6 +555,7 @@ class ItineraryRecommendationService {
     required List<String> dayInterests,
     required bool hasCulturalTask,
     required bool isUsedGlobally,
+    String? dayPrimaryArea,
   }) {
     double score = 0.0;
 
@@ -519,10 +586,19 @@ class ItineraryRecommendationService {
       score += 10.0;
     }
 
-    // 5. Area proximity to selected area (Weight: 15)
-    if (preferences.selectedArea != 'All Areas' &&
-        place.area.toLowerCase().contains(preferences.selectedArea.toLowerCase())) {
-      score += 15.0;
+    // 5. Area proximity & multi-area scoring (Weight: 20)
+    if (preferences.isMultiAreaMode) {
+      if (dayPrimaryArea != null && dayPrimaryArea.isNotEmpty &&
+          place.area.toLowerCase().contains(dayPrimaryArea.toLowerCase())) {
+        score += 20.0;
+      } else if (preferences.selectedAreas.any((a) => place.area.toLowerCase().contains(a.toLowerCase()))) {
+        score += 12.0;
+      }
+    } else {
+      if (preferences.selectedArea != 'All Areas' &&
+          place.area.toLowerCase().contains(preferences.selectedArea.toLowerCase())) {
+        score += 15.0;
+      }
     }
 
     // 6. Multi-day penalty: if already used in a previous day of the trip, heavy penalty (-80)
@@ -621,6 +697,21 @@ class ItineraryRecommendationService {
     List<PlaceModel> places,
     TravelPreferences preferences,
   ) {
+    if (preferences.isMultiAreaMode) {
+      final selectedAreas = preferences.selectedAreas;
+      if (selectedAreas.isEmpty || selectedAreas.any(_isBroadAreaChoice)) {
+        return places;
+      }
+      return places.where((place) {
+        return selectedAreas.any((area) => _placeMatchesSelectedArea(
+          place,
+          selectedArea: area,
+          stateId: preferences.stateId,
+          allowedAreas: selectedAreas,
+        ));
+      }).toList();
+    }
+
     final selectedArea = preferences.selectedArea.trim();
     if (_isBroadAreaChoice(selectedArea)) return places;
 
@@ -639,6 +730,7 @@ class ItineraryRecommendationService {
     PlaceModel place, {
     required String selectedArea,
     required String stateId,
+    List<String> allowedAreas = const [],
   }) {
     final selectedAliases = _areaAliases(selectedArea);
     if (selectedAliases.isEmpty) return true;
@@ -647,9 +739,14 @@ class ItineraryRecommendationService {
     final addressKey = _areaKey(place.formattedAddress);
     final nameKey = _areaKey(place.name);
 
+    final allAllowedAliases = <String>{...selectedAliases};
+    for (final a in allowedAreas) {
+      allAllowedAliases.addAll(_areaAliases(a));
+    }
+
     if (_mentionsOtherKnownArea(
       addressKey,
-      selectedAliases: selectedAliases,
+      selectedAliases: allAllowedAliases,
       stateId: stateId,
     )) {
       return false;
@@ -745,6 +842,80 @@ class ItineraryRecommendationService {
           'penang hill',
           'bukit bendera',
           'kek lok si',
+        ]);
+        break;
+      case 'batu ferringhi':
+      case 'batu feringghi':
+        aliases.addAll(const [
+          'batu ferringhi',
+          'batu feringghi',
+          'ferringhi',
+          'feringghi',
+          'moonlight bay',
+          'miami beach',
+        ]);
+        break;
+      case 'tanjung bungah':
+      case 'tanjung bunga':
+        aliases.addAll(const [
+          'tanjung bungah',
+          'tanjung bunga',
+          'floating mosque',
+          'shamrock beach',
+        ]);
+        break;
+      case 'bukit mertajam':
+        aliases.addAll(const [
+          'bukit mertajam',
+          'mertajam',
+          'cherok tokun',
+          'st anne',
+          'mengkuang',
+        ]);
+        break;
+      case 'butterworth':
+        aliases.addAll(const [
+          'butterworth',
+          'seberang jaya',
+          'chai leng park',
+          'raja uda',
+          'tow boo kong',
+          'frog hill',
+          'robina',
+        ]);
+        break;
+      case 'balik pulau':
+        aliases.addAll(const [
+          'balik pulau',
+          'sungai pinang',
+          'sungai rusa',
+          'audi dream farm',
+          'bao sheng',
+        ]);
+        break;
+      case 'bayan lepas':
+        aliases.addAll(const [
+          'bayan lepas',
+          'batu maung',
+          'snake temple',
+          'war museum',
+          'teluk tempoyak',
+        ]);
+        break;
+      case 'teluk bahang':
+        aliases.addAll(const [
+          'teluk bahang',
+          'taman negara pulau pinang',
+          'tropical spice garden',
+          'entopia',
+          'escape',
+        ]);
+        break;
+      case 'nibong tebal':
+        aliases.addAll(const [
+          'nibong tebal',
+          'sungai kerian',
+          'bukit panchor',
         ]);
         break;
       case 'melaka city bandar hilir':

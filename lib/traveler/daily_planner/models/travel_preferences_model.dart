@@ -4,7 +4,9 @@ class TravelPreferences {
   TravelPreferences({
     required this.stateId,
     String? stateName,
-    this.selectedArea = 'All Areas',
+    String selectedArea = 'All Areas',
+    List<String>? selectedAreas,
+    this.travelAreaMode = 'single',
     DateTime? startDate,
     DateTime? endDate,
     this.dailyStartMinutes = 540,
@@ -14,12 +16,24 @@ class TravelPreferences {
     this.pace = 'Balanced',
     this.foodExplorationEnabled = false,
   })  : stateName = stateName ?? MalaysiaLocationService.getStateName(stateId),
+        selectedAreas = travelAreaMode == 'multiple'
+            ? (selectedAreas ?? const <String>[])
+            : (selectedAreas != null && selectedAreas.isNotEmpty
+                ? selectedAreas
+                : (selectedArea.isNotEmpty && selectedArea != 'All Areas' ? [selectedArea] : const <String>[])),
+        selectedArea = travelAreaMode == 'multiple'
+            ? ((selectedAreas != null && selectedAreas.isNotEmpty)
+                ? selectedAreas.join(', ')
+                : '')
+            : selectedArea,
         startDate = startDate ?? DateTime.now(),
         endDate = endDate ?? (startDate ?? DateTime.now());
 
   final String stateId;
   final String stateName;
   final String selectedArea;
+  final List<String> selectedAreas;
+  final String travelAreaMode; // 'single' or 'multiple'
   final DateTime startDate;
   final DateTime endDate;
   final int dailyStartMinutes; // e.g. 9 * 60 = 540
@@ -28,6 +42,8 @@ class TravelPreferences {
   final String budget; // 'Low', 'Medium', 'High'
   final String pace; // 'Relaxed', 'Balanced', 'Fast'
   final bool foodExplorationEnabled;
+
+  bool get isMultiAreaMode => travelAreaMode == 'multiple';
 
   int get numberOfDays {
     final s = DateTime(startDate.year, startDate.month, startDate.day);
@@ -63,8 +79,22 @@ class TravelPreferences {
     if (stateId.trim().isEmpty || stateName.trim().isEmpty) {
       return 'Please select a Malaysian state.';
     }
-    if (selectedArea.trim().isEmpty) {
-      return 'Please select an area or city in $stateName.';
+    if (isMultiAreaMode) {
+      if (selectedAreas.isEmpty) {
+        return 'Please select at least one area in $stateName.';
+      }
+      for (final a in selectedAreas) {
+        if (!MalaysiaLocationService.isAreaInState(a, stateId)) {
+          return 'Selected area "$a" does not belong to $stateName. Cross-state itineraries are not permitted.';
+        }
+      }
+    } else {
+      if (selectedArea.trim().isEmpty) {
+        return 'Please select an area or city in $stateName.';
+      }
+      if (!MalaysiaLocationService.isAreaInState(selectedArea, stateId)) {
+        return 'Selected area "$selectedArea" does not belong to $stateName.';
+      }
     }
     if (interests.isEmpty) {
       return 'Please select at least one travel interest.';

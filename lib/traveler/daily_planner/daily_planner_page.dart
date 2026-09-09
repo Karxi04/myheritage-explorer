@@ -3931,6 +3931,8 @@ class _DailyPlannerPageState extends State<DailyPlannerPage> {
   String selectedStateId = 'penang';
   String selectedStateName = 'Penang';
   String selectedArea = 'George Town';
+  String travelAreaMode = 'single'; // 'single' or 'multiple'
+  final Set<String> selectedAreas = {'George Town'};
   List<MalaysianStateItem> availableStates = MalaysiaLocationService.defaultStates;
   List<String> availableAreas = [
     'George Town',
@@ -3985,6 +3987,8 @@ int get tripDays {
         availableAreas = areas;
         if (!areas.contains(selectedArea) && areas.isNotEmpty) {
           selectedArea = areas.first;
+          selectedAreas.clear();
+          selectedAreas.add(areas.first);
         }
       });
     } catch (_) {}
@@ -4000,6 +4004,10 @@ int get tripDays {
     setState(() {
       availableAreas = areas;
       selectedArea = areas.isNotEmpty ? areas.first : '';
+      selectedAreas.clear();
+      if (areas.isNotEmpty) {
+        selectedAreas.add(areas.first);
+      }
     });
   }
 
@@ -4039,13 +4047,48 @@ int get tripDays {
     } catch (_) {}
   }
 
+  Widget _buildAreaModeTab(String label, String mode) {
+    final isSelected = travelAreaMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          travelAreaMode = mode;
+          if (mode == 'single' && selectedAreas.isNotEmpty) {
+            selectedArea = selectedAreas.first;
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? ExplorerColors.navy : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : ExplorerColors.muted,
+          ),
+        ),
+      ),
+    );
+  }
+
   int get preferredStartMinutes => startTime.hour * 60 + startTime.minute;
 
   Future<void> generate() async {
-    if (selectedStateId.trim().isEmpty || selectedArea.trim().isEmpty || selectedInterests.isEmpty) {
+    final areaValid = travelAreaMode == 'multiple'
+        ? selectedAreas.isNotEmpty
+        : selectedArea.trim().isNotEmpty;
+
+    if (selectedStateId.trim().isEmpty || !areaValid || selectedInterests.isEmpty) {
       showMessage(
         context,
-        'Please select a state, area, and at least one travel interest.',
+        travelAreaMode == 'multiple'
+            ? 'Please select a state, at least one travel area, and at least one travel interest.'
+            : 'Please select a state, area, and at least one travel interest.',
         error: true,
       );
       return;
@@ -4066,7 +4109,11 @@ int get tripDays {
       final prefs = TravelPreferences(
         stateId: selectedStateId,
         stateName: selectedStateName,
-        selectedArea: selectedArea,
+        selectedArea: travelAreaMode == 'multiple'
+            ? selectedAreas.join(', ')
+            : selectedArea,
+        selectedAreas: travelAreaMode == 'multiple' ? selectedAreas.toList() : [selectedArea],
+        travelAreaMode: travelAreaMode,
         startDate: tripStartDate,
         endDate: tripEndDate,
         dailyStartMinutes: preferredStartMinutes,
@@ -4311,14 +4358,20 @@ int get tripDays {
       final currentGenId =
           generationId ?? 'gen_${DateTime.now().microsecondsSinceEpoch}';
 
+      final savedAreaStr = travelAreaMode == 'multiple' && selectedAreas.isNotEmpty
+          ? selectedAreas.join(', ')
+          : selectedArea;
+
       final docRef = await AppServices.db.collection('itineraries').add({
         'userId': uid,
         'generationId': currentGenId,
         'title': tripTitle,
         'stateId': selectedStateId,
         'stateName': selectedStateName,
-        'selectedArea': selectedArea,
-        'area': selectedArea,
+        'selectedArea': savedAreaStr,
+        'area': savedAreaStr,
+        'travelAreaMode': travelAreaMode,
+        'selectedAreas': selectedAreas.toList(),
         'availableHours': availableHours,
         'dailyHours': availableHours,
         'numberOfDays': tripDays,
@@ -4484,119 +4537,268 @@ int get tripDays {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const ExplorerSectionTitle('Trip Preferences'),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(
-                      flex: 4,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Malaysian State *',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<String>(
-                            value: availableStates.any((s) => s.id == selectedStateId)
-                                ? selectedStateId
-                                : 'penang',
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              prefixIcon: Icon(Icons.map_outlined, size: 18),
-                            ),
-                            items: availableStates
-                                .map((s) => DropdownMenuItem(
-                                      value: s.id,
-                                      child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    ))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) _onStateChanged(v);
-                            },
-                          ),
-                        ],
+                    const Text(
+                      'Travel Area Mode:',
+                      style: TextStyle(
+                        color: ExplorerColors.text,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const Spacer(),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: ExplorerColors.border),
+                      ),
+                      child: Row(
                         children: [
-                          const Text(
-                            'Area / City *',
-                            style: TextStyle(
-                              color: ExplorerColors.text,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          DropdownButtonFormField<String>(
-                            value: availableAreas.contains(selectedArea)
-                                ? selectedArea
-                                : (availableAreas.isNotEmpty ? availableAreas.first : null),
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              prefixIcon: Icon(Icons.location_on_outlined, size: 18),
-                            ),
-                            items: availableAreas
-                                .map((a) => DropdownMenuItem(
-                                      value: a,
-                                      child: Text(a, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    ))
-                                .toList(),
-                            onChanged: (v) {
-                              if (v != null) setState(() => selectedArea = v);
-                            },
-                          ),
+                          _buildAreaModeTab('Single Area', 'single'),
+                          _buildAreaModeTab('Multiple Areas', 'multiple'),
                         ],
                       ),
                     ),
                   ],
                 ),
-if (availableAreas.isNotEmpty) ...[
-  const SizedBox(height: 10),
-  Text(
-    'Quick Pick Area ($selectedStateName):',
-    style: const TextStyle(
-      color: ExplorerColors.muted,
-      fontSize: 11,
-      fontWeight: FontWeight.w600,
-    ),
-  ),
-  const SizedBox(height: 6),
-  SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: availableAreas.map((sub) {
-        final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
-        return Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: ChoiceChip(
-            label: Text(sub),
-            labelStyle: TextStyle(
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              color: isSelected ? Colors.white : ExplorerColors.navy,
-            ),
-            selected: isSelected,
-            selectedColor: ExplorerColors.navy,
-            backgroundColor: Colors.white,
-            onSelected: (_) => setState(() => selectedArea = sub),
-          ),
-        );
-      }).toList(),
-    ),
-  ),
-],
+                const SizedBox(height: 10),
+                if (travelAreaMode == 'single') ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Malaysian State *',
+                              style: TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: availableStates.any((s) => s.id == selectedStateId)
+                                  ? selectedStateId
+                                  : 'penang',
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                prefixIcon: Icon(Icons.map_outlined, size: 18),
+                              ),
+                              items: availableStates
+                                  .map((s) => DropdownMenuItem(
+                                        value: s.id,
+                                        child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) _onStateChanged(v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Area / City *',
+                              style: TextStyle(
+                                color: ExplorerColors.text,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: availableAreas.contains(selectedArea)
+                                  ? selectedArea
+                                  : (availableAreas.isNotEmpty ? availableAreas.first : null),
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                prefixIcon: Icon(Icons.location_on_outlined, size: 18),
+                              ),
+                              items: availableAreas
+                                  .map((a) => DropdownMenuItem(
+                                        value: a,
+                                        child: Text(a, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) {
+                                  setState(() {
+                                    selectedArea = v;
+                                    selectedAreas.clear();
+                                    selectedAreas.add(v);
+                                  });
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (availableAreas.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Quick Pick Area ($selectedStateName):',
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: availableAreas.map((sub) {
+                          final isSelected = selectedArea.toLowerCase() == sub.toLowerCase();
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(sub),
+                              labelStyle: TextStyle(
+                                fontSize: 11,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                color: isSelected ? Colors.white : ExplorerColors.navy,
+                              ),
+                              selected: isSelected,
+                              selectedColor: ExplorerColors.navy,
+                              backgroundColor: Colors.white,
+                              onSelected: (_) => setState(() {
+                                selectedArea = sub;
+                                selectedAreas.clear();
+                                selectedAreas.add(sub);
+                              }),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ] else ...[
+                  // Multi-Area Mode UI
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Malaysian State *',
+                                  style: TextStyle(
+                                    color: ExplorerColors.text,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                DropdownButtonFormField<String>(
+                                  value: availableStates.any((s) => s.id == selectedStateId)
+                                      ? selectedStateId
+                                      : 'penang',
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    prefixIcon: Icon(Icons.map_outlined, size: 18),
+                                  ),
+                                  items: availableStates
+                                      .map((s) => DropdownMenuItem(
+                                            value: s.id,
+                                            child: Text(s.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v != null) _onStateChanged(v);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Text(
+                            'Select Areas in $selectedStateName (${selectedAreas.length} selected):',
+                            style: const TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (selectedAreas.length < availableAreas.length)
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(50, 24),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  selectedAreas.addAll(availableAreas);
+                                  selectedArea = selectedAreas.join(', ');
+                                });
+                              },
+                              child: const Text('Select All', style: TextStyle(fontSize: 11)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: availableAreas.map((area) {
+                          final isSelected = selectedAreas.contains(area);
+                          return FilterChip(
+                            label: Text(area),
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? Colors.white : ExplorerColors.navy,
+                            ),
+                            selected: isSelected,
+                            selectedColor: ExplorerColors.navy,
+                            backgroundColor: Colors.white,
+                            checkmarkColor: Colors.white,
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  selectedAreas.add(area);
+                                } else {
+                                  if (selectedAreas.length > 1) {
+                                    selectedAreas.remove(area);
+                                  }
+                                }
+                                if (selectedAreas.isNotEmpty) {
+                                  selectedArea = selectedAreas.join(', ');
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(10),

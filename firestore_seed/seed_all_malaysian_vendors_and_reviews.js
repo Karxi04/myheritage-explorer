@@ -15,467 +15,2267 @@ const db = getFirestore();
 const places = [
   // PENANG (EXPANDED CURATED REAL PLACES)
   {
-    name: 'Pinang Peranakan Mansion',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Art', 'Local Business'],
-    formattedAddress: '29 Church Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 75,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4182, longitude: 100.3408 },
-    phone: '+604-264 2929',
-    website: 'https://www.pinangperanakanmansion.com.my/',
-    openingHours: 'Daily 09:30 - 17:00',
-    score: 4.8,
-    culturalTask: {
-      title: 'Peranakan Heritage Discovery',
-      description: 'Photograph one traditional Baba Nyonya antique or architectural carving and learn about Penang Peranakan customs.',
-      rewardPoints: 120,
+    "name": "Pinang Peranakan Mansion",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Art",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Art",
+        "Local Business"
+    ],
+    "formattedAddress": "29 Church Street, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 75,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4182,
+        "longitude": 100.3408
     },
-    description: 'Opulent 19th-century Peranakan Baba Nyonya mansion showcasing over 1,000 ornate antiques, gold leaf woodwork, and ancestral customs.',
-  },
-  {
-    name: 'Cheong Fatt Tze - The Blue Mansion',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Art', 'Local Business'],
-    formattedAddress: '14 Leith Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 75,
-    budgetLevel: 'High',
-    location: { latitude: 5.4216, longitude: 100.3341 },
-    phone: '+604-262 0006',
-    website: 'https://www.cheongfatttzemansion.com/',
-    openingHours: 'Daily 11:00 - 18:00',
-    score: 4.7,
-    culturalTask: {
-      title: 'Indigo Architectural Snapshot',
-      description: 'Photograph the iconic indigo courtyard and identify one unique Feng Shui element.',
-      rewardPoints: 130,
+    "phone": "+604-264 2929",
+    "website": "https://www.pinangperanakanmansion.com.my/",
+    "openingHours": "Daily 09:30 - 17:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Pinang Peranakan Mansion Discovery",
+        "description": "Opulent 19th-century Peranakan Baba Nyonya mansion showcasing over 1,000 ornate antiques, gold leaf woodwork, and ancestral customs.",
+        "rewardPoints": 100
     },
-    description: 'Award-winning UNESCO-conserved 1890s courtyard mansion famous for its striking indigo blue walls, Art Nouveau stained glass, and Chinese master craft.',
-  },
+    "description": "Opulent 19th-century Peranakan Baba Nyonya mansion showcasing over 1,000 ornate antiques, gold leaf woodwork, and ancestral customs."
+},
   {
-    name: 'Leong San Tong Khoo Kongsi',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: '18 Cannon Square, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4165, longitude: 100.3373 },
-    phone: '+604-261 4609',
-    website: 'https://www.khookongsi.com.my/',
-    openingHours: 'Daily 09:00 - 17:00',
-    score: 4.9,
-    culturalTask: {
-      title: 'Clan Architecture Study',
-      description: 'Photograph the intricate granite stone carvings or ornate roof dragons at Khoo Kongsi.',
-      rewardPoints: 140,
+    "name": "Cheong Fatt Tze - The Blue Mansion",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Art",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Art",
+        "Local Business"
+    ],
+    "formattedAddress": "14 Leith Street, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 75,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.4216,
+        "longitude": 100.3341
     },
-    description: 'The grandest Chinese clan house in Malaysia, renowned for its opulent stone and wood carvings, dragon pillars, and clan lineage museum.',
-  },
-  {
-    name: 'Fort Cornwallis',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture'],
-    interestTags: ['Heritage', 'Culture'],
-    formattedAddress: 'Jalan Tun Syed Sheh Barakbah, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4208, longitude: 100.3441 },
-    phone: '+604-261 0260',
-    website: 'https://www.thefortcornwallis.com/',
-    openingHours: 'Daily 08:00 - 23:00',
-    score: 4.5,
-    culturalTask: {
-      title: 'Colonial Bastion History',
-      description: 'Locate the historic Seri Rambai Cannon and photograph the harbour bastion.',
-      rewardPoints: 110,
+    "phone": "+604-262 0006",
+    "website": "https://www.cheongfatttzemansion.com/",
+    "openingHours": "Daily 11:00 - 18:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Cheong Fatt Tze - The Blue Mansion Discovery",
+        "description": "Award-winning UNESCO-conserved 1890s courtyard mansion famous for its striking indigo blue walls, Art Nouveau stained glass, and Chinese master craft.",
+        "rewardPoints": 100
     },
-    description: 'Largest standing British fortress in Malaysia, constructed in 1786 by Captain Francis Light with lighthouse, chapel, and historical artillery.',
-  },
+    "description": "Award-winning UNESCO-conserved 1890s courtyard mansion famous for its striking indigo blue walls, Art Nouveau stained glass, and Chinese master craft."
+},
   {
-    name: 'Clan Jetties of Penang (Chew Jetty)',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Local Business'],
-    formattedAddress: 'Weld Quay, George Town, 10300 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4128, longitude: 100.3402 },
-    phone: '+604-263 6050',
-    website: '',
-    openingHours: 'Daily 09:00 - 21:00',
-    score: 4.7,
-    culturalTask: {
-      title: 'Waterfront Clan Settlement Walk',
-      description: 'Photograph the stilt wooden walkway overlooking the Penang Strait and visit the waterfront temple shrine.',
-      rewardPoints: 100,
+    "name": "Leong San Tong Khoo Kongsi",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "formattedAddress": "18 Cannon Square, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4146,
+        "longitude": 100.3371
     },
-    description: 'Historic 19th-century wooden stilt village built over the sea by early Chinese clan immigrants, featuring timber walkways and seaside shrines.',
-  },
-  {
-    name: 'Armenian Street Heritage Trail',
-    category: 'Art',
-    plannerCategories: ['Art', 'Heritage', 'Culture', 'Local Business'],
-    interestTags: ['Art', 'Heritage', 'Culture', 'Local Business'],
-    formattedAddress: 'Lebuh Armenian, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 75,
-    budgetLevel: 'Low',
-    location: { latitude: 5.415, longitude: 100.3365 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 24 Hours',
-    score: 4.8,
-    culturalTask: {
-      title: 'Street Art Photo Walk',
-      description: 'Photograph the Kids on Bicycle mural and explore the surrounding heritage craft stalls.',
-      rewardPoints: 100,
+    "phone": "+604-261 4609",
+    "website": "http://www.khookongsi.com.my/",
+    "openingHours": "Daily 09:00 - 17:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1548013146-72479768bada?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Leong San Tong Khoo Kongsi Discovery",
+        "description": "The most grand Chinese clan temple in Southeast Asia, renowned for intricate granite stone sculptures, 3D ceramic tile roof dragons, and gold guilding.",
+        "rewardPoints": 100
     },
-    description: 'Iconic UNESCO heritage core known for world-famous Ernest Zacharevic street art murals, antique galleries, and souvenir shophouses.',
-  },
+    "description": "The most grand Chinese clan temple in Southeast Asia, renowned for intricate granite stone sculptures, 3D ceramic tile roof dragons, and gold guilding."
+},
   {
-    name: 'Kapitan Keling Mosque',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture'],
-    interestTags: ['Heritage', 'Culture'],
-    formattedAddress: '14 Buckingham Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4167, longitude: 100.3372 },
-    phone: '+604-261 4201',
-    website: '',
-    openingHours: 'Daily 09:30 - 17:30',
-    score: 4.7,
-    description: 'Prominent historic Indo-Moorish mosque founded in 1801 by George Town\'s early Indian Muslim community leaders.',
-  },
-  {
-    name: 'Sri Mahamariamman Temple Queen Street',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: 'Lebuh Queen, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 40,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4169, longitude: 100.3397 },
-    phone: '+604-262 2256',
-    website: '',
-    openingHours: 'Daily 06:00 - 21:00',
-    score: 4.7,
-    description: 'Oldest Hindu temple in Penang founded in 1833, featuring an ornate Dravidian gopuram tower adorned with sculpted deities.',
-  },
-  {
-    name: 'St. George\'s Anglican Church',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture'],
-    interestTags: ['Heritage', 'Culture'],
-    formattedAddress: '1 Farquhar Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 40,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4203, longitude: 100.3392 },
-    phone: '+604-261 2739',
-    website: '',
-    openingHours: 'Tue-Sun 09:00 - 17:00',
-    score: 4.6,
-    description: 'Oldest purpose-built Anglican church in Southeast Asia, constructed in 1818 with Georgian neoclassical Doric columns and a memorial canopy.',
-  },
-  {
-    name: 'Han Jiang Ancestral Temple (Teochew Association)',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: '127 Lebuh Chulia, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.417, longitude: 100.3382 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 08:30 - 17:00',
-    score: 4.7,
-    description: 'UNESCO Award-winning Teochew ancestral temple founded in 1870, famous for its intricate Teochew wood carvings and gilded altars.',
-  },
-  {
-    name: 'Sun Yat Sen Museum Penang',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Local Business'],
-    formattedAddress: '120 Armenian Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 50,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4153, longitude: 100.3361 },
-    phone: '+604-262 0123',
-    website: '',
-    openingHours: 'Daily 09:00 - 17:00',
-    score: 4.6,
-    description: 'Historic shophouse base where Dr. Sun Yat-sen planned the 1911 Guangzhou uprising, preserving period courtyard furniture and historical archives.',
-  },
-  {
-    name: 'Suffolk House',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Food', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Food', 'Local Business'],
-    formattedAddress: '250 Jalan Air Itam, George Town, 10460 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'High',
-    location: { latitude: 5.4103, longitude: 100.3069 },
-    phone: '+604-228 3930',
-    website: '',
-    openingHours: 'Daily 11:00 - 22:00',
-    score: 4.7,
-    description: 'Malaysia\'s only surviving Anglo-Indian Georgian mansion, former residence of early governors, now hosting heritage tours and fine English high tea.',
-  },
-  {
-    name: 'Penang Town Hall & City Hall Esplanade',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: 'Jalan Padang Kota Lama, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4217, longitude: 100.3414 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 24 Hours',
-    score: 4.7,
-    description: 'Majestic Victorian & Edwardian colonial municipal buildings overlooking Padang Kota Lama and the northern seafront promenade.',
-  },
-  {
-    name: 'Penang State Museum and Art Gallery',
-    category: 'Art',
-    plannerCategories: ['Art', 'Heritage', 'Culture'],
-    interestTags: ['Art', 'Heritage', 'Culture'],
-    formattedAddress: 'Lebuh Farquhar, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4208, longitude: 100.3396 },
-    phone: '+604-226 1462',
-    website: '',
-    openingHours: 'Sat-Thu 09:00 - 17:00',
-    score: 4.6,
-    description: 'State cultural gallery preserving Penang\'s historical paintings, antique oil canvasses, colonial artifacts, and rotating contemporary Malaysian art.',
-  },
-  {
-    name: 'Seh Tek Tong Cheah Kongsi',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: '8 Lebuh Pantai, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4157, longitude: 100.3385 },
-    phone: '+604-261 0107',
-    website: '',
-    openingHours: 'Daily 09:00 - 17:00',
-    score: 4.7,
-    description: 'One of Penang\'s oldest Hokkien clan organizations, noted for its fortified compound, ornate sweep roofs, and lion statues.',
-  },
-  {
-    name: 'Yap Kongsi & Choo Chay Keong Temple',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Art'],
-    interestTags: ['Heritage', 'Culture', 'Art'],
-    formattedAddress: '71 Lebuh Armenian, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 35,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4158, longitude: 100.3369 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 09:00 - 17:00',
-    score: 4.6,
-    description: 'Historic clan temple at the corner of Armenian Street boasting Straits Chinese embellishments and dragon stone carvings.',
-  },
-  {
-    name: 'Tan Jetty Waterfront Heritage',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Local Business'],
-    formattedAddress: 'Weld Quay, George Town, 10300 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 40,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4121, longitude: 100.3395 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 09:00 - 21:00',
-    score: 4.6,
-    description: 'Historic wooden clan jetty with a picturesque extended timber pier extending far out into the Penang harbor.',
-  },
-  {
-    name: 'Queen Victoria Memorial Clock Tower',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture'],
-    interestTags: ['Heritage', 'Culture'],
-    formattedAddress: 'Lebuh Light, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 30,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4194, longitude: 100.344 },
-    phone: '+604-200 0000',
-    website: '',
-    openingHours: 'Daily 24 Hours',
-    score: 4.6,
-    description: '60-foot Moorish clock tower commissioned in 1897 by local millionaire Cheah Chen Eok to celebrate Queen Victoria\'s Diamond Jubilee.',
-  },
-  {
-    name: 'House of Yeap Chor Ee',
-    category: 'Heritage',
-    plannerCategories: ['Heritage', 'Culture', 'Local Business'],
-    interestTags: ['Heritage', 'Culture', 'Local Business'],
-    formattedAddress: '4 Lebuh Penang, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 45,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4187, longitude: 100.3421 },
-    phone: '+604-261 0288',
-    website: '',
-    openingHours: 'Mon-Fri 09:30 - 17:00',
-    score: 4.6,
-    description: 'Heritage museum documenting the life and rags-to-riches legacy of Penang tycoon and Ban Hin Lee Bank founder Yeap Chor Ee.',
-  },
-  {
-    name: 'Hin Bus Depot Arts Centre',
-    category: 'Art',
-    plannerCategories: ['Art', 'Culture', 'Local Business'],
-    interestTags: ['Art', 'Culture', 'Local Business'],
-    formattedAddress: '31A Jalan Gurdwara, George Town, 10300 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4124, longitude: 100.3297 },
-    phone: '+604-218 9004',
-    website: 'https://hinbusdepot.com/',
-    openingHours: 'Mon-Fri 12:00 - 19:00, Sat-Sun 11:00 - 19:00',
-    score: 4.7,
-    culturalTask: {
-      title: 'Artisan Depot Mural Explorer',
-      description: 'Explore the open art courtyard and photograph Ernest Zacharevic murals or weekend artisan crafts.',
-      rewardPoints: 110,
+    "name": "Fort Cornwallis",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Tun Syed Sheh Barakbah, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4206,
+        "longitude": 100.344
     },
-    description: 'A thriving community art space set within a restored 1940s Art Deco bus depot, hosting open-air murals, art exhibitions, artisan cafes, and craft markets.',
-  },
-  {
-    name: 'ChinaHouse Penang',
-    category: 'Food',
-    plannerCategories: ['Food', 'Art', 'Culture', 'Local Business'],
-    interestTags: ['Food', 'Art', 'Culture', 'Local Business'],
-    formattedAddress: '153 Beach Street & 183B Victoria Street, George Town, 10300 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4147, longitude: 100.3392 },
-    phone: '+604-263 7299',
-    website: 'https://www.chinahouse.com.my/',
-    openingHours: 'Daily 09:00 - 00:00',
-    score: 4.7,
-    culturalTask: {
-      title: 'Longest Shophouse Art & Cake Walk',
-      description: 'Walk through the 400-ft connected heritage shophouse compound and photograph the iconic cake table display.',
-      rewardPoints: 100,
+    "phone": "+604-262 5377",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 08:00 - 21:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1590059390046-24e50529d442?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Fort Cornwallis Discovery",
+        "description": "Largest intact 18th-century British bastion fort in Malaysia built by Captain Francis Light with colonial lighthouse and historic bronze artillery.",
+        "rewardPoints": 100
     },
-    description: 'Traditional heritage compound made of three linked heritage shophouses with an open courtyard, art galleries, live music, and over 30 varieties of daily cakes.',
-  },
+    "description": "Largest intact 18th-century British bastion fort in Malaysia built by Captain Francis Light with colonial lighthouse and historic bronze artillery."
+},
   {
-    name: 'Jawi House Cafe Gallery',
-    category: 'Food',
-    plannerCategories: ['Food', 'Culture', 'Art', 'Local Business'],
-    interestTags: ['Food', 'Culture', 'Art', 'Local Business'],
-    formattedAddress: '85 Armenian Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4152, longitude: 100.3364 },
-    phone: '+604-261 3680',
-    website: 'https://jawihouse.com/',
-    openingHours: 'Wed-Mon 11:00 - 21:30',
-    score: 4.7,
-    culturalTask: {
-      title: 'Jawi Peranakan Spice Heritage',
-      description: 'Taste authentic Jawi Peranakan Nasi Lemuni or Herbal Rice and snap a photo of the heritage dining interior.',
-      rewardPoints: 110,
+    "name": "Clan Jetties of Penang (Chew Jetty)",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Local Business",
+        "Nature"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Local Business",
+        "Nature"
+    ],
+    "formattedAddress": "Weld Quay, George Town, 10300 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4128,
+        "longitude": 100.3398
     },
-    description: 'Michelin-selected culinary gallery celebrating Jawi Peranakan gastronomy, featuring Nasi Lemuni, herbal curries, and antique art gallery displays.',
-  },
-  {
-    name: 'Wonderfood Museum Penang',
-    category: 'Culture',
-    plannerCategories: ['Culture', 'Food', 'Art', 'Local Business'],
-    interestTags: ['Culture', 'Food', 'Art', 'Local Business'],
-    formattedAddress: '49 Beach Street, George Town, 10200 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4163, longitude: 100.3411 },
-    phone: '+604-262 9504',
-    website: '',
-    openingHours: 'Daily 09:00 - 18:00',
-    score: 4.6,
-    culturalTask: {
-      title: 'Giant Hawker Food Snap',
-      description: 'Pose alongside giant replica dishes of Laksa, Cendol, or Roti Canai to document Malaysian street food heritage.',
-      rewardPoints: 100,
+    "phone": "+604-261 6606",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 09:00 - 21:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Clan Jetties of Penang (Chew Jetty) Discovery",
+        "description": "Historic 19th-century wooden stilt water village established by Chinese clan immigrants along the George Town harbour waterfront.",
+        "rewardPoints": 100
     },
-    description: 'Vibrant interactive museum displaying hyper-realistic giant replicas of Malaysian street foods, traditional cooking crafts, and colonial banquet dioramas.',
-  },
+    "description": "Historic 19th-century wooden stilt water village established by Chinese clan immigrants along the George Town harbour waterfront."
+},
   {
-    name: 'Tek Sen Restaurant',
-    category: 'Food',
-    plannerCategories: ['Food', 'Culture', 'Local Business'],
-    interestTags: ['Food', 'Culture', 'Local Business'],
-    formattedAddress: '18 Carnarvon Street, George Town, 10100 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 60,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4172, longitude: 100.3355 },
-    phone: '+6012-981 5117',
-    website: '',
-    openingHours: 'Wed-Mon 12:00 - 14:30, 18:00 - 20:30',
-    score: 4.8,
-    description: 'Michelin Bib Gourmand heritage Cantonese and Teochew zi char eatery established in 1965, famous for double-cooked pork belly and Assam fish.',
-  },
+    "name": "Armenian Street Heritage Murals",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Lebuh Armenian, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4153,
+        "longitude": 100.3364
+    },
+    "phone": "+604-263 7000",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Armenian Street Heritage Murals Discovery",
+        "description": "Vibrant epicenter of George Town UNESCO street art, featuring Ernest Zacharevic 'Kids on Bicycle' mural, craft souvenir shops, and heritage cafes.",
+        "rewardPoints": 100
+    },
+    "description": "Vibrant epicenter of George Town UNESCO street art, featuring Ernest Zacharevic 'Kids on Bicycle' mural, craft souvenir shops, and heritage cafes."
+},
   {
-    name: 'Hameediyah Restaurant (Est. 1907)',
-    category: 'Food',
-    plannerCategories: ['Food', 'Culture', 'Heritage', 'Local Business'],
-    interestTags: ['Food', 'Culture', 'Heritage', 'Local Business'],
-    formattedAddress: '164A Campbell Street, George Town, 10100 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 50,
-    budgetLevel: 'Medium',
-    location: { latitude: 5.4172, longitude: 100.333 },
-    phone: '+604-261 1095',
-    website: 'https://hameediyah.my/',
-    openingHours: 'Daily 10:00 - 22:00',
-    score: 4.8,
-    description: 'The oldest surviving Nasi Kandar establishment in Malaysia, serving signature spice curries, duck rendang, and crispy murtabak on Campbell Street since 1907.',
-  },
+    "name": "Kapitan Keling Mosque",
+    "category": "Culture",
+    "plannerCategories": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "interestTags": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "formattedAddress": "14 Buckingham Street, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4168,
+        "longitude": 100.3377
+    },
+    "phone": "+604-261 4201",
+    "website": "https://kapitankeling.org.my/",
+    "openingHours": "Daily 09:00 - 17:00 (Outside Prayer Times)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Kapitan Keling Mosque Discovery",
+        "description": "Majestic 1801 Indo-Moorish heritage mosque built by Penang's early Indian Muslim merchants, featuring yellow domes, horseshoe arches, and gothic minaret.",
+        "rewardPoints": 100
+    },
+    "description": "Majestic 1801 Indo-Moorish heritage mosque built by Penang's early Indian Muslim merchants, featuring yellow domes, horseshoe arches, and gothic minaret."
+},
   {
-    name: 'Penang Road Famous Teochew Chendul',
-    category: 'Food',
-    plannerCategories: ['Food', 'Culture', 'Local Business'],
-    interestTags: ['Food', 'Culture', 'Local Business'],
-    formattedAddress: '27 & 29 Lebuh Keng Kwee, George Town, 10100 Penang, Malaysia',
-    area: 'George Town',
-    durationMinutes: 30,
-    budgetLevel: 'Low',
-    location: { latitude: 5.4183, longitude: 100.331 },
-    phone: '+604-262 6002',
-    website: 'https://www.chendul.my/',
+    "name": "Sri Mahamariamman Temple Queen Street",
+    "category": "Culture",
+    "plannerCategories": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "interestTags": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "formattedAddress": "Lebuh Queen, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4173,
+        "longitude": 100.3392
+    },
+    "phone": "+604-262 2294",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 06:00 - 12:00, 16:30 - 21:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Sri Mahamariamman Temple Queen Street Discovery",
+        "description": "Penang's oldest Hindu temple (built 1833 in Little India), adorned with an intricately sculpted 23-foot Rajagopuram gopuram tower of deities.",
+        "rewardPoints": 100
+    },
+    "description": "Penang's oldest Hindu temple (built 1833 in Little India), adorned with an intricately sculpted 23-foot Rajagopuram gopuram tower of deities."
+},
+  {
+    "name": "Hin Bus Depot Art Centre",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "31A Jalan Gurdwara, George Town, 10300 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4124,
+        "longitude": 100.3283
+    },
+    "phone": "+604-226 5691",
+    "website": "https://hinbusdepot.com/",
+    "openingHours": "Mon-Fri 12:00 - 19:00, Sat-Sun 11:00 - 19:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Hin Bus Depot Art Centre Discovery",
+        "description": "Converted 1940s bus depot transformed into a dynamic contemporary creative arts hub with rotating galleries, artisan markets, and garden cafes.",
+        "rewardPoints": 100
+    },
+    "description": "Converted 1940s bus depot transformed into a dynamic contemporary creative arts hub with rotating galleries, artisan markets, and garden cafes."
+},
+  {
+    "name": "Penang State Museum & Art Gallery",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Heritage",
+        "Culture"
+    ],
+    "interestTags": [
+        "Art",
+        "Heritage",
+        "Culture"
+    ],
+    "formattedAddress": "Lebuh Farquhar, George Town, 10200 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4208,
+        "longitude": 100.3385
+    },
+    "phone": "+604-226 1461",
+    "website": "http://penangmuseum.gov.my/",
+    "openingHours": "Sat-Thu 09:00 - 17:00 (Closed Friday)",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang State Museum & Art Gallery Discovery",
+        "description": "Preserves rare paintings, historical colonial oil artwork, and cultural artefacts tracing Penang's transformation through centuries.",
+        "rewardPoints": 100
+    },
+    "description": "Preserves rare paintings, historical colonial oil artwork, and cultural artefacts tracing Penang's transformation through centuries."
+},
+  {
+    "name": "Hameediyah Restaurant (Est. 1907)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business",
+        "Culture"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business",
+        "Culture"
+    ],
+    "formattedAddress": "164A Lebuh Campbell, George Town, 10100 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 50,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4187,
+        "longitude": 100.3339
+    },
+    "phone": "+604-261 1095",
+    "website": "https://www.hameediyah.my/",
+    "openingHours": "Daily 10:00 - 22:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Hameediyah Restaurant (Est. 1907) Discovery",
+        "description": "Malaysia's oldest Nasi Kandar establishment operating since 1907, legendary for signature spice-rich curry, spiced mutton shank, and crispy murtabak.",
+        "rewardPoints": 100
+    },
+    "description": "Malaysia's oldest Nasi Kandar establishment operating since 1907, legendary for signature spice-rich curry, spiced mutton shank, and crispy murtabak."
+},
+  {
+    "name": "Line Clear Nasi Kandar",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Alleyway, 177 Jalan Penang, George Town, 10000 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4199,
+        "longitude": 100.3323
+    },
+    "phone": "+604-261 4440",
+    "website": "https://www.facebook.com/lineclearnasikandar/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Line Clear Nasi Kandar Discovery",
+        "description": "Iconic bustling heritage lane eatery serving deep aromatic mixed curries, spiced fried chicken, and king prawns since 1930.",
+        "rewardPoints": 100
+    },
+    "description": "Iconic bustling heritage lane eatery serving deep aromatic mixed curries, spiced fried chicken, and king prawns since 1930."
+},
+  {
+    "name": "Toh Soon Cafe (Campbel Lane Toast)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Lebuh Campbell, George Town, 10100 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4188,
+        "longitude": 100.3332
+    },
+    "phone": "+604-261 3754",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Mon-Sat 08:00 - 17:00 (Closed Sun)",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Toh Soon Cafe (Campbel Lane Toast) Discovery",
+        "description": "Classic back-alley Hainanese kopitiam serving charcoal-toasted kaya butter bread, half-boiled kampung eggs, and rich robust Hainan coffee.",
+        "rewardPoints": 100
+    },
+    "description": "Classic back-alley Hainanese kopitiam serving charcoal-toasted kaya butter bread, half-boiled kampung eggs, and rich robust Hainan coffee."
+},
+  {
+    "name": "Penang Road Famous Teochew Chendul",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "4\u00bd Lebuh Keng Kwee, George Town, 10100 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 30,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4172,
+        "longitude": 100.3308
+    },
+    "phone": "+604-262 6002",
+    "website": "https://www.chendul.my/",
+    "openingHours": "Daily 10:30 - 19:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang Road Famous Teochew Chendul Discovery",
+        "description": "World-famous shaved ice dessert stall operating since 1936 with green pandan rice noodles, fragrant Gula Melaka syrup, coconut milk, and kidney beans.",
+        "rewardPoints": 100
+    },
+    "description": "World-famous shaved ice dessert stall operating since 1936 with green pandan rice noodles, fragrant Gula Melaka syrup, coconut milk, and kidney beans."
+},
+  {
+    "name": "Siam Road Charcoal Char Koay Teow",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "82 Siam Road, George Town, 10400 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.415,
+        "longitude": 100.32
+    },
+    "phone": "+6019-456 7890",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Tue-Sat 12:00 - 18:30 (Closed Sun-Mon)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Siam Road Charcoal Char Koay Teow Discovery",
+        "description": "Legendary Michelin Bib Gourmand wok-fried flat rice noodles cooked over glowing charcoal embers with succulent cockles, Chinese lap cheong, and prawns.",
+        "rewardPoints": 100
+    },
+    "description": "Legendary Michelin Bib Gourmand wok-fried flat rice noodles cooked over glowing charcoal embers with succulent cockles, Chinese lap cheong, and prawns."
+},
+  {
+    "name": "Ghee Hiang Traditional Pastries (Est. 1856)",
+    "category": "Local Business",
+    "plannerCategories": [
+        "Local Business",
+        "Heritage",
+        "Food",
+        "Culture"
+    ],
+    "interestTags": [
+        "Local Business",
+        "Heritage",
+        "Food",
+        "Culture"
+    ],
+    "formattedAddress": "216 Jalan Macalister, George Town, 10400 Penang, Malaysia",
+    "area": "George Town",
+    "durationMinutes": 40,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4162,
+        "longitude": 100.3235
+    },
+    "phone": "+604-227 2222",
+    "website": "https://ghee-hiang.com/",
+    "openingHours": "Daily 09:00 - 19:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Ghee Hiang Traditional Pastries (Est. 1856) Discovery",
+        "description": "Malaysia's oldest pastry brand crafting authentic Tau Sar Piah (mung bean biscuits), Beh Teh Saw, and 100% pure fragrant sesame oil since 1856.",
+        "rewardPoints": 100
+    },
+    "description": "Malaysia's oldest pastry brand crafting authentic Tau Sar Piah (mung bean biscuits), Beh Teh Saw, and 100% pure fragrant sesame oil since 1856."
+},
+  {
+    "name": "Batu Ferringhi Beach & Coastal Trail",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 75,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4746,
+        "longitude": 100.2468
+    },
+    "phone": "+604-881 1888",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Batu Ferringhi Beach & Coastal Trail Discovery",
+        "description": "Golden sand coastline famed for dramatic sunset views, water sports activities, parasailing, and leisurely seaside walking trails.",
+        "rewardPoints": 100
+    },
+    "description": "Golden sand coastline famed for dramatic sunset views, water sports activities, parasailing, and leisurely seaside walking trails."
+},
+  {
+    "name": "Batu Ferringhi Night Market & Artisan Bazaar",
+    "category": "Local Business",
+    "plannerCategories": [
+        "Local Business",
+        "Culture",
+        "Art",
+        "Food"
+    ],
+    "interestTags": [
+        "Local Business",
+        "Culture",
+        "Art",
+        "Food"
+    ],
+    "formattedAddress": "Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 60,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4735,
+        "longitude": 100.245
+    },
+    "phone": "+604-881 2233",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 19:00 - 00:00",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Batu Ferringhi Night Market & Artisan Bazaar Discovery",
+        "description": "Nightly seaside open-air bazaar with over 100 stalls selling handcrafted souvenirs, Batik apparel, pewter gifts, and Penang street bites.",
+        "rewardPoints": 100
+    },
+    "description": "Nightly seaside open-air bazaar with over 100 stalls selling handcrafted souvenirs, Batik apparel, pewter gifts, and Penang street bites."
+},
+  {
+    "name": "Long Beach Food Court Batu Ferringhi",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4728,
+        "longitude": 100.2442
+    },
+    "phone": "+6012-488 9988",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 18:00 - 23:30",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1552611052-33e04de081de?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Long Beach Food Court Batu Ferringhi Discovery",
+        "description": "Bustling coastal hawker centre offering grilled stingray satay, chicken wings, Ikan Bakar, fresh fruit juices, and Chinese noodle specials.",
+        "rewardPoints": 100
+    },
+    "description": "Bustling coastal hawker centre offering grilled stingray satay, chicken wings, Ikan Bakar, fresh fruit juices, and Chinese noodle specials."
+},
+  {
+    "name": "The Ship Batu Ferringhi",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 60,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.4752,
+        "longitude": 100.2482
+    },
+    "phone": "+604-881 2142",
+    "website": "https://theship.com.my/",
+    "openingHours": "Daily 12:00 - 00:00",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "The Ship Batu Ferringhi Discovery",
+        "description": "Themed restaurant modeled inside a life-sized 16th-century pirate galleon, serving sizzler steaks, seafood grills, and classic Western delights.",
+        "rewardPoints": 100
+    },
+    "description": "Themed restaurant modeled inside a life-sized 16th-century pirate galleon, serving sizzler steaks, seafood grills, and classic Western delights."
+},
+  {
+    "name": "BoraBora by Sunset Batu Ferringhi",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Lot 415, Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 60,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.476,
+        "longitude": 100.2495
+    },
+    "phone": "+604-885 1313",
+    "website": "https://www.facebook.com/boraborabysunset/",
+    "openingHours": "Daily 12:00 - 01:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "BoraBora by Sunset Batu Ferringhi Discovery",
+        "description": "Relaxed beachfront lounge where diners enjoy pizza, pastas, seafood, and cocktails right on the sands during Penang's golden sunset.",
+        "rewardPoints": 100
+    },
+    "description": "Relaxed beachfront lounge where diners enjoy pizza, pastas, seafood, and cocktails right on the sands during Penang's golden sunset."
+},
+  {
+    "name": "Yahong Art Gallery",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "58-D Batu Ferringhi, 11100 Batu Ferringhi, Penang, Malaysia",
+    "area": "Batu Ferringhi",
+    "durationMinutes": 45,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4718,
+        "longitude": 100.2415
+    },
+    "phone": "+604-881 1251",
+    "website": "http://www.yahongart.com/",
+    "openingHours": "Daily 10:00 - 18:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1460661419201-fd4cecdf8a8b?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Yahong Art Gallery Discovery",
+        "description": "Home of master artist Chuah Thean Teng (pioneer of modern Malaysian Batik Art), showcasing intricate batik masterpieces, ceramics, and jewelry.",
+        "rewardPoints": 100
+    },
+    "description": "Home of master artist Chuah Thean Teng (pioneer of modern Malaysian Batik Art), showcasing intricate batik masterpieces, ceramics, and jewelry."
+},
+  {
+    "name": "Penang Floating Mosque (Masjid Terapung)",
+    "category": "Culture",
+    "plannerCategories": [
+        "Culture",
+        "Heritage",
+        "Nature",
+        "Art"
+    ],
+    "interestTags": [
+        "Culture",
+        "Heritage",
+        "Nature",
+        "Art"
+    ],
+    "formattedAddress": "Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia",
+    "area": "Tanjung Bungah",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4678,
+        "longitude": 100.2818
+    },
+    "phone": "+604-890 0088",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 09:00 - 18:00 (Outside Prayer Times)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1584551246679-0daf3d275d0f?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang Floating Mosque (Masjid Terapung) Discovery",
+        "description": "First floating mosque in Malaysia built on coastal pilings over the Malacca Strait, featuring Moorish architecture with 7-storey minaret.",
+        "rewardPoints": 100
+    },
+    "description": "First floating mosque in Malaysia built on coastal pilings over the Malacca Strait, featuring Moorish architecture with 7-storey minaret."
+},
+  {
+    "name": "Tanjung Bungah Market & Food Complex",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Local Business",
+        "Culture"
+    ],
+    "interestTags": [
+        "Food",
+        "Local Business",
+        "Culture"
+    ],
+    "formattedAddress": "Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia",
+    "area": "Tanjung Bungah",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4632,
+        "longitude": 100.2835
+    },
+    "phone": "+604-899 1234",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 07:00 - 14:00, 17:30 - 22:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1555396273-bc501e741cf3?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Tanjung Bungah Market & Food Complex Discovery",
+        "description": "Neighborhood food paradise famous for oyster omelette, Penang Curry Mee, Wanton Mee, and homemade nonya kueh.",
+        "rewardPoints": 100
+    },
+    "description": "Neighborhood food paradise famous for oyster omelette, Penang Curry Mee, Wanton Mee, and homemade nonya kueh."
+},
+  {
+    "name": "Penang Avatar Secret Garden",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Art",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Art",
+        "Culture"
+    ],
+    "formattedAddress": "336 Jalan Tokong Thai Pak Koong, 11200 Tanjung Bungah, Penang, Malaysia",
+    "area": "Tanjung Bungah",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4645,
+        "longitude": 100.306
+    },
+    "phone": "+604-899 8228",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 08:00 - 00:00 (Illuminated after 19:30)",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang Avatar Secret Garden Discovery",
+        "description": "Enchanting coastal temple hillside garden with grand ancient banyan trees illuminated by glowing neon fibre-optic light trails.",
+        "rewardPoints": 100
+    },
+    "description": "Enchanting coastal temple hillside garden with grand ancient banyan trees illuminated by glowing neon fibre-optic light trails."
+},
+  {
+    "name": "Tanjung Bungah Coastal Bay Beach",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia",
+    "area": "Tanjung Bungah",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.466,
+        "longitude": 100.278
+    },
+    "phone": "+604-890 5522",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1507525428034-77f6eb97b1a7?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Tanjung Bungah Coastal Bay Beach Discovery",
+        "description": "Serene coastal crescent cove popular for kayaking, paddle-boarding, beach relaxation, and water sport centre lessons.",
+        "rewardPoints": 100
+    },
+    "description": "Serene coastal crescent cove popular for kayaking, paddle-boarding, beach relaxation, and water sport centre lessons."
+},
+  {
+    "name": "Viva Local Haven Tanjung Bungah",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia",
+    "area": "Tanjung Bungah",
+    "durationMinutes": 45,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.462,
+        "longitude": 100.285
+    },
+    "phone": "+604-899 4433",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 17:00 - 23:00",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1543353071-873f17a7a088?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Viva Local Haven Tanjung Bungah Discovery",
+        "description": "Modern open-air community hawker center serving fresh Western grills, claypot chicken rice, satay, and craft beers.",
+        "rewardPoints": 100
+    },
+    "description": "Modern open-air community hawker center serving fresh Western grills, claypot chicken rice, satay, and craft beers."
+},
+  {
+    "name": "Tow Boo Kong Temple (Nine Emperor Gods)",
+    "category": "Culture",
+    "plannerCategories": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "interestTags": [
+        "Culture",
+        "Heritage",
+        "Art"
+    ],
+    "formattedAddress": "Jalan Raja Uda, 12300 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4328,
+        "longitude": 100.3842
+    },
+    "phone": "+604-331 4322",
+    "website": "http://www.towbookong.org.my/",
+    "openingHours": "Daily 07:00 - 21:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1528728329032-2972f65dfb3f?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Tow Boo Kong Temple (Nine Emperor Gods) Discovery",
+        "description": "One of Malaysia's most magnificent Taoist temples featuring a grand carved stone archway, golden prayer halls, and Nine Emperor Gods festival.",
+        "rewardPoints": 100
+    },
+    "description": "One of Malaysia's most magnificent Taoist temples featuring a grand carved stone archway, golden prayer halls, and Nine Emperor Gods festival."
+},
+  {
+    "name": "Butterworth Art Walk",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Heritage"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Heritage"
+    ],
+    "formattedAddress": "Lorong Bagan Luar 1, 12000 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3995,
+        "longitude": 100.3672
+    },
+    "phone": "+604-310 5155",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1558005530-a7958896ec60?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Butterworth Art Walk Discovery",
+        "description": "Historic alleyway art installation narrating the agricultural, industrial, and maritime history of Seberang Perai through interactive 3D murals.",
+        "rewardPoints": 100
+    },
+    "description": "Historic alleyway art installation narrating the agricultural, industrial, and maritime history of Seberang Perai through interactive 3D murals."
+},
+  {
+    "name": "Robina Eco Park Butterworth (Pantai Bersih)",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "Jalan Robina, Teluk Air Tawar, 13000 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4625,
+        "longitude": 100.3811
+    },
+    "phone": "+604-331 6655",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 06:00 - 20:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1511497584788-87676104235f?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Robina Eco Park Butterworth (Pantai Bersih) Discovery",
+        "description": "Revitalized beachfront ecological park offering sunset panoramas of Penang Island across the strait, cycling paths, and seafood eateries.",
+        "rewardPoints": 100
+    },
+    "description": "Revitalized beachfront ecological park offering sunset panoramas of Penang Island across the strait, cycling paths, and seafood eateries."
+},
+  {
+    "name": "Chai Leng Park Food Street",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Lebuh Kurau 5, Chai Leng Park, 13700 Perai, Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3854,
+        "longitude": 100.3912
+    },
+    "phone": "+6016-411 2233",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 17:00 - 23:30",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1555396273-4481014e7ea7?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Chai Leng Park Food Street Discovery",
+        "description": "Premier mainland night food destination legendary for crispy duck rice, Chai Leng Park Bak Kut Teh, grilled squid, and Penang Rojak.",
+        "rewardPoints": 100
+    },
+    "description": "Premier mainland night food destination legendary for crispy duck rice, Chai Leng Park Bak Kut Teh, grilled squid, and Penang Rojak."
+},
+  {
+    "name": "Raja Uda Tomyam Noodles (Apollo Market)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Raja Uda, 12300 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4285,
+        "longitude": 100.3855
+    },
+    "phone": "+6012-456 7891",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 18:00 - 02:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1569718212165-8b9a1a0c8491?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Raja Uda Tomyam Noodles (Apollo Market) Discovery",
+        "description": "Famous supper spot serving customizable hot and sour Tomyam noodle bowls loaded with fried fish fillets, prawns, pork balls, and crispy tofu skin.",
+        "rewardPoints": 100
+    },
+    "description": "Famous supper spot serving customizable hot and sour Tomyam noodle bowls loaded with fried fish fillets, prawns, pork balls, and crispy tofu skin."
+},
+  {
+    "name": "Ah Khoon Duck Meat Koay Teow Th'ng",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Lorong Bagan Luar 4, 12000 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.401,
+        "longitude": 100.369
+    },
+    "phone": "+604-323 1122",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 07:30 - 14:00 (Closed Wed)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Ah Khoon Duck Meat Koay Teow Th'ng Discovery",
+        "description": "Traditional 50-year-old stall serving clear herb-infused duck bone broth, silky flat noodles, tender sliced duck meat, and fish cakes.",
+        "rewardPoints": 100
+    },
+    "description": "Traditional 50-year-old stall serving clear herb-infused duck bone broth, silky flat noodles, tender sliced duck meat, and fish cakes."
+},
+  {
+    "name": "Butterworth Ferry Terminal & Harbour Walk",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "formattedAddress": "Pangkalan Sultan Abdul Halim, 12000 Butterworth, Penang, Malaysia",
+    "area": "Butterworth",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3942,
+        "longitude": 100.3635
+    },
+    "phone": "+604-310 2200",
+    "website": "https://www.penangport.gov.my/",
+    "openingHours": "Daily 06:30 - 23:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Butterworth Ferry Terminal & Harbour Walk Discovery",
+        "description": "Gateway of the historic Penang cross-strait ferry crossing, offering scenic seaport breezes and transit between mainland and island.",
+        "rewardPoints": 100
+    },
+    "description": "Gateway of the historic Penang cross-strait ferry crossing, offering scenic seaport breezes and transit between mainland and island."
+},
+  {
+    "name": "Minor Basilica of St. Anne",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "formattedAddress": "Jalan Kulim, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 75,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3524,
+        "longitude": 100.4789
+    },
+    "phone": "+604-538 6405",
+    "website": "https://stannebm.org/",
+    "openingHours": "Daily 07:00 - 21:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1548625361-195fe578dfc2?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Minor Basilica of St. Anne Discovery",
+        "description": "Historic 1846 Catholic sanctuary elevated to Minor Basilica status by the Vatican, renowned for French Gothic architecture and the annual St Anne pilgrimage.",
+        "rewardPoints": 100
+    },
+    "description": "Historic 1846 Catholic sanctuary elevated to Minor Basilica status by the Vatican, renowned for French Gothic architecture and the annual St Anne pilgrimage."
+},
+  {
+    "name": "Bukit Mertajam Recreational Forest (Cherok Tokun)",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Heritage"
+    ],
+    "interestTags": [
+        "Nature",
+        "Heritage"
+    ],
+    "formattedAddress": "Jalan Tokun, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 90,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3621,
+        "longitude": 100.4912
+    },
+    "phone": "+604-538 4111",
+    "website": "https://forestry.penang.gov.my/",
+    "openingHours": "Daily 07:00 - 18:30",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1448375240586-882707db888b?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Bukit Mertajam Recreational Forest (Cherok Tokun) Discovery",
+        "description": "Pristine tropical forest reserve with freshwater streams, shaded hiking trails to the 545m peak, and the ancient Tokun 5th-century Sanskrit Inscription.",
+        "rewardPoints": 100
+    },
+    "description": "Pristine tropical forest reserve with freshwater streams, shaded hiking trails to the 545m peak, and the ancient Tokun 5th-century Sanskrit Inscription."
+},
+  {
+    "name": "Mengkuang Dam Lakeside Park",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Mengkuang Dam, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3982,
+        "longitude": 100.4891
+    },
+    "phone": "+604-538 7222",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 07:00 - 19:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Mengkuang Dam Lakeside Park Discovery",
+        "description": "Largest water reservoir dam in Penang featuring panoramic green hill reflections, lakeside running trails, and dragon boat practice waters.",
+        "rewardPoints": 100
+    },
+    "description": "Largest water reservoir dam in Penang featuring panoramic green hill reflections, lakeside running trails, and dragon boat practice waters."
+},
+  {
+    "name": "Pekan Bukit Mertajam Old Market Street",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3638,
+        "longitude": 100.4608
+    },
+    "phone": "+604-539 2111",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 06:00 - 15:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Pekan Bukit Mertajam Old Market Street Discovery",
+        "description": "Centuries-old commercial core surrounding the historic Tua Pek Kong Temple, bustling with heritage sundry traders and generational artisans.",
+        "rewardPoints": 100
+    },
+    "description": "Centuries-old commercial core surrounding the historic Tua Pek Kong Temple, bustling with heritage sundry traders and generational artisans."
+},
+  {
+    "name": "Restoran BM Yam Rice (Bukit Mertajam)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "7 Jalan Murthy, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3642,
+        "longitude": 100.4615
+    },
+    "phone": "+604-538 5846",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Thu-Tue 09:00 - 15:00 (Closed Wed)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Restoran BM Yam Rice (Bukit Mertajam) Discovery",
+        "description": "Famous gastronomic institution renowned for fluffy fragrant Yam Rice paired with peppery salted vegetable pork soup and braised tofu.",
+        "rewardPoints": 100
+    },
+    "description": "Famous gastronomic institution renowned for fluffy fragrant Yam Rice paired with peppery salted vegetable pork soup and braised tofu."
+},
+  {
+    "name": "Restoran BM Cup Rice (Danby Cup Rice)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Danby, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3645,
+        "longitude": 100.4598
+    },
+    "phone": "+6012-555 4321",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 09:00 - 14:00 (Closed Mon)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Restoran BM Cup Rice (Danby Cup Rice) Discovery",
+        "description": "Heritage delicacy of steamed rice turned out of small aluminum cups smothered in rich sweet-savory chicken gravy and char siew.",
+        "rewardPoints": 100
+    },
+    "description": "Heritage delicacy of steamed rice turned out of small aluminum cups smothered in rich sweet-savory chicken gravy and char siew."
+},
+  {
+    "name": "BM Famous Duck Egg Char Koay Teow",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3635,
+        "longitude": 100.4612
+    },
+    "phone": "+6016-555 7890",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 19:00 - 00:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "BM Famous Duck Egg Char Koay Teow Discovery",
+        "description": "Unmistakable wok-hei charred flat rice noodles fried with creamy rich duck egg yolk, juicy cockles, and crispy pork lardons.",
+        "rewardPoints": 100
+    },
+    "description": "Unmistakable wok-hei charred flat rice noodles fried with creamy rich duck egg yolk, juicy cockles, and crispy pork lardons."
+},
+  {
+    "name": "BM Rojak Orang Hitam Putih (Black & White Rojak)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia",
+    "area": "Bukit Mertajam",
+    "durationMinutes": 30,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3639,
+        "longitude": 100.4605
+    },
+    "phone": "+6012-444 8899",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 12:00 - 18:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "BM Rojak Orang Hitam Putih (Black & White Rojak) Discovery",
+        "description": "Legendary Penang fruit rojak tossed in thick caramelized prawn paste with crushed roasted peanuts and crispy fried fritters.",
+        "rewardPoints": 100
+    },
+    "description": "Legendary Penang fruit rojak tossed in thick caramelized prawn paste with crushed roasted peanuts and crispy fried fritters."
+},
+  {
+    "name": "Ghee Hup Nutmeg Factory & Plantation",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "202A Jalan Tanjung Bungah, 11000 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3521,
+        "longitude": 100.2365
+    },
+    "phone": "+604-866 8426",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 09:00 - 17:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Ghee Hup Nutmeg Factory & Plantation Discovery",
+        "description": "Family-run heritage plantation producing authentic medicinal nutmeg oils, candied nutmeg slices, and refreshing nutmeg juices since 1953.",
+        "rewardPoints": 100
+    },
+    "description": "Family-run heritage plantation producing authentic medicinal nutmeg oils, candied nutmeg slices, and refreshing nutmeg juices since 1953."
+},
+  {
+    "name": "Kim Laksa Balik Pulau (Nan Guang Coffee Shop)",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "67 Main Road, 11000 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3518,
+        "longitude": 100.2372
+    },
+    "phone": "+6012-411 5511",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Wed-Sun 10:00 - 17:00 (Closed Mon-Tue)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Kim Laksa Balik Pulau (Nan Guang Coffee Shop) Discovery",
+        "description": "Renowned for serving both authentic sour Assam Laksa and rich creamy coconut Siam Laksa with freshly flaked mackerel fish broth.",
+        "rewardPoints": 100
+    },
+    "description": "Renowned for serving both authentic sour Assam Laksa and rich creamy coconut Siam Laksa with freshly flaked mackerel fish broth."
+},
+  {
+    "name": "Bao Sheng Durian Farm & Orchard",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Food",
+        "Local Business",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Food",
+        "Local Business",
+        "Culture"
+    ],
+    "formattedAddress": "150 Mukim 2, Sungai Pinang, 11010 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 75,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.3986,
+        "longitude": 100.2185
+    },
+    "phone": "+6012-411 0600",
+    "website": "https://www.durian.com.my/",
+    "openingHours": "Daily 11:00 - 18:00 (Seasonal)",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Bao Sheng Durian Farm & Orchard Discovery",
+        "description": "Pioneering organic hillside durian estate offering tasting masterclasses of champion Black Thorn, Musang King, and Red Prawn durians.",
+        "rewardPoints": 100
+    },
+    "description": "Pioneering organic hillside durian estate offering tasting masterclasses of champion Black Thorn, Musang King, and Red Prawn durians."
+},
+  {
+    "name": "Balik Pulau Countryside Art Murals",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Heritage"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Heritage"
+    ],
+    "formattedAddress": "Pekan Balik Pulau, 11000 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3525,
+        "longitude": 100.238
+    },
+    "phone": "+604-866 1122",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Balik Pulau Countryside Art Murals Discovery",
+        "description": "Rural mural trail painted by Russian artist Julia Volchkova capturing honest portraits of local fishermen, silat exponents, and rubber tappers.",
+        "rewardPoints": 100
+    },
+    "description": "Rural mural trail painted by Russian artist Julia Volchkova capturing honest portraits of local fishermen, silat exponents, and rubber tappers."
+},
+  {
+    "name": "Saanen Dairy Goat Farm Balik Pulau",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "298 Mukim 1 Sungai Pinang, 11010 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3925,
+        "longitude": 100.211
+    },
+    "phone": "+6019-516 3017",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 10:00 - 17:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Saanen Dairy Goat Farm Balik Pulau Discovery",
+        "description": "Friendly eco-farm where visitors can feed Saanen goats, learn about ethical farming, and taste freshly bottled pasteurized goat milk and puddings.",
+        "rewardPoints": 100
+    },
+    "description": "Friendly eco-farm where visitors can feed Saanen goats, learn about ethical farming, and taste freshly bottled pasteurized goat milk and puddings."
+},
+  {
+    "name": "Audi Dream Farm Balik Pulau",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "145 Sungai Rusa, 11010 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.378,
+        "longitude": 100.2085
+    },
+    "phone": "+604-866 5238",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 09:00 - 18:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Audi Dream Farm Balik Pulau Discovery",
+        "description": "Scenic countryside petting farm featuring deer, birds, rabbits, vegetable gardens, and bicycle rentals to tour paddy fields.",
+        "rewardPoints": 100
+    },
+    "description": "Scenic countryside petting farm featuring deer, birds, rabbits, vegetable gardens, and bicycle rentals to tour paddy fields."
+},
+  {
+    "name": "Pantai Pasir Panjang (Long Sand Beach)",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Food"
+    ],
+    "interestTags": [
+        "Nature",
+        "Food"
+    ],
+    "formattedAddress": "Jalan Pasir Panjang, 11000 Balik Pulau, Penang, Malaysia",
+    "area": "Balik Pulau",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3015,
+        "longitude": 100.1985
+    },
+    "phone": "+604-866 9900",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "24 Hours Daily",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1528181304800-259b08848526?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Pantai Pasir Panjang (Long Sand Beach) Discovery",
+        "description": "Unspoiled western-coast beach framed by fishing boats, rolling waves, rocky promontories, and beachfront Malay seafood stalls.",
+        "rewardPoints": 100
+    },
+    "description": "Unspoiled western-coast beach framed by fishing boats, rolling waves, rocky promontories, and beachfront Malay seafood stalls."
+},
+  {
+    "name": "Kek Lok Si Temple",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Art"
+    ],
+    "formattedAddress": "1000-L Tingkat Lembah Ria 1, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 90,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3995,
+        "longitude": 100.2737
+    },
+    "phone": "+604-828 3330",
+    "website": "http://kekloksitemple.com/",
+    "openingHours": "Daily 08:30 - 17:30",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Kek Lok Si Temple Discovery",
+        "description": "Largest Buddhist temple complex in Malaysia, featuring the 7-tier Pagoda of Ten Thousand Buddhas and a colossal 30.2m bronze statue of Guanyin.",
+        "rewardPoints": 100
+    },
+    "description": "Largest Buddhist temple complex in Malaysia, featuring the 7-tier Pagoda of Ten Thousand Buddhas and a colossal 30.2m bronze statue of Guanyin."
+},
+  {
+    "name": "Penang Hill Biosphere Nature Reserve",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "formattedAddress": "Bukit Bendera, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 120,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4085,
+        "longitude": 100.2771
+    },
+    "phone": "+604-828 8880",
+    "website": "https://www.penanghill.gov.my/",
+    "openingHours": "Daily 06:30 - 23:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang Hill Biosphere Nature Reserve Discovery",
+        "description": "UNESCO Biosphere Reserve hill station with cooler breezes, historic funicular railway, colonial bungalows, and panoramic views of Penang island.",
+        "rewardPoints": 100
+    },
+    "description": "UNESCO Biosphere Reserve hill station with cooler breezes, historic funicular railway, colonial bungalows, and panoramic views of Penang island."
+},
+  {
+    "name": "The Habitat Penang Hill",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Art",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Art",
+        "Local Business"
+    ],
+    "formattedAddress": "Penang Hill, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 90,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.4242,
+        "longitude": 100.2685
+    },
+    "phone": "+604-826 7677",
+    "website": "https://thehabitat.my/",
+    "openingHours": "Daily 09:00 - 19:00",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "The Habitat Penang Hill Discovery",
+        "description": "World-class rainforest discovery experience featuring the Curtis Crest 360-degree tree top canopy walkway and Langur Way suspension bridge.",
+        "rewardPoints": 100
+    },
+    "description": "World-class rainforest discovery experience featuring the Curtis Crest 360-degree tree top canopy walkway and Langur Way suspension bridge."
+},
+  {
+    "name": "Pasar Air Itam Laksa",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "1 Jalan Pasar, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4012,
+        "longitude": 100.278
+    },
+    "phone": "+6012-500 7063",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Wed-Sun 10:30 - 19:00 (Closed Mon-Tue)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Pasar Air Itam Laksa Discovery",
+        "description": "Iconic laksa stall operating since 1955 at the foot of Kek Lok Si, known for rich tamarind mackerel broth, fresh mint, and sweet prawn paste.",
+        "rewardPoints": 100
+    },
+    "description": "Iconic laksa stall operating since 1955 at the foot of Kek Lok Si, known for rich tamarind mackerel broth, fresh mint, and sweet prawn paste."
+},
+  {
+    "name": "Sister Curry Mee Air Itam",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "612 T, Jalan Air Itam, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 40,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4018,
+        "longitude": 100.2785
+    },
+    "phone": "+6012-410 8152",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 07:30 - 13:00 (Closed Tue)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1546548970-71785318a17b?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Sister Curry Mee Air Itam Discovery",
+        "description": "Legendary octogenarian sisters serving traditional coconut broth curry noodles over simmering charcoal pots with blood cockles, tofu pok, and cuttlefish.",
+        "rewardPoints": 100
+    },
+    "description": "Legendary octogenarian sisters serving traditional coconut broth curry noodles over simmering charcoal pots with blood cockles, tofu pok, and cuttlefish."
+},
+  {
+    "name": "Air Itam Dam & Mountain Trail",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Culture"
+    ],
+    "formattedAddress": "Jalan Air Itam, 11500 Air Itam, Penang, Malaysia",
+    "area": "Air Itam",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.397,
+        "longitude": 100.267
+    },
+    "phone": "+604-828 1234",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 07:00 - 19:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1504754524776-8f4f37790ca0?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Air Itam Dam & Mountain Trail Discovery",
+        "description": "High-elevation reservoir ringed by misty rainforest ridges, popular for quiet morning jogs, birdwatching, and mountain breeze walks.",
+        "rewardPoints": 100
+    },
+    "description": "High-elevation reservoir ringed by misty rainforest ridges, popular for quiet morning jogs, birdwatching, and mountain breeze walks."
+},
+  {
+    "name": "Snake Temple (Ban Ka Lan Temple)",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "formattedAddress": "Jalan Sultan Azlan Shah, 11900 Bayan Lepas, Penang, Malaysia",
+    "area": "Bayan Lepas",
+    "durationMinutes": 50,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.3138,
+        "longitude": 100.2852
+    },
+    "phone": "+604-643 7273",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 08:00 - 18:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1565895405138-6c3a1555da6a?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Snake Temple (Ban Ka Lan Temple) Discovery",
+        "description": "Historic 1850 Taoist temple dedicated to Chor Soo Kong where green pit vipers rest harmlessly on shrines and tree branches amidst incense smoke.",
+        "rewardPoints": 100
+    },
+    "description": "Historic 1850 Taoist temple dedicated to Chor Soo Kong where green pit vipers rest harmlessly on shrines and tree branches amidst incense smoke."
+},
+  {
+    "name": "Penang War Museum (Bukit Batu Maung)",
+    "category": "Heritage",
+    "plannerCategories": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "interestTags": [
+        "Heritage",
+        "Culture",
+        "Nature"
+    ],
+    "formattedAddress": "Lot 1350 Mukim 12, Daerah Barat Daya, 11960 Batu Maung, Bayan Lepas, Penang",
+    "area": "Bayan Lepas",
+    "durationMinutes": 75,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.2818,
+        "longitude": 100.2882
+    },
+    "phone": "+604-626 5142",
+    "website": "http://www.penangwarmuseum.com/",
+    "openingHours": "Daily 09:00 - 18:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1545239351-ef35f43d514b?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang War Museum (Bukit Batu Maung) Discovery",
+        "description": "Largest open-air living war museum in Southeast Asia, restored on a 1930s British military fortress complex atop Bukit Batu Maung.",
+        "rewardPoints": 100
+    },
+    "description": "Largest open-air living war museum in Southeast Asia, restored on a 1930s British military fortress complex atop Bukit Batu Maung."
+},
+  {
+    "name": "Teluk Tempoyak Grilled Fish & Seafood Wharf",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Teluk Tempoyak, 11960 Bayan Lepas, Penang, Malaysia",
+    "area": "Bayan Lepas",
+    "durationMinutes": 60,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.2778,
+        "longitude": 100.2845
+    },
+    "phone": "+6012-478 8899",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 17:30 - 23:00 (Closed Mon)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1552728089-57bdde30beb3?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Teluk Tempoyak Grilled Fish & Seafood Wharf Discovery",
+        "description": "Seaside wooden jetty dining haven where visitors feast on charcoal-grilled fresh stingray, butter prawns, and sambal cockles over water.",
+        "rewardPoints": 100
+    },
+    "description": "Seaside wooden jetty dining haven where visitors feast on charcoal-grilled fresh stingray, butter prawns, and sambal cockles over water."
+},
+  {
+    "name": "Fisheries Aquarium Tunku Abdul Rahman",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Batu Maung, 11960 Bayan Lepas, Penang, Malaysia",
+    "area": "Bayan Lepas",
+    "durationMinutes": 60,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.2845,
+        "longitude": 100.2885
+    },
+    "phone": "+604-626 3925",
+    "website": "https://www.dof.gov.my/",
+    "openingHours": "Sat-Thu 09:00 - 17:00 (Closed Fri)",
+    "score": 4.4,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1510414842594-a61c69b5ae57?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Fisheries Aquarium Tunku Abdul Rahman Discovery",
+        "description": "Public marine aquarium showcasing coral reef ecosystems, marine turtles, clownfish, and educational Malaysian aquatic life exhibits.",
+        "rewardPoints": 100
+    },
+    "description": "Public marine aquarium showcasing coral reef ecosystems, marine turtles, clownfish, and educational Malaysian aquatic life exhibits."
+},
+  {
+    "name": "Penang National Park (Taman Negara Pulau Pinang)",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "formattedAddress": "Pejabat Taman Negara P. Pinang, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 120,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4608,
+        "longitude": 100.1989
+    },
+    "phone": "+604-881 3530",
+    "website": "https://www.wildlife.gov.my/",
+    "openingHours": "Daily 08:00 - 17:00",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang National Park (Taman Negara Pulau Pinang) Discovery",
+        "description": "Malaysia's smallest national park protecting pristine coastal rainforests, Monkey Beach trails, meromictic lake, and the historic 1883 Muka Head Lighthouse.",
+        "rewardPoints": 100
+    },
+    "description": "Malaysia's smallest national park protecting pristine coastal rainforests, Monkey Beach trails, meromictic lake, and the historic 1883 Muka Head Lighthouse."
+},
+  {
+    "name": "Tropical Spice Garden",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "interestTags": [
+        "Nature",
+        "Culture",
+        "Local Business",
+        "Food"
+    ],
+    "formattedAddress": "Lot 595 Mukim 2, Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 75,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4632,
+        "longitude": 100.2295
+    },
+    "phone": "+604-881 1005",
+    "website": "https://tropicalspicegarden.com/",
+    "openingHours": "Daily 09:00 - 16:30",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Tropical Spice Garden Discovery",
+        "description": "Award-winning living museum showcasing over 500 species of exotic spices, medicinal herbs, and lush tropical flora with outdoor cooking academy.",
+        "rewardPoints": 100
+    },
+    "description": "Award-winning living museum showcasing over 500 species of exotic spices, medicinal herbs, and lush tropical flora with outdoor cooking academy."
+},
+  {
+    "name": "Entopia by Penang Butterfly Farm",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Art",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Art",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "830 Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 90,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.4468,
+        "longitude": 100.2155
+    },
+    "phone": "+604-888 8111",
+    "website": "https://www.entopia.com/",
+    "openingHours": "Thu-Tue 09:00 - 18:00 (Closed Wed)",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1533929736458-ca588d08c8be?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Entopia by Penang Butterfly Farm Discovery",
+        "description": "World-class sanctuary home to 15,000 free-flying butterflies, vivarium insects, indoor nature discovery discovery centre, and cascading water gardens.",
+        "rewardPoints": 100
+    },
+    "description": "World-class sanctuary home to 15,000 free-flying butterflies, vivarium insects, indoor nature discovery discovery centre, and cascading water gardens."
+},
+  {
+    "name": "ESCAPE Penang Adventure Park",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "828 Jalan Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 150,
+    "budgetLevel": "High",
+    "location": {
+        "latitude": 5.4485,
+        "longitude": 100.2162
+    },
+    "phone": "+604-881 1106",
+    "website": "https://www.escape.my/",
+    "openingHours": "Tue-Sun 10:00 - 18:00 (Closed Mon)",
+    "score": 4.8,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "ESCAPE Penang Adventure Park Discovery",
+        "description": "Guinness World Record-holding outdoor eco-theme park with world's longest water slide (1,111m) and zip coaster through jungle canopy.",
+        "rewardPoints": 100
+    },
+    "description": "Guinness World Record-holding outdoor eco-theme park with world's longest water slide (1,111m) and zip coaster through jungle canopy."
+},
+  {
+    "name": "Penang Batik Factory (Craft & Heritage)",
+    "category": "Art",
+    "plannerCategories": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Art",
+        "Culture",
+        "Heritage",
+        "Local Business"
+    ],
+    "formattedAddress": "656 MK 2 Teluk Bahang, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 45,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.4525,
+        "longitude": 100.218
+    },
+    "phone": "+604-885 1284",
+    "website": "http://www.penangbatik.com.my/",
+    "openingHours": "Daily 09:00 - 17:30",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1533105079780-92b9be482077?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Penang Batik Factory (Craft & Heritage) Discovery",
+        "description": "One of Penang's oldest batik craft houses demonstrating traditional wax-resist canting drawing and block printing techniques.",
+        "rewardPoints": 100
+    },
+    "description": "One of Penang's oldest batik craft houses demonstrating traditional wax-resist canting drawing and block printing techniques."
+},
+  {
+    "name": "End of the World Seafood Restaurant",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Food",
+        "Nature",
+        "Local Business"
+    ],
+    "formattedAddress": "Jalan Hassan Abas, 11050 Teluk Bahang, Penang, Malaysia",
+    "area": "Teluk Bahang",
+    "durationMinutes": 60,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.4615,
+        "longitude": 100.2078
+    },
+    "phone": "+604-881 1189",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 11:30 - 22:00",
+    "score": 4.5,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1508672019048-805b876b67e2?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "End of the World Seafood Restaurant Discovery",
+        "description": "Historic seafood restaurant situated at the end of the northwestern coastal road, famed for steamed fish, tamarind crabs, and fresh local catches.",
+        "rewardPoints": 100
+    },
+    "description": "Historic seafood restaurant situated at the end of the northwestern coastal road, famed for steamed fish, tamarind crabs, and fresh local catches."
+},
+  {
+    "name": "Bukit Panchor State Park",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "interestTags": [
+        "Nature",
+        "Heritage",
+        "Culture"
+    ],
+    "formattedAddress": "Taman Negeri Bukit Panchor, 14300 Nibong Tebal, Penang, Malaysia",
+    "area": "Nibong Tebal",
+    "durationMinutes": 90,
+    "budgetLevel": "Low",
+    "location": {
+        "latitude": 5.1612,
+        "longitude": 100.5428
+    },
+    "phone": "+604-593 2835",
+    "website": "https://forestry.penang.gov.my/",
+    "openingHours": "Daily 08:00 - 18:00",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Bukit Panchor State Park Discovery",
+        "description": "Southern Penang rainforest nature reserve featuring freshwater wetland boardwalks, bat caves, and tranquil dipterocarp jungle streams.",
+        "rewardPoints": 100
+    },
+    "description": "Southern Penang rainforest nature reserve featuring freshwater wetland boardwalks, bat caves, and tranquil dipterocarp jungle streams."
+},
+  {
+    "name": "Nibong Tebal Firefly Sanctuary (Sungai Kerian)",
+    "category": "Nature",
+    "plannerCategories": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "interestTags": [
+        "Nature",
+        "Culture",
+        "Local Business"
+    ],
+    "formattedAddress": "Sungai Kerian Jetty, 14300 Nibong Tebal, Penang, Malaysia",
+    "area": "Nibong Tebal",
+    "durationMinutes": 60,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.1695,
+        "longitude": 100.474
+    },
+    "phone": "+6012-555 2333",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 19:30 - 22:30",
+    "score": 4.7,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Nibong Tebal Firefly Sanctuary (Sungai Kerian) Discovery",
+        "description": "Evening riverboat expedition along the Kerian River mangrove banks twinkling with thousands of synchronous bioluminescent fireflies.",
+        "rewardPoints": 100
+    },
+    "description": "Evening riverboat expedition along the Kerian River mangrove banks twinkling with thousands of synchronous bioluminescent fireflies."
+},
+  {
+    "name": "Restoran Lim Ah Hin Crab Congee Nibong Tebal",
+    "category": "Food",
+    "plannerCategories": [
+        "Food",
+        "Local Business",
+        "Heritage"
+    ],
+    "interestTags": [
+        "Food",
+        "Local Business",
+        "Heritage"
+    ],
+    "formattedAddress": "Jalan Sungai Daun, 14300 Nibong Tebal, Penang, Malaysia",
+    "area": "Nibong Tebal",
+    "durationMinutes": 50,
+    "budgetLevel": "Medium",
+    "location": {
+        "latitude": 5.168,
+        "longitude": 100.4785
+    },
+    "phone": "+604-593 1234",
+    "website": "https://mypenang.gov.my/",
+    "openingHours": "Daily 11:30 - 20:00 (Closed Tue)",
+    "score": 4.6,
+    "primaryImageUrl": "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?w=900&auto=format&fit=crop&q=80",
+    "culturalTask": {
+        "title": "Restoran Lim Ah Hin Crab Congee Nibong Tebal Discovery",
+        "description": "Generational seafood gem celebrated for steaming sweet claypot mud crab congee, fried squid, and stir-fried mantis prawns.",
+        "rewardPoints": 100
+    },
+    "description": "Generational seafood gem celebrated for steaming sweet claypot mud crab congee, fried squid, and stir-fried mantis prawns."
+},
+
+  //www.chendul.my/',
     openingHours: 'Daily 10:30 - 19:00',
     score: 4.7,
     description: 'Legendary roadside dessert stall founded in 1936 serving signature Teochew chendul with fresh coconut milk, pandan jelly noodles, and fragrant Gula Melaka.',
