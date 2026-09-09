@@ -85,7 +85,7 @@ String _formatHazardDate(DateTime? date, {bool isVerified = false}) {
   return '$prefix $formatted';
 }
 
-class _AdminHazardListCard extends StatelessWidget {
+class _AdminHazardListCard extends StatefulWidget {
   const _AdminHazardListCard({
     required this.report,
     required this.statusLabel,
@@ -107,12 +107,72 @@ class _AdminHazardListCard extends StatelessWidget {
   final String? communityVoteCount;
 
   @override
+  State<_AdminHazardListCard> createState() => _AdminHazardListCardState();
+}
+
+class _AdminHazardListCardState extends State<_AdminHazardListCard> {
+  HazardAddressDetails? _address;
+  bool _isResolving = false;
+  String? _resolvedKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAddress();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AdminHazardListCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.report.latitude != widget.report.latitude ||
+        oldWidget.report.longitude != widget.report.longitude) {
+      _initAddress();
+    }
+  }
+
+  void _initAddress() {
+    final lat = widget.report.latitude;
+    final lon = widget.report.longitude;
+    final key = HazardAddressResolver.coordinateKey(lat, lon);
+    _resolvedKey = key;
+
+    final cached = HazardAddressResolver.getCached(lat, lon);
+    if (cached != null) {
+      _address = cached;
+      _isResolving = false;
+      return;
+    }
+
+    if (!SafetyConfig.validCoordinates(lat, lon)) {
+      _address = HazardAddressDetails.fromCoordinates(lat, lon);
+      _isResolving = false;
+      return;
+    }
+
+    _isResolving = true;
+    HazardAddressResolver.resolve(latitude: lat, longitude: lon).then((details) {
+      if (!mounted || _resolvedKey != key) return;
+      setState(() {
+        _address = details;
+        _isResolving = false;
+      });
+    }).catchError((_) {
+      if (!mounted || _resolvedKey != key) return;
+      setState(() {
+        _address = HazardAddressDetails.fromCoordinates(lat, lon);
+        _isResolving = false;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final report = widget.report;
     final textScale = MediaQuery.textScalerOf(context).scale(1);
     final isHighTextScale = textScale > 1.25;
 
     return ExplorerCard(
-      onTap: onAction,
+      onTap: widget.onAction,
       padding: const EdgeInsets.all(16),
       borderColor: ExplorerColors.border,
       child: LayoutBuilder(
@@ -124,7 +184,7 @@ class _AdminHazardListCard extends StatelessWidget {
             runSpacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              ExplorerStatusBadge(label: statusLabel, tone: statusTone),
+              ExplorerStatusBadge(label: widget.statusLabel, tone: widget.statusTone),
               ExplorerStatusBadge(
                 label: '${report.severity.toUpperCase()} SEVERITY',
                 tone: _adminSeverityTone(report.severity),
@@ -132,12 +192,14 @@ class _AdminHazardListCard extends StatelessWidget {
             ],
           );
 
-          final cachedAddress = HazardAddressResolver.getCached(
-            report.latitude,
-            report.longitude,
-          );
-          final locationName =
-              cachedAddress?.primaryName ?? 'Location name unavailable';
+          String locationName;
+          if (_isResolving) {
+            locationName = 'Resolving location...';
+          } else if (_address != null && _address!.isGeocoded) {
+            locationName = _address!.singleLine;
+          } else {
+            locationName = 'Location unavailable';
+          }
 
           final metadataItems = Wrap(
             spacing: 14,
@@ -148,23 +210,23 @@ class _AdminHazardListCard extends StatelessWidget {
                 text:
                     '$locationName • GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
               ),
-              if (formattedDate != null && formattedDate!.isNotEmpty)
+              if (widget.formattedDate != null && widget.formattedDate!.isNotEmpty)
                 _HazardInfo(
                   icon: Icons.schedule_outlined,
-                  text: formattedDate!,
+                  text: widget.formattedDate!,
                 ),
-              if (communityVoteCount != null && communityVoteCount!.isNotEmpty)
+              if (widget.communityVoteCount != null && widget.communityVoteCount!.isNotEmpty)
                 _HazardInfo(
                   icon: Icons.how_to_vote_outlined,
-                  text: communityVoteCount!,
+                  text: widget.communityVoteCount!,
                 ),
             ],
           );
 
           final actionBtn = FilledButton.icon(
-            onPressed: onAction,
-            icon: Icon(actionIcon, size: 17),
-            label: Text(actionLabel),
+            onPressed: widget.onAction,
+            icon: Icon(widget.actionIcon, size: 17),
+            label: Text(widget.actionLabel),
           );
 
           if (isNarrow) {
@@ -251,6 +313,108 @@ class _AdminHazardListCard extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class AdminHazardStatusListTab extends StatefulWidget {
+  const AdminHazardStatusListTab({
+    super.key,
+    required this.status,
+    required this.title,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.statusLabel,
+    required this.statusTone,
+    this.reportService,
+  });
+
+  final String status;
+  final String title;
+  final String emptyTitle;
+  final String emptySubtitle;
+  final String statusLabel;
+  final ExplorerStatusTone statusTone;
+  final HazardReportService? reportService;
+
+  @override
+  State<AdminHazardStatusListTab> createState() =>
+      _AdminHazardStatusListTabState();
+}
+
+class _AdminHazardStatusListTabState extends State<AdminHazardStatusListTab> {
+  late final _reportService = widget.reportService ?? HazardReportService();
+  late var _reportsStream = _reportService.watchReportsByStatus(widget.status);
+
+  void _openReport(HazardReport report) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminHazardManagementPage(hazardId: report.id),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<HazardReport>>(
+      stream: _reportsStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return SafetyErrorState(
+            title: 'Unable to load ${widget.title.toLowerCase()}',
+            message: friendlySafetyError(
+              snapshot.error,
+              subject: widget.title.toLowerCase(),
+            ),
+            onRetry: () => setState(
+              () => _reportsStream =
+                  _reportService.watchReportsByStatus(widget.status),
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return SafetyLoadingState(
+            label: 'Loading ${widget.title.toLowerCase()}…',
+          );
+        }
+
+        final reports = snapshot.data!;
+        if (reports.isEmpty) {
+          return ExplorerCard(
+            child: ExplorerEmptyState(
+              title: widget.emptyTitle,
+              subtitle: widget.emptySubtitle,
+              icon: widget.status == HazardReportStatus.resolved
+                  ? Icons.task_alt_outlined
+                  : Icons.cancel_outlined,
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          itemCount: reports.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final report = reports[index];
+            final formattedDate = _formatHazardDate(
+              report.reviewedAt ?? report.createdAt,
+              isVerified: report.reviewedAt != null,
+            );
+
+            return _AdminHazardListCard(
+              report: report,
+              statusLabel: widget.statusLabel,
+              statusTone: widget.statusTone,
+              actionLabel: 'View Report',
+              actionIcon: Icons.visibility_outlined,
+              onAction: () => _openReport(report),
+              formattedDate: formattedDate,
+            );
+          },
+        );
+      },
     );
   }
 }

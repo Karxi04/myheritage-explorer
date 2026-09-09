@@ -85,6 +85,21 @@ class HazardReportService {
         .map(_mapAndSort);
   }
 
+  Stream<List<HazardReport>> watchReportsByStatus(String status) {
+    return _collection
+        .where('status', isEqualTo: status)
+        .snapshots()
+        .map(_mapAndSort);
+  }
+
+  Stream<List<HazardReport>> watchResolvedReports() {
+    return watchReportsByStatus(HazardReportStatus.resolved);
+  }
+
+  Stream<List<HazardReport>> watchRejectedReports() {
+    return watchReportsByStatus(HazardReportStatus.rejected);
+  }
+
   Stream<List<HazardReport>> watchAllReports() {
     return _collection.snapshots().map(_mapAndSort);
   }

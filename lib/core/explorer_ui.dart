@@ -339,6 +339,10 @@ class ExplorerMetricCard extends StatelessWidget {
     this.icon,
     this.caption,
     this.compact = false,
+    this.onTap,
+    this.borderColor,
+    this.backgroundColor,
+    this.isSelected = false,
   });
 
   final String label;
@@ -346,10 +350,20 @@ class ExplorerMetricCard extends StatelessWidget {
   final IconData? icon;
   final String? caption;
   final bool compact;
+  final VoidCallback? onTap;
+  final Color? borderColor;
+  final Color? backgroundColor;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveBorderColor = borderColor ??
+        (isSelected ? ExplorerColors.gold : ExplorerColors.border);
+
     return ExplorerCard(
+      onTap: onTap,
+      borderColor: effectiveBorderColor,
+      backgroundColor: backgroundColor ?? ExplorerColors.surface,
       padding: EdgeInsets.all(compact ? 12 : 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,12 +373,16 @@ class ExplorerMetricCard extends StatelessWidget {
               width: compact ? 32 : 38,
               height: compact ? 32 : 38,
               decoration: BoxDecoration(
-                color: ExplorerColors.navySoft,
+                color: isSelected
+                    ? ExplorerColors.goldSoft
+                    : ExplorerColors.navySoft,
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Icon(
                 icon,
-                color: ExplorerColors.navy,
+                color: isSelected
+                    ? ExplorerColors.goldDark
+                    : ExplorerColors.navy,
                 size: compact ? 18 : 21,
               ),
             ),

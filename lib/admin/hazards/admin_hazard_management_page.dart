@@ -3,7 +3,8 @@ part of '../admin_pages.dart';
 class AdminHazardManagementPage extends StatefulWidget {
   const AdminHazardManagementPage({
     super.key,
-    required this.hazardId,
+    this.hazardId,
+    this.initialStatusFilter,
     this.reportService,
     this.voteService,
     this.reporterLoader,
@@ -16,7 +17,8 @@ class AdminHazardManagementPage extends StatefulWidget {
   final String? currentAdminId;
   final String? currentAdminName;
 
-  final String hazardId;
+  final String? hazardId;
+  final String? initialStatusFilter;
 
   @override
   State<AdminHazardManagementPage> createState() =>
@@ -54,12 +56,15 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   @override
   void initState() {
     super.initState();
-    _reportStream = _reportService.watchReport(widget.hazardId);
-    _voteStream = _voteService.watchVotes(widget.hazardId);
-    _auditTrailStream = _reportService.watchAuditTrail(widget.hazardId);
-    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
+    final id = widget.hazardId;
+    if (id != null && id.isNotEmpty) {
+      _reportStream = _reportService.watchReport(id);
+      _voteStream = _voteService.watchVotes(id);
+      _auditTrailStream = _reportService.watchAuditTrail(id);
+      _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override
@@ -225,6 +230,16 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.hazardId == null || widget.hazardId!.isEmpty) {
+      return Scaffold(
+        body: AdminHazardsPage(
+          initialStatusFilter: widget.initialStatusFilter,
+          reportService: widget.reportService,
+          voteService: widget.voteService,
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(title: const Text('Manage Hazard Report')),
@@ -239,9 +254,9 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                 subject: 'this hazard report',
               ),
               onRetry: () => setState(() {
-                _reportStream = _reportService.watchReport(widget.hazardId);
+                _reportStream = _reportService.watchReport(widget.hazardId!);
                 _auditTrailStream = _reportService.watchAuditTrail(
-                  widget.hazardId,
+                  widget.hazardId!,
                 );
               }),
             );
@@ -271,7 +286,7 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                   ),
                   onRetry: () => setState(
                     () =>
-                        _voteStream = _voteService.watchVotes(widget.hazardId),
+                        _voteStream = _voteService.watchVotes(widget.hazardId!),
                   ),
                 );
               }
