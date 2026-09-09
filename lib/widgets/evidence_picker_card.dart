@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/explorer_ui.dart';
 import '../models/evidence_validation_result.dart';
+import 'safety_image_viewer.dart';
 
 /// Shared photo selection and validation feedback for Safety reports and votes.
 class EvidencePickerCard extends StatelessWidget {
@@ -20,6 +21,8 @@ class EvidencePickerCard extends StatelessWidget {
     this.onGallery,
     this.enabled = true,
     this.evidenceSource,
+    this.title,
+    this.subtitle,
   });
 
   final Uint8List? imageBytes;
@@ -33,6 +36,8 @@ class EvidencePickerCard extends StatelessWidget {
   final VoidCallback? onGallery;
   final bool enabled;
   final String? evidenceSource;
+  final String? title;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -41,10 +46,15 @@ class EvidencePickerCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ExplorerSectionTitle(
-            requiredEvidence ? 'Photo Evidence *' : 'Add Current Photo',
-            subtitle: requiredEvidence
-                ? 'Add a clear, current photo of the hazard.'
-                : 'An optional current photo helps the administrator review your update.',
+            title ??
+                (requiredEvidence
+                    ? 'Photo Evidence *'
+                    : 'Optional Evidence Photo'),
+            subtitle:
+                subtitle ??
+                (requiredEvidence
+                    ? 'Add a clear, current photo of the hazard.'
+                    : 'An optional current photo helps the administrator review your update.'),
           ),
           const SizedBox(height: 14),
           if (imageBytes == null)
@@ -57,12 +67,18 @@ class EvidencePickerCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Image.memory(
-                  imageBytes!,
-                  errorBuilder: (_, _, _) =>
-                      const Center(child: Text('Photo preview unavailable')),
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
+                child: ExpandableEvidenceImage(
+                  imageProvider: MemoryImage(imageBytes!),
+                  title: 'Captured Photo Evidence',
+                  subtitle: 'Preview of selected photo',
+                  tooltip: 'Tap to enlarge photo preview',
+                  child: Image.memory(
+                    imageBytes!,
+                    errorBuilder: (_, _, _) =>
+                        const Center(child: Text('Photo preview unavailable')),
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  ),
                 ),
               ),
             ),

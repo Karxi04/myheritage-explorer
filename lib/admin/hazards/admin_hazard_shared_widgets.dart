@@ -132,6 +132,13 @@ class _AdminHazardListCard extends StatelessWidget {
             ],
           );
 
+          final cachedAddress = HazardAddressResolver.getCached(
+            report.latitude,
+            report.longitude,
+          );
+          final locationName =
+              cachedAddress?.primaryName ?? 'Location name unavailable';
+
           final metadataItems = Wrap(
             spacing: 14,
             runSpacing: 6,
@@ -139,7 +146,7 @@ class _AdminHazardListCard extends StatelessWidget {
               _HazardInfo(
                 icon: Icons.place_outlined,
                 text:
-                    'GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
+                    '$locationName • GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)}',
               ),
               if (formattedDate != null && formattedDate!.isNotEmpty)
                 _HazardInfo(
@@ -360,6 +367,7 @@ class _OriginalHazardEvidenceCard extends StatelessWidget {
               width: double.infinity,
               height: 260,
               placeholderBuilder: (_) => _AdminHazardPlaceholder.image(),
+              viewerTitle: 'Original Hazard Evidence',
             ),
           ),
           const SizedBox(height: 12),
@@ -2018,9 +2026,16 @@ class _VoteEvidenceImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isStillExists = vote.voteType == HazardVoteType.hazardExists;
+    final voteDirection = isStillExists
+        ? 'Hazard Still Exists'
+        : 'Hazard Appears Resolved';
+    const title = 'Community Evidence Photo';
+    final subtitle = 'Report update: $voteDirection';
+
     final legacyUrl = vote.photoUrl?.trim() ?? '';
     if (legacyUrl.isNotEmpty) {
-      return Image.network(
+      final img = Image.network(
         legacyUrl,
         errorBuilder: (_, _, _) => SizedBox(
           width: width,
@@ -2036,6 +2051,13 @@ class _VoteEvidenceImage extends StatelessWidget {
         height: height,
         fit: BoxFit.cover,
       );
+      return ExpandableEvidenceImage(
+        imageProvider: NetworkImage(legacyUrl),
+        title: title,
+        subtitle: subtitle,
+        tooltip: 'Click to enlarge community photo',
+        child: img,
+      );
     }
     return StreamBuilder<Uint8List?>(
       stream: (voteService ?? HazardVoteService()).watchEvidenceBytes(
@@ -2045,7 +2067,7 @@ class _VoteEvidenceImage extends StatelessWidget {
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes != null && bytes.isNotEmpty) {
-          return Image.memory(
+          final img = Image.memory(
             bytes,
             errorBuilder: (_, _, _) => SizedBox(
               width: width,
@@ -2061,6 +2083,13 @@ class _VoteEvidenceImage extends StatelessWidget {
             height: height,
             fit: BoxFit.cover,
             gaplessPlayback: true,
+          );
+          return ExpandableEvidenceImage(
+            imageProvider: MemoryImage(bytes),
+            title: title,
+            subtitle: subtitle,
+            tooltip: 'Click to enlarge community photo',
+            child: img,
           );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {

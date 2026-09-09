@@ -15,11 +15,11 @@ import '../models/hazard_vote.dart';
 import '../services/confidence_analysis_service.dart';
 import '../services/hazard_report_service.dart';
 import '../services/hazard_vote_service.dart';
-import '../traveler/traveler_pages.dart';
-import '../traveler/daily_planner/models/place_model.dart';
+import '../services/hazard_address_resolver.dart';
 import '../traveler/daily_planner/services/malaysia_location_service.dart';
 import '../traveler/daily_planner/services/place_repository.dart';
 import '../widgets/hazard_evidence_image.dart';
+import '../widgets/safety_image_viewer.dart';
 import '../widgets/safety_loading_state.dart';
 
 part 'dashboard/admin_dashboard_page.dart';

@@ -88,7 +88,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
     }
   }
 
-  /// Camera-only photo capture for vote evidence.
+  /// Camera or gallery photo capture for vote evidence.
   Future<void> _takePhoto([ImageSource source = ImageSource.camera]) async {
     if (_validatingPhoto || voting || _pickingPhoto) return;
     setState(() => _pickingPhoto = true);
@@ -115,7 +115,7 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
       if (mounted) {
         showMessage(
           context,
-          'Could not open or read the camera photo. Check camera access and try again.',
+          'Could not open or read the photo. Check permissions and try again.',
           error: true,
         );
       }
@@ -243,6 +243,11 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
       );
       if (mounted) {
         showMessage(context, 'Your confirmation was recorded. Thank you!');
+        setState(() {
+          _photoBytes = null;
+          _photoValidation = null;
+          _photoCheckError = null;
+        });
       }
     } catch (e, stack) {
       debugPrint('Hazard confirmation failed: $e\n$stack');
@@ -337,8 +342,12 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                 );
                 final tone = _priorityTone(priority.priorityLevel);
                 final uid = AppServices.auth.currentUser?.uid;
-                final userHasVoted =
-                    uid != null && votes.any((vote) => vote.userId == uid);
+                final userVote = uid == null
+                    ? null
+                    : votes.cast<HazardVote?>().firstWhere(
+                        (vote) => vote?.userId == uid,
+                        orElse: () => null,
+                      );
 
                 return Column(
                   children: [
@@ -442,107 +451,113 @@ class _SafetyAlertPageState extends State<SafetyAlertPage> {
                             ),
                           ),
                           if (report.status == HazardReportStatus.verified) ...[
-                            const SizedBox(height: 12),
-                            EvidencePickerCard(
-                              imageBytes: _photoBytes,
-                              validation: _photoValidation,
-                              validating: _validatingPhoto,
-                              checkError: _photoCheckError,
-                              onRetry: _checkPhoto,
-                              evidenceSource: _evidenceSource,
-                              onCamera: _takePhoto,
-                              onGallery: () => _takePhoto(ImageSource.gallery),
-                              enabled: !voting && !_pickingPhoto,
-                              onRemove: _removePhoto,
-                            ),
-                            const SizedBox(height: 12),
-                            ExplorerCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const ExplorerSectionTitle(
-                                    'Your Confirmation',
-                                    subtitle:
-                                        'Your vote does not change the official hazard status.',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _ProximityStatusBadge(
-                                    locating: _locating,
-                                    validatedDistance: _validatedDistance,
-                                    proximityBand: _proximityBand,
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: voting || _locating
-                                        ? null
-                                        : () => _validateLocation(report),
-                                    icon: const Icon(Icons.my_location),
-                                    label: const Text('Refresh location'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  if (voting) const LinearProgressIndicator(),
-                                  if (userHasVoted) ...[
-                                    const ExplorerStatusBadge(
-                                      label: 'VOTE ALREADY SUBMITTED',
-                                      tone: ExplorerStatusTone.navy,
+                            if (userVote != null) ...[
+                              const SizedBox(height: 12),
+                              SubmittedVoteCard(
+                                hazardId: widget.hazardId,
+                                vote: userVote,
+                                voteService: _voteService,
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 12),
+                              EvidencePickerCard(
+                                title: 'Optional Evidence Photo',
+                                subtitle:
+                                    'An optional current photo helps the administrator review your update.',
+                                imageBytes: _photoBytes,
+                                validation: _photoValidation,
+                                validating: _validatingPhoto,
+                                checkError: _photoCheckError,
+                                onRetry: _checkPhoto,
+                                evidenceSource: _evidenceSource,
+                                onCamera: _takePhoto,
+                                onGallery: () =>
+                                    _takePhoto(ImageSource.gallery),
+                                enabled: !voting && !_pickingPhoto,
+                                onRemove: _removePhoto,
+                              ),
+                              const SizedBox(height: 12),
+                              ExplorerCard(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const ExplorerSectionTitle(
+                                      'Your Confirmation',
+                                      subtitle:
+                                          'Confirm the current condition of this hazard.',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _ProximityStatusBadge(
+                                      locating: _locating,
+                                      validatedDistance: _validatedDistance,
+                                      proximityBand: _proximityBand,
+                                    ),
+                                    TextButton.icon(
+                                      onPressed: voting || _locating
+                                          ? null
+                                          : () => _validateLocation(report),
+                                      icon: const Icon(Icons.my_location),
+                                      label: const Text('Refresh location'),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (voting) const LinearProgressIndicator(),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed:
+                                            voting ||
+                                                _locating ||
+                                                _pickingPhoto ||
+                                                _validatingPhoto ||
+                                                (_photoBytes != null &&
+                                                    _photoCheckError != null) ||
+                                                _validatedDistance == null ||
+                                                _validatedDistance! >
+                                                    SafetyConfig
+                                                        .maxHazardConfirmationDistanceMeters
+                                            ? null
+                                            : () => _submitVote(
+                                                HazardVoteType.hazardExists,
+                                              ),
+                                        icon: const Icon(
+                                          Icons.warning_amber_rounded,
+                                        ),
+                                        label: const Text(
+                                          'Hazard Still Exists',
+                                        ),
+                                      ),
                                     ),
                                     const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: FilledButton.icon(
+                                        onPressed:
+                                            voting ||
+                                                _locating ||
+                                                _pickingPhoto ||
+                                                _validatingPhoto ||
+                                                (_photoBytes != null &&
+                                                    _photoCheckError != null) ||
+                                                _validatedDistance == null ||
+                                                _validatedDistance! >
+                                                    SafetyConfig
+                                                        .maxHazardConfirmationDistanceMeters
+                                            ? null
+                                            : () => _submitVote(
+                                                HazardVoteType.hazardResolved,
+                                              ),
+                                        icon: const Icon(
+                                          Icons.check_circle_outline,
+                                        ),
+                                        label: const Text(
+                                          'Hazard Appears Resolved',
+                                        ),
+                                      ),
+                                    ),
                                   ],
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton.icon(
-                                      onPressed:
-                                          voting ||
-                                              _locating ||
-                                              _pickingPhoto ||
-                                              userHasVoted ||
-                                              _validatingPhoto ||
-                                              (_photoBytes != null &&
-                                                  _photoCheckError != null) ||
-                                              _validatedDistance == null ||
-                                              _validatedDistance! >
-                                                  SafetyConfig
-                                                      .maxHazardConfirmationDistanceMeters
-                                          ? null
-                                          : () => _submitVote(
-                                              HazardVoteType.hazardExists,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.warning_amber_rounded,
-                                      ),
-                                      label: const Text('Hazard Still Exists'),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: FilledButton.icon(
-                                      onPressed:
-                                          voting ||
-                                              _locating ||
-                                              _pickingPhoto ||
-                                              userHasVoted ||
-                                              _validatingPhoto ||
-                                              (_photoBytes != null &&
-                                                  _photoCheckError != null) ||
-                                              _validatedDistance == null ||
-                                              _validatedDistance! >
-                                                  SafetyConfig
-                                                      .maxHazardConfirmationDistanceMeters
-                                          ? null
-                                          : () => _submitVote(
-                                              HazardVoteType.hazardResolved,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.check_circle_outline,
-                                      ),
-                                      label: const Text(
-                                        'Hazard Appears Resolved',
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ],
                         ],
                       ),
@@ -735,6 +750,216 @@ class _VoteStat extends StatelessWidget {
               color: ExplorerColors.muted,
               fontSize: 9,
               height: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+class SubmittedVoteCard extends StatelessWidget {
+  const SubmittedVoteCard({
+    super.key,
+    required this.hazardId,
+    required this.vote,
+    this.voteService,
+  });
+
+  final String hazardId;
+  final HazardVote vote;
+  final HazardVoteService? voteService;
+
+  @override
+  Widget build(BuildContext context) {
+    final isStillExists = vote.voteType == HazardVoteType.hazardExists;
+    final proximityDesc = vote.proximityBand == 'STRONG'
+        ? 'Strong GPS validation'
+        : vote.proximityBand == 'NORMAL'
+        ? 'Normal GPS validation'
+        : 'GPS validated';
+
+    return ExplorerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ExplorerSectionTitle(
+            'Community Confirmation',
+            subtitle: 'Your submitted update for this hazard.',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: ExplorerColors.successSoft,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: ExplorerColors.success.withAlpha(80)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: ExplorerColors.success,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Confirmation submitted',
+                  style: TextStyle(
+                    color: ExplorerColors.success,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Your response',
+            style: TextStyle(
+              fontSize: 12,
+              color: ExplorerColors.muted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ExplorerStatusBadge(
+            label: isStillExists ? 'Hazard Still Exists' : 'Appears Resolved',
+            tone: isStillExists
+                ? ExplorerStatusTone.danger
+                : ExplorerStatusTone.success,
+            icon: isStillExists ? Icons.warning_amber_rounded : Icons.task_alt,
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Location verification',
+            style: TextStyle(
+              fontSize: 12,
+              color: ExplorerColors.muted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(
+                Icons.place_outlined,
+                size: 16,
+                color: ExplorerColors.navy,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${vote.distanceFromHazardMeters.round()} m from hazard',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: ExplorerColors.text,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '• $proximityDesc',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: ExplorerColors.muted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Evidence',
+            style: TextStyle(
+              fontSize: 12,
+              color: ExplorerColors.muted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (vote.hasPhotoEvidence) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: HazardVoteEvidenceImage(
+                  hazardId: hazardId,
+                  vote: vote,
+                  voteService: voteService,
+                  viewerTitle: 'Submitted Evidence Photo',
+                  viewerSubtitle:
+                      'Your response: ${isStillExists ? "Hazard Still Exists" : "Appears Resolved"}',
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Tap to enlarge',
+              style: TextStyle(fontSize: 11, color: ExplorerColors.muted),
+            ),
+          ] else ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: ExplorerColors.subtle,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: ExplorerColors.border),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.no_photography_outlined,
+                    size: 16,
+                    color: ExplorerColors.muted,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'No photo evidence submitted',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: ExplorerColors.muted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          if (vote.createdAt != null) ...[
+            Text(
+              'Submitted: ${DateFormat.yMMMd().add_jm().format(vote.createdAt!)}',
+              style: const TextStyle(fontSize: 11, color: ExplorerColors.muted),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: ExplorerColors.navySoft,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.lock_outline, size: 14, color: ExplorerColors.navy),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'This confirmation is final and cannot be edited.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

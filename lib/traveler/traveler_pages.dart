@@ -43,6 +43,8 @@ import '../services/confidence_analysis_service.dart';
 import '../services/hazard_map_service.dart';
 import '../services/hazard_report_service.dart';
 import '../services/hazard_vote_service.dart';
+import '../services/hazard_address_resolver.dart';
+import '../services/place_geocoding_service.dart';
 import '../services/itinerary_safety_service.dart';
 import '../services/location_service.dart';
 import '../services/mobile_notification_service.dart';

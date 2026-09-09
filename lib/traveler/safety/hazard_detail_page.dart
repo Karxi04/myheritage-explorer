@@ -6,11 +6,15 @@ class HazardDetailPage extends StatefulWidget {
     required this.hazardId,
     this.showStatusHistory = false,
     this.reportService,
+    this.locationService,
+    this.geocodingService,
   });
 
   final String hazardId;
   final bool showStatusHistory;
   final HazardReportService? reportService;
+  final LocationService? locationService;
+  final PlaceGeocodingService? geocodingService;
 
   @override
   State<HazardDetailPage> createState() => _HazardDetailPageState();
@@ -21,11 +25,61 @@ class HazardDetailPage extends StatefulWidget {
 
 class _HazardDetailPageState extends State<HazardDetailPage> {
   late final reportService = widget.reportService ?? HazardReportService();
+  late final locationService =
+      widget.locationService ?? const LocationService();
   late Stream<HazardReport?> _stream;
+  Position? _currentPosition;
+  bool _locationUnavailable = false;
+  HazardAddressDetails? _addressDetails;
+  String? _resolvedCoordinateKey;
+
   @override
   void initState() {
     super.initState();
     _stream = reportService.watchReport(widget.hazardId);
+    _fetchCurrentLocation();
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    try {
+      final pos = await locationService.getCurrentPosition();
+      if (!mounted) return;
+      setState(() {
+        _currentPosition = pos;
+        _locationUnavailable = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _currentPosition = null;
+        _locationUnavailable = true;
+      });
+    }
+  }
+
+  void _maybeResolveAddress(double lat, double lon) {
+    if (!SafetyConfig.validCoordinates(lat, lon)) return;
+    final key = HazardAddressResolver.coordinateKey(lat, lon);
+    if (_resolvedCoordinateKey == key) return;
+    _resolvedCoordinateKey = key;
+    HazardAddressResolver.resolve(
+      latitude: lat,
+      longitude: lon,
+      geocodingService: widget.geocodingService,
+    ).then((details) {
+      if (mounted) {
+        setState(() => _addressDetails = details);
+      }
+    });
+  }
+
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.round()} m from your current location';
+    } else {
+      final km = meters / 1000;
+      return '${km.toStringAsFixed(1)} km from your current location';
+    }
   }
 
   @override
@@ -179,109 +233,401 @@ class _HazardDetailPageState extends State<HazardDetailPage> {
                             const ExplorerSectionTitle('Location'),
                             const SizedBox(height: 10),
                             if (report.hasValidLocation) ...[
-                              SizedBox(
-                                height: 180,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: IgnorePointer(
-                                    child: fm.FlutterMap(
-                                      options: fm.MapOptions(
-                                        initialCenter: latlng.LatLng(
-                                          report.latitude,
-                                          report.longitude,
-                                        ),
-                                        initialZoom: 15,
-                                        interactionOptions:
-                                            const fm.InteractionOptions(
-                                              flags: fm.InteractiveFlag.none,
+                              Builder(
+                                builder: (context) {
+                                  _maybeResolveAddress(
+                                    report.latitude,
+                                    report.longitude,
+                                  );
+                                  final addressDetails =
+                                      _addressDetails ??
+                                      HazardAddressDetails.fromCoordinates(
+                                        report.latitude,
+                                        report.longitude,
+                                      );
+                                  final hazardLatLng = latlng.LatLng(
+                                    report.latitude,
+                                    report.longitude,
+                                  );
+                                  final userLatLng = _currentPosition != null
+                                      ? latlng.LatLng(
+                                          _currentPosition!.latitude,
+                                          _currentPosition!.longitude,
+                                        )
+                                      : null;
+                                  final distanceText = userLatLng != null
+                                      ? _formatDistance(
+                                          locationService.distanceBetween(
+                                            startLatitude: userLatLng.latitude,
+                                            startLongitude:
+                                                userLatLng.longitude,
+                                            endLatitude: report.latitude,
+                                            endLongitude: report.longitude,
+                                          ),
+                                        )
+                                      : null;
+
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            margin: const EdgeInsets.only(
+                                              top: 2,
                                             ),
-                                      ),
-                                      children: [
-                                        fm.TileLayer(
-                                          urlTemplate:
-                                              HazardMapService.osmTileUrl,
-                                          userAgentPackageName:
-                                              'com.myheritage.explorer',
-                                        ),
-                                        fm.CircleLayer(
-                                          circles: [
-                                            fm.CircleMarker(
-                                              point: latlng.LatLng(
-                                                report.latitude,
-                                                report.longitude,
-                                              ),
-                                              radius:
-                                                  SafetyConfig.dangerRadiusForSeverity(
-                                                    report.severity,
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: ExplorerColors.navy
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: const Icon(
+                                              Icons.location_on,
+                                              size: 18,
+                                              color: ExplorerColors.navy,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  addressDetails.primaryName,
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.navy,
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
                                                   ),
-                                              useRadiusInMeter: true,
-                                              color:
-                                                  HazardMapService.severityColor(
-                                                    report.severity,
-                                                  ).withValues(alpha: .14),
-                                              borderColor:
-                                                  HazardMapService.severityColor(
-                                                    report.severity,
-                                                  ).withValues(alpha: .78),
-                                              borderStrokeWidth: 2,
+                                                ),
+                                                if (addressDetails
+                                                            .secondaryAddress !=
+                                                        null &&
+                                                    addressDetails
+                                                        .secondaryAddress!
+                                                        .isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    addressDetails
+                                                        .secondaryAddress!,
+                                                    style: const TextStyle(
+                                                      color:
+                                                          ExplorerColors.muted,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  addressDetails
+                                                      .coordinatesText,
+                                                  style: const TextStyle(
+                                                    color: ExplorerColors.muted,
+                                                    fontSize: 11,
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ],
-                                        ),
-                                        fm.MarkerLayer(
-                                          markers: [
-                                            fm.Marker(
-                                              point: latlng.LatLng(
-                                                report.latitude,
-                                                report.longitude,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      SizedBox(
+                                        height: 180,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: IgnorePointer(
+                                            child: fm.FlutterMap(
+                                              options: fm.MapOptions(
+                                                initialCenter: hazardLatLng,
+                                                initialZoom: 15,
+                                                initialCameraFit:
+                                                    userLatLng != null
+                                                    ? fm.CameraFit.bounds(
+                                                        bounds:
+                                                            fm.LatLngBounds.fromPoints(
+                                                              [
+                                                                hazardLatLng,
+                                                                userLatLng,
+                                                              ],
+                                                            ),
+                                                        padding:
+                                                            const EdgeInsets.all(
+                                                              32,
+                                                            ),
+                                                        maxZoom: 16,
+                                                        minZoom: 10,
+                                                      )
+                                                    : null,
+                                                interactionOptions:
+                                                    const fm.InteractionOptions(
+                                                      flags: fm
+                                                          .InteractiveFlag
+                                                          .none,
+                                                    ),
                                               ),
-                                              width: 36,
-                                              height: 36,
-                                              child: Icon(
-                                                Icons.location_on,
+                                              children: [
+                                                fm.TileLayer(
+                                                  urlTemplate: HazardMapService
+                                                      .osmTileUrl,
+                                                  userAgentPackageName:
+                                                      'com.myheritage.explorer',
+                                                ),
+                                                fm.CircleLayer(
+                                                  circles: [
+                                                    fm.CircleMarker(
+                                                      point: hazardLatLng,
+                                                      radius:
+                                                          SafetyConfig.dangerRadiusForSeverity(
+                                                            report.severity,
+                                                          ),
+                                                      useRadiusInMeter: true,
+                                                      color:
+                                                          HazardMapService.severityColor(
+                                                            report.severity,
+                                                          ).withValues(
+                                                            alpha: .14,
+                                                          ),
+                                                      borderColor:
+                                                          HazardMapService.severityColor(
+                                                            report.severity,
+                                                          ).withValues(
+                                                            alpha: .78,
+                                                          ),
+                                                      borderStrokeWidth: 2,
+                                                    ),
+                                                  ],
+                                                ),
+                                                fm.MarkerLayer(
+                                                  markers: [
+                                                    fm.Marker(
+                                                      key: const ValueKey(
+                                                        'hazard_map_marker',
+                                                      ),
+                                                      point: hazardLatLng,
+                                                      width: 38,
+                                                      height: 38,
+                                                      child: Container(
+                                                        decoration: BoxDecoration(
+                                                          color:
+                                                              HazardMapService.severityColor(
+                                                                report.severity,
+                                                              ),
+                                                          shape:
+                                                              BoxShape.circle,
+                                                          border: Border.all(
+                                                            color: Colors.white,
+                                                            width: 2,
+                                                          ),
+                                                          boxShadow: const [
+                                                            BoxShadow(
+                                                              color: Colors
+                                                                  .black26,
+                                                              blurRadius: 4,
+                                                              offset: Offset(
+                                                                0,
+                                                                2,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        child: const Center(
+                                                          child: Icon(
+                                                            Icons
+                                                                .warning_amber_rounded,
+                                                            color: Colors.white,
+                                                            size: 20,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    if (userLatLng != null)
+                                                      fm.Marker(
+                                                        key: const ValueKey(
+                                                          'user_location_marker',
+                                                        ),
+                                                        point: userLatLng,
+                                                        width: 32,
+                                                        height: 32,
+                                                        child: Container(
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(
+                                                              0xFF1A73E8,
+                                                            ),
+                                                            shape:
+                                                                BoxShape.circle,
+                                                            border: Border.all(
+                                                              color:
+                                                                  Colors.white,
+                                                              width: 2.5,
+                                                            ),
+                                                            boxShadow: const [
+                                                              BoxShadow(
+                                                                color: Colors
+                                                                    .black26,
+                                                                blurRadius: 4,
+                                                                offset: Offset(
+                                                                  0,
+                                                                  2,
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          child: const Center(
+                                                            child: Icon(
+                                                              Icons.person,
+                                                              color:
+                                                                  Colors.white,
+                                                              size: 16,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                                const fm.RichAttributionWidget(
+                                                  alignment: fm
+                                                      .AttributionAlignment
+                                                      .bottomLeft,
+                                                  showFlutterMapAttribution:
+                                                      false,
+                                                  attributions: [
+                                                    fm.TextSourceAttribution(
+                                                      'OpenStreetMap contributors',
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Row(
+                                        children: [
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                width: 9,
+                                                height: 9,
+                                                decoration: const BoxDecoration(
+                                                  color: Color(0xFF1A73E8),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Text(
+                                                'You',
+                                                style: TextStyle(
+                                                  color: ExplorerColors.navy,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.warning_amber_rounded,
+                                                size: 13,
                                                 color:
                                                     HazardMapService.severityColor(
                                                       report.severity,
                                                     ),
-                                                size: 34,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Text(
+                                                'Hazard',
+                                                style: TextStyle(
+                                                  color: ExplorerColors.navy,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const Spacer(),
+                                          if (_locationUnavailable)
+                                            const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.location_off_outlined,
+                                                  size: 12,
+                                                  color: ExplorerColors.muted,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Current location unavailable',
+                                                  style: TextStyle(
+                                                    color: ExplorerColors.muted,
+                                                    fontSize: 11,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                        ],
+                                      ),
+                                      if (distanceText != null) ...[
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.near_me_outlined,
+                                              size: 14,
+                                              color: ExplorerColors.navy,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                distanceText,
+                                                style: const TextStyle(
+                                                  color: ExplorerColors.navy,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
                                             ),
                                           ],
                                         ),
-                                        const fm.RichAttributionWidget(
-                                          alignment: fm
-                                              .AttributionAlignment
-                                              .bottomLeft,
-                                          showFlutterMapAttribution: false,
-                                          attributions: [
-                                            fm.TextSourceAttribution(
-                                              'OpenStreetMap contributors',
-                                            ),
-                                          ],
-                                        ),
                                       ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    size: 14,
-                                    color: ExplorerColors.muted,
-                                  ),
-                                  SizedBox(width: 5),
-                                  Expanded(
-                                    child: Text(
-                                      'Approximate report location',
-                                      style: TextStyle(
-                                        color: ExplorerColors.muted,
-                                        fontSize: 10,
+                                      const SizedBox(height: 6),
+                                      const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.location_on_outlined,
+                                            size: 14,
+                                            color: ExplorerColors.muted,
+                                          ),
+                                          SizedBox(width: 5),
+                                          Expanded(
+                                            child: Text(
+                                              'Approximate report location',
+                                              style: TextStyle(
+                                                color: ExplorerColors.muted,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ),
-                                  ),
-                                ],
+                                    ],
+                                  );
+                                },
                               ),
                             ] else ...[
                               Container(

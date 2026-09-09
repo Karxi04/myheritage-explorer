@@ -34,6 +34,22 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   late Stream<List<HazardAuditEntry>> _auditTrailStream;
   final Map<String, Future<Map<String, dynamic>?>> _reporters = {};
   Timer? _clock;
+  HazardAddressDetails? _hazardAddress;
+  String? _resolvedCoordinateKey;
+
+  void _maybeResolveAddress(double lat, double lon) {
+    if (!SafetyConfig.validCoordinates(lat, lon)) return;
+    final key = HazardAddressResolver.coordinateKey(lat, lon);
+    if (_resolvedCoordinateKey == key) return;
+    _resolvedCoordinateKey = key;
+    HazardAddressResolver.resolve(latitude: lat, longitude: lon).then((
+      details,
+    ) {
+      if (mounted) {
+        setState(() => _hazardAddress = details);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -355,6 +371,9 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
   }
 
   Widget _buildHazardOverview(HazardReport report) {
+    if (report.hasValidLocation) {
+      _maybeResolveAddress(report.latitude, report.longitude);
+    }
     return ExplorerCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,6 +416,28 @@ class _AdminHazardManagementPageState extends State<AdminHazardManagementPage> {
                     ),
                   ),
                   const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.place_outlined,
+                        size: 13,
+                        color: ExplorerColors.muted,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _hazardAddress?.singleLine ??
+                              'Location name unavailable',
+                          style: const TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
                   Text(
                     'GPS: ${report.latitude.toStringAsFixed(4)}, ${report.longitude.toStringAsFixed(4)} • '
                     '${report.createdAt == null ? 'Recently submitted' : DateFormat.yMMMd().add_jm().format(report.createdAt!)}',
