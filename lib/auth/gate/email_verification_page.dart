@@ -116,7 +116,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
               title: const Text('Email Verification'),
               actions: [
                 TextButton(
-                  onPressed: AppServices.auth.signOut,
+                  onPressed: AppServices.signOut,
                   child: const Text('Sign out'),
                 ),
               ],
@@ -158,7 +158,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'We have sent a verification link to ${widget.user.email ?? 'your email address'}. Open the newest email, tap the link, then return here to activate your account.',
+                    'We have sent a verification link to ${widget.user.email ?? 'your email address'}. Open the email and tap the link to activate your account.\n\nNote: If you do not see the email in your inbox, please check your Spam, Junk, or Promotions folder.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: ExplorerColors.muted,
@@ -194,7 +194,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                   ),
                   const SizedBox(height: 4),
                   TextButton.icon(
-                    onPressed: AppServices.auth.signOut,
+                    onPressed: AppServices.signOut,
                     icon: const Icon(Icons.logout, size: 17),
                     label: const Text('Use another account'),
                   ),

@@ -1,7 +1,10 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 String randomCode([int length = 6]) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -102,10 +105,44 @@ String cleanDisplayText(Object? value) {
 }
 
 void showMessage(BuildContext context, String message, {bool error = false}) {
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(message),
+      content: Text(
+        message,
+        maxLines: 5,
+        overflow: TextOverflow.visible,
+      ),
       backgroundColor: error ? Colors.red.shade700 : null,
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
+void showGlobalNotice({
+  required String title,
+  required String message,
+  String buttonText = 'OK',
+  VoidCallback? onConfirm,
+}) {
+  final context = appNavigatorKey.currentContext;
+  if (context == null) return;
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(context);
+            if (onConfirm != null) onConfirm();
+          },
+          child: Text(buttonText),
+        ),
+      ],
     ),
   );
 }
@@ -199,3 +236,201 @@ Future<bool> confirmDeletionKeyword(BuildContext context) async {
       ) ??
       false;
 }
+
+bool isValidEmail(String email) {
+  return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email.trim());
+}
+
+String cleanName(String name) {
+  return name.trim().replaceAll(RegExp(r'[^a-zA-Z\s]'), '').replaceAll(RegExp(r'\s+'), ' ');
+}
+
+bool isValidName(String name) {
+  final cleaned = cleanName(name);
+  return cleaned.isNotEmpty && RegExp(r'^[a-zA-Z\s]+$').hasMatch(cleaned);
+}
+
+bool isValidMalaysianPhone(String phone) {
+  var clean = phone.replaceAll(' ', '').replaceAll('-', '').replaceAll('+', '');
+  if (clean.startsWith('60')) {
+    clean = clean.substring(2);
+  } else if (clean.startsWith('0')) {
+    clean = clean.substring(1);
+  }
+  return RegExp(r'^[0-9]{7,10}$').hasMatch(clean);
+}
+
+String? validatePassword(String password) {
+  if (password.length < 8) {
+    return 'Password must be at least 8 characters long.';
+  }
+  if (!password.contains(RegExp(r'[A-Z]'))) {
+    return 'Password must contain at least one uppercase letter.';
+  }
+  if (!password.contains(RegExp(r'[a-z]'))) {
+    return 'Password must contain at least one lowercase letter.';
+  }
+  if (!password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>\-_+=~`[\]\\;/]'))) {
+    return 'Password must contain at least one special character.';
+  }
+  return null;
+}
+
+Future<void> showReportDialog(
+  BuildContext context, {
+  required String targetId,
+  required String targetName,
+  required String targetType,
+}) async {
+  String selectedNature = 'Inappropriate Content / Behavior';
+  final descriptionController = TextEditingController();
+  bool submitting = false;
+
+  final categories = [
+    'Inappropriate Content / Behavior',
+    'Spam or Fraudulent Activity',
+    'Fake or Misleading Information',
+    'Harassment or Abuse',
+    'Other',
+  ];
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.flag_outlined, color: Colors.red),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Report $targetType',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Reporting: $targetName',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Nature of Report',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedNature,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: categories
+                      .map((cat) => DropdownMenuItem(
+                            value: cat,
+                            child: Text(cat, style: const TextStyle(fontSize: 13)),
+                          ))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() => selectedNature = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Report Description',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: descriptionController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Please provide details explaining the issue...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: submitting ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      final desc = descriptionController.text.trim();
+                      if (desc.isEmpty) {
+                        showMessage(context, 'Please enter a description for the report.', error: true);
+                        return;
+                      }
+                      setDialogState(() => submitting = true);
+                      try {
+                        final user = FirebaseAuth.instance.currentUser;
+                        await FirebaseFirestore.instance.collection('user_reports').add({
+                          'reporterId': user?.uid ?? '',
+                          'reporterName': user?.displayName ?? user?.email ?? 'Traveler',
+                          'reportedId': targetId,
+                          'reportedName': targetName,
+                          'reportedType': targetType,
+                          'nature': selectedNature,
+                          'description': desc,
+                          'status': 'unresolved',
+                          'createdAt': FieldValue.serverTimestamp(),
+                        });
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext);
+                          showMessage(
+                            context,
+                            'Report submitted successfully. Administrators will review this report.',
+                          );
+                        }
+                      } catch (e) {
+                        if (dialogContext.mounted) {
+                          showMessage(context, 'Failed to submit report: $e', error: true);
+                          setDialogState(() => submitting = false);
+                        }
+                      }
+                    },
+              icon: submitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.send_outlined, size: 18),
+              label: Text(submitting ? 'Submitting...' : 'Submit Report'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  descriptionController.dispose();
+}
+

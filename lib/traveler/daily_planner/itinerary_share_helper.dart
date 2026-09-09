@@ -88,6 +88,7 @@ class ItineraryShareHelper {
           (stop['suggestedStartMinutes'] as num?)?.round(),
       'suggestedEndMinutes': (stop['suggestedEndMinutes'] as num?)?.round(),
       'suggestedTimeLabel': _shortText(stop['suggestedTimeLabel'], 40),
+      'mealSuggestionLabel': _shortText(stop['mealSuggestionLabel'], 60),
       'scheduleStatus': _shortText(stop['scheduleStatus'], 20),
       'scheduleNotes': List<String>.from(
         stop['scheduleNotes'] ?? const <String>[],
@@ -110,40 +111,147 @@ class ItineraryShareHelper {
     String shareId,
   ) async {
     final createdAt = asDate(itinerary['createdAt']);
-    final stops = List<Map<String, dynamic>>.from(
-      (itinerary['stops'] ?? const []).map(
-        (item) => Map<String, dynamic>.from(item),
+    final availableHours = _availableHoursFor(itinerary);
+    final pace = '${itinerary['travelPace'] ?? 'Balanced'}';
+    final preferredStartMinutes =
+        (itinerary['suggestedStartMinutes'] as num?)?.round();
+    final rawDays = (itinerary['days'] as List?)
+            ?.whereType<Map>()
+            .map((day) => Map<String, dynamic>.from(day))
+            .where((day) => day['stops'] is List && (day['stops'] as List).isNotEmpty)
+            .toList() ??
+        const <Map<String, dynamic>>[];
+
+    final publicDays = <Map<String, dynamic>>[];
+    if (rawDays.isNotEmpty) {
+      for (var index = 0; index < rawDays.length; index++) {
+        final day = rawDays[index];
+        final dayStops = List<Map<String, dynamic>>.from(
+          (day['stops'] as List).map(
+            (item) => Map<String, dynamic>.from(item as Map),
+          ),
+        );
+        final daySchedule = ItinerarySchedulePlanner.plan(
+          stops: dayStops,
+          pace: pace,
+          availableHours:
+              (day['availableHours'] as num?)?.toDouble() ?? availableHours,
+          preferredStartMinutes:
+              (day['suggestedStartMinutes'] as num?)?.round() ??
+                  preferredStartMinutes,
+        );
+        final publicStops = await Future.wait(daySchedule.stops.map(_publicStop));
+        final dayBudget = ItineraryBudgetEstimator.estimateDay(publicStops);
+        publicDays.add({
+          'dayNumber': (day['dayNumber'] as num?)?.round() ?? index + 1,
+          'date': _shortText(day['date'], 40),
+          'dateLabel': _shortText(day['dateLabel'], 80),
+          'weather': day['weather'] is Map
+              ? Map<String, dynamic>.from(day['weather'] as Map)
+              : const <String, dynamic>{},
+          'stops': publicStops,
+          'suggestedStartMinutes': daySchedule.startMinutes,
+          'suggestedEndMinutes': daySchedule.endMinutes,
+          'totalEstimatedMinutes': daySchedule.totalEstimatedMinutes,
+          'remainingMinutes': daySchedule.remainingMinutes,
+          'budget': dayBudget.dayBudget,
+          'budgetLevel': dayBudget.budgetLevel,
+        });
+      }
+    } else {
+      final stops = List<Map<String, dynamic>>.from(
+        (itinerary['stops'] ?? const []).map(
+          (item) => Map<String, dynamic>.from(item),
+        ),
+      );
+      final schedule = ItinerarySchedulePlanner.plan(
+        stops: stops,
+        pace: pace,
+        availableHours: availableHours,
+        preferredStartMinutes: preferredStartMinutes,
+      );
+      final publicStops = await Future.wait(schedule.stops.map(_publicStop));
+      final dayBudget = ItineraryBudgetEstimator.estimateDay(publicStops);
+      publicDays.add({
+        'dayNumber': 1,
+        'date': _shortText(
+          itinerary['startDate'] ?? itinerary['targetDate'] ?? '',
+          40,
+        ),
+        'dateLabel': _shortText(itinerary['dateLabel'] ?? '', 80),
+        'weather': const <String, dynamic>{},
+        'stops': publicStops,
+        'suggestedStartMinutes': schedule.startMinutes,
+        'suggestedEndMinutes': schedule.endMinutes,
+        'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
+        'remainingMinutes': schedule.remainingMinutes,
+        'budget': dayBudget.dayBudget,
+        'budgetLevel': dayBudget.budgetLevel,
+      });
+    }
+
+    final publicStops = publicDays
+        .expand((day) => List<Map<String, dynamic>>.from(day['stops'] as List))
+        .toList();
+    final startMinutes = (publicDays.first['suggestedStartMinutes'] as num?)
+            ?.round() ??
+        preferredStartMinutes ??
+        ItinerarySchedulePlanner.defaultStartMinutes;
+    final endMinutes = publicDays.fold<int>(
+      startMinutes,
+      (latest, day) => max(
+        latest,
+        (day['suggestedEndMinutes'] as num?)?.round() ?? latest,
       ),
     );
-    final availableHours = _availableHoursFor(itinerary);
-    final schedule = ItinerarySchedulePlanner.plan(
-      stops: stops,
-      pace: '${itinerary['travelPace'] ?? 'Balanced'}',
-      availableHours: availableHours,
-      preferredStartMinutes: (itinerary['suggestedStartMinutes'] as num?)
-          ?.round(),
+    final totalEstimatedMinutes = publicDays.fold<int>(
+      0,
+      (total, day) =>
+          total + ((day['totalEstimatedMinutes'] as num?)?.round() ?? 0),
     );
+    final remainingMinutes = publicDays.fold<int>(
+      0,
+      (total, day) => total + ((day['remainingMinutes'] as num?)?.round() ?? 0),
+    );
+
+    final area = '${itinerary['area'] ?? itinerary['selectedArea'] ?? 'Penang'}';
+    final stateId = '${itinerary['stateId'] ?? ''}'.trim().isNotEmpty
+        ? '${itinerary['stateId']}'
+        : MalaysiaLocationService.inferStateIdFromArea(area);
+    final stateName = '${itinerary['stateName'] ?? ''}'.trim().isNotEmpty
+        ? '${itinerary['stateName']}'
+        : MalaysiaLocationService.getStateName(stateId);
 
     return <String, dynamic>{
       'shareId': shareId,
       'visibility': 'public',
       'title': _shortText(itinerary['title'] ?? 'Shared Penang Itinerary', 120),
-      'area': _shortText(itinerary['area'] ?? 'Penang', 80),
+      'area': _shortText(area, 80),
+      'selectedArea': _shortText(itinerary['selectedArea'] ?? area, 80),
+      'stateId': _shortText(stateId, 40),
+      'stateName': _shortText(stateName, 80),
       'availableHours': availableHours,
+      'dayCount': publicDays.length,
+      'startDate': _shortText(
+        itinerary['startDate'] ?? itinerary['targetDate'] ?? '',
+        40,
+      ),
+      'endDate': _shortText(itinerary['endDate'] ?? '', 40),
       'budgetLevel': _shortText(itinerary['budgetLevel'], 30),
       'travelPace': _shortText(itinerary['travelPace'], 30),
       'interests': List<String>.from(
         itinerary['interests'] ?? const <String>[],
       ),
-      'suggestedStartMinutes': schedule.startMinutes,
-      'suggestedEndMinutes': schedule.endMinutes,
+      'suggestedStartMinutes': startMinutes,
+      'suggestedEndMinutes': endMinutes,
       'timelineLabel':
-          '${ItinerarySchedulePlanner.formatTime(schedule.startMinutes)} - '
-          '${ItinerarySchedulePlanner.formatTime(schedule.endMinutes)}',
-      'totalEstimatedMinutes': schedule.totalEstimatedMinutes,
-      'remainingMinutes': schedule.remainingMinutes,
+          '${ItinerarySchedulePlanner.formatTime(startMinutes)} - '
+          '${ItinerarySchedulePlanner.formatTime(endMinutes)}',
+      'totalEstimatedMinutes': totalEstimatedMinutes,
+      'remainingMinutes': remainingMinutes,
       'originalCreatedAt': createdAt?.toIso8601String(),
-      'stops': await Future.wait(schedule.stops.map(_publicStop)),
+      'days': publicDays,
+      'stops': publicStops,
     };
   }
 
@@ -238,10 +346,19 @@ class ItineraryShareHelper {
       Navigator.pop(context);
 
       final title = '${itinerary['title'] ?? 'My Penang Itinerary'}';
+      final uri = Uri.tryParse(link);
+      final shareCode = uri?.queryParameters['share'] ?? '';
+
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Share Itinerary'),
+          title: const Row(
+            children: [
+              Icon(Icons.share_rounded, color: ExplorerColors.navy),
+              SizedBox(width: 8),
+              Text('Share Itinerary'),
+            ],
+          ),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: Column(
@@ -249,11 +366,71 @@ class ItineraryShareHelper {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Anyone with this link can view the itinerary, including its place images.',
+                  'Share this itinerary with other travelers to let them view and clone a copy into their account.',
+                  style: TextStyle(fontSize: 13, color: ExplorerColors.muted),
                 ),
-                const SizedBox(height: 12),                Container(
+                if (shareCode.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const Text(
+                    'SHARE CODE (Enter in app > My Itineraries > 🔗):',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: ExplorerColors.goldSoft,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: ExplorerColors.gold.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        SelectableText(
+                          shareCode,
+                          style: const TextStyle(
+                            color: ExplorerColors.goldDark,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () async {
+                            await Clipboard.setData(ClipboardData(text: shareCode));
+                            if (dialogContext.mounted) {
+                              showMessage(dialogContext, 'Share code copied: $shareCode');
+                            }
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.copy_rounded, size: 18, color: ExplorerColors.goldDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                const Text(
+                  'WEB LINK:',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    color: ExplorerColors.navy,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: ExplorerColors.subtle,
                     borderRadius: BorderRadius.circular(10),
@@ -264,8 +441,8 @@ class ItineraryShareHelper {
                     maxLines: 2,
                     style: const TextStyle(
                       color: ExplorerColors.navy,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -280,14 +457,17 @@ class ItineraryShareHelper {
                   showMessage(dialogContext, 'Short link copied.');
                 }
               },
-              icon: const Icon(Icons.copy_outlined),
+              icon: const Icon(Icons.link_rounded),
               label: const Text('Copy Link'),
             ),
             FilledButton.icon(
               onPressed: () async {
                 Navigator.pop(dialogContext);
                 await SharePlus.instance.share(
-                  ShareParams(text: '$title\n$link'),
+                  ShareParams(
+                    text:
+                        '$title\nShare Code: $shareCode\nLink: $link\n\nOpen in MyHeritage Explorer or view online.',
+                  ),
                 );
               },
               icon: const Icon(Icons.share_outlined),

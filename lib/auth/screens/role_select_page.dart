@@ -1,8 +1,86 @@
 
 part of '../auth_pages.dart';
 
-class RoleSelectPage extends StatelessWidget {
+class RoleSelectPage extends StatefulWidget {
   const RoleSelectPage({super.key});
+
+  @override
+  State<RoleSelectPage> createState() => _RoleSelectPageState();
+}
+
+class _RoleSelectPageState extends State<RoleSelectPage> {
+  bool busy = false;
+
+  Future<void> _registerWithGoogle(
+    BuildContext context, {
+    required String targetRole,
+  }) async {
+    setState(() => busy = true);
+    try {
+      final userCredential = await AppServices.signInWithGoogle();
+      if (!mounted || userCredential == null) return;
+
+      final email = userCredential.user?.email;
+
+      // 1. Check if a profile already exists for this UID
+      final profile = await AppServices.currentAccountProfile();
+      if (!mounted) return;
+
+      if (profile != null) {
+        showMessage(
+          context,
+          'Welcome back! You are already registered as a ${AppServices.labelForRole(profile.role)}.',
+        );
+        Navigator.popUntil(context, (route) => route.isFirst);
+        return;
+      }
+
+      // 2. Double check if this email is already taken by another account
+      if (email != null) {
+        final existingProfile = await AppServices.findProfileByEmail(email);
+        if (!mounted) return;
+
+        if (existingProfile != null) {
+          await AppServices.signOut();
+          if (!mounted) return;
+          showMessage(
+            context,
+            'The email $email is already in use by a ${AppServices.labelForRole(existingProfile['role'] ?? 'user')} account. Please use the Login screen.',
+            error: true,
+          );
+          return;
+        }
+      }
+
+      // 3. New user, proceed to complete profile for targetRole
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RegistrationPage(
+              role: targetRole,
+              initialName: userCredential.user?.displayName,
+              initialEmail: email,
+              isGoogle: true,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        String message = 'Google Registration Failed';
+        if (e.toString().contains('account-exists-with-different-credential')) {
+          message =
+              'This email is already associated with a password account. Please log in with email/password first.';
+        } else {
+          message = '$message: $e';
+        }
+        showMessage(context, message, error: true);
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +100,7 @@ class RoleSelectPage extends StatelessWidget {
                 color: ExplorerColors.navy,
               ),
             ),
+            if (busy) const LinearProgressIndicator(),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(18, 38, 18, 30),
@@ -75,6 +154,8 @@ class RoleSelectPage extends StatelessWidget {
                                   const RegistrationPage(role: 'traveler'),
                             ),
                           ),
+                          onGoogleRegister: () =>
+                              _registerWithGoogle(context, targetRole: 'traveler'),
                         ),
                         const SizedBox(height: 24),
                         _RoleSelectionCard(
@@ -100,6 +181,8 @@ class RoleSelectPage extends StatelessWidget {
                                   const RegistrationPage(role: 'vendor'),
                             ),
                           ),
+                          onGoogleRegister: () =>
+                              _registerWithGoogle(context, targetRole: 'vendor'),
                         ),
                       ],
                     ),
@@ -126,6 +209,7 @@ class _RoleSelectionCard extends StatelessWidget {
     required this.registerLabel,
     required this.onLogin,
     required this.onRegister,
+    this.onGoogleRegister,
   });
 
   final String title;
@@ -138,6 +222,7 @@ class _RoleSelectionCard extends StatelessWidget {
   final String registerLabel;
   final VoidCallback onLogin;
   final VoidCallback onRegister;
+  final VoidCallback? onGoogleRegister;
 
   @override
   Widget build(BuildContext context) {
@@ -204,6 +289,28 @@ class _RoleSelectionCard extends StatelessWidget {
               child: Text(registerLabel),
             ),
           ),
+          if (onGoogleRegister != null) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onGoogleRegister,
+                icon: Image.network(
+                  'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                  height: 18,
+                  width: 18,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const Icon(Icons.account_circle_outlined, size: 18),
+                ),
+                label: const Text('Register with Google'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: accent,
+                  side: BorderSide(color: accent),
+                  shape: const StadiumBorder(),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

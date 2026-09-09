@@ -137,7 +137,16 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Selangor',
     primaryQuery: 'Selangor',
-    aliases: ['sgr', 'selangor', 'shah alam', 'petaling jaya', 'pj', 'klang', 'batu caves', 'sekinchan'],
+    aliases: [
+      'sgr',
+      'selangor',
+      'shah alam',
+      'petaling jaya',
+      'pj',
+      'klang',
+      'batu caves',
+      'sekinchan',
+    ],
     description:
         'Royal heritage towns, iconic limestone caves, Blue Mosque & paddy field landscapes',
     subAreas: [
@@ -209,7 +218,12 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
         fullQuery: 'Petaling Street, Kuala Lumpur',
         highlight:
             'Central Market (Pasar Seni), Kwai Chai Hong art alley & heritage shophouse cafes',
-        aliases: ['chinatown', 'petaling street', 'pasar seni', 'kwai chai hong'],
+        aliases: [
+          'chinatown',
+          'petaling street',
+          'pasar seni',
+          'kwai chai hong',
+        ],
         latitude: 3.1436,
         longitude: 101.6978,
       ),
@@ -254,7 +268,15 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Sabah (Borneo)',
     primaryQuery: 'Kota Kinabalu, Sabah',
-    aliases: ['sbh', 'sabah', 'kota kinabalu', 'kk', 'kundasang', 'sandakan', 'borneo sabah'],
+    aliases: [
+      'sbh',
+      'sabah',
+      'kota kinabalu',
+      'kk',
+      'kundasang',
+      'sandakan',
+      'borneo sabah',
+    ],
     description:
         'Indigenous cultural villages, Mount Kinabalu highland trails, wildlife & handicraft markets',
     subAreas: [
@@ -299,7 +321,16 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Sarawak (Borneo)',
     primaryQuery: 'Kuching, Sarawak',
-    aliases: ['swk', 'sarawak', 'kuching', 'kch', 'damai', 'borneo sarawak', 'sibu', 'miri'],
+    aliases: [
+      'swk',
+      'sarawak',
+      'kuching',
+      'kch',
+      'damai',
+      'borneo sarawak',
+      'sibu',
+      'miri',
+    ],
     description:
         'Brooke colonial heritage, Borneo Cultures Museum, indigenous living cultures & riverfront',
     subAreas: [
@@ -506,7 +537,14 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Pahang',
     primaryQuery: 'Cameron Highlands, Pahang',
-    aliases: ['phg', 'pahang', 'cameron', 'cameron highlands', 'kuantan', 'bentong'],
+    aliases: [
+      'phg',
+      'pahang',
+      'cameron',
+      'cameron highlands',
+      'kuantan',
+      'bentong',
+    ],
     description:
         'Highland tea plantations, colonial mossy forest trails & traditional market heritage',
     subAreas: [
@@ -551,7 +589,15 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Terengganu',
     primaryQuery: 'Kuala Terengganu',
-    aliases: ['trg', 'terengganu', 'kuala terengganu', 'kt', 'pasar payang', 'redang', 'perhentian'],
+    aliases: [
+      'trg',
+      'terengganu',
+      'kuala terengganu',
+      'kt',
+      'pasar payang',
+      'redang',
+      'perhentian',
+    ],
     description:
         'Iconic Crystal Mosque, Pasar Payang heritage songket, traditional boatbuilding & keropok lekor trail',
     subAreas: [
@@ -569,7 +615,12 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
         fullQuery: 'Masjid Kristal, Kuala Terengganu',
         highlight:
             'Gleaming glass & steel Crystal Mosque on Pulau Wan Man with 21 world Islamic monument replicas',
-        aliases: ['masjid kristal', 'crystal mosque', 'taman tamadun islam', 'tti'],
+        aliases: [
+          'masjid kristal',
+          'crystal mosque',
+          'taman tamadun islam',
+          'tti',
+        ],
         latitude: 5.3220,
         longitude: 103.1180,
       ),
@@ -587,7 +638,14 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
   MalaysianAreaHub(
     name: 'Kelantan',
     primaryQuery: 'Kota Bharu, Kelantan',
-    aliases: ['kel', 'kelantan', 'kota bharu', 'kb', 'pasar siti khadijah', 'tumpat'],
+    aliases: [
+      'kel',
+      'kelantan',
+      'kota bharu',
+      'kb',
+      'pasar siti khadijah',
+      'tumpat',
+    ],
     description:
         'Vibrant Pasar Siti Khadijah, royal timber palaces, giant reclining Buddha temples & authentic Nasi Kerabu',
     subAreas: [
@@ -596,7 +654,12 @@ const List<MalaysianAreaHub> malaysianAreaHubs = [
         fullQuery: 'Pasar Siti Khadijah, Kota Bharu, Kelantan',
         highlight:
             'Iconic octagonal central market run by women traders, traditional kuih akok, batik & Kopitiam Kita',
-        aliases: ['pasar siti khadijah', 'pasar besar', 'roti titab', 'kopitiam kita'],
+        aliases: [
+          'pasar siti khadijah',
+          'pasar besar',
+          'roti titab',
+          'kopitiam kita',
+        ],
         latitude: 6.1280,
         longitude: 102.2390,
       ),
@@ -653,7 +716,13 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Cheong Fatt Tze - The Blue Mansion',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Art', 'Local Business'],
-    'tags': ['blue mansion', 'heritage', 'architecture', 'museum', 'george town'],
+    'tags': [
+      'blue mansion',
+      'heritage',
+      'architecture',
+      'museum',
+      'george town',
+    ],
     'formattedAddress': '14 Leith Street, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 75,
@@ -768,7 +837,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Art',
     'plannerCategories': ['Art', 'Culture', 'Local Business'],
     'tags': ['art', 'market', 'gallery', 'community', 'george town'],
-    'formattedAddress': '31A Jalan Gurdwara, 10300 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '31A Jalan Gurdwara, 10300 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -789,8 +859,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Jawi House Cafe Gallery',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
-    'tags': ['jawi peranakan', 'cafe', 'heritage food', 'gallery', 'george town'],
-    'formattedAddress': '85 Lebuh Armenian, 10200 George Town, Penang, Malaysia',
+    'tags': [
+      'jawi peranakan',
+      'cafe',
+      'heritage food',
+      'gallery',
+      'george town',
+    ],
+    'formattedAddress':
+        '85 Lebuh Armenian, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Medium',
@@ -1159,7 +1236,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['yam rice', 'pork soup', 'kopitiam', 'bukit mertajam', 'bm'],
-    'formattedAddress': '7, Jalan Murthy, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        '7, Jalan Murthy, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 50,
     'budgetLevel': 'Low',
@@ -1181,7 +1259,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['cup rice', 'roast pork', 'char siew', 'bukit mertajam', 'bm'],
-    'formattedAddress': '29, Jalan Danby, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        '29, Jalan Danby, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -1202,8 +1281,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'BM Famous Duck Egg Char Koay Teow',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
-    'tags': ['char koay teow', 'duck egg', 'street food', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Jalan Megat Harun, 14000 Bukit Mertajam, Penang, Malaysia',
+    'tags': [
+      'char koay teow',
+      'duck egg',
+      'street food',
+      'bukit mertajam',
+      'bm',
+    ],
+    'formattedAddress':
+        'Jalan Megat Harun, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -1245,7 +1331,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['mee jawa', 'noodles', 'hawker', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Jalan Pasar (Old BM Market), 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Pasar (Old BM Market), 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 40,
     'budgetLevel': 'Low',
@@ -1308,8 +1395,16 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Sentosa Food Court BM',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
-    'tags': ['food court', 'hawker center', 'dinner', 'supper', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Jalan Sentosa, Taman Sentosa, 14000 Bukit Mertajam, Penang, Malaysia',
+    'tags': [
+      'food court',
+      'hawker center',
+      'dinner',
+      'supper',
+      'bukit mertajam',
+      'bm',
+    ],
+    'formattedAddress':
+        'Jalan Sentosa, Taman Sentosa, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -1330,7 +1425,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['hawker', 'street food', 'dinner', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Tingkat Rambai 1, Taman Sri Rambai, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Tingkat Rambai 1, Taman Sri Rambai, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 55,
     'budgetLevel': 'Low',
@@ -1351,7 +1447,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['hakka mee', 'noodles', 'yong tau foo', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Pasar Awam Bukit Mertajam, Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Pasar Awam Bukit Mertajam, Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 40,
     'budgetLevel': 'Low',
@@ -1393,7 +1490,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['nasi kandar', 'curry', 'halal', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Jalan Megat Harun, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Megat Harun, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 50,
     'budgetLevel': 'Low',
@@ -1414,7 +1512,13 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'BM Traditional Ban Chang Kuih',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
-    'tags': ['ban chang kuih', 'pancake', 'street snack', 'bukit mertajam', 'bm'],
+    'tags': [
+      'ban chang kuih',
+      'pancake',
+      'street snack',
+      'bukit mertajam',
+      'bm',
+    ],
     'formattedAddress': 'Jalan Pasar, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 25,
@@ -1436,7 +1540,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Art', 'Local Business'],
     'tags': ['cafe', 'coffee', 'heritage', 'dessert', 'bukit mertajam', 'bm'],
-    'formattedAddress': '17, Jalan Arumugam Pillai, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        '17, Jalan Arumugam Pillai, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 50,
     'budgetLevel': 'Medium',
@@ -1457,7 +1562,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['kopitiam', 'toast', 'kopi', 'nature', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Cherok Tokun, Jalan Kulim, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Cherok Tokun, Jalan Kulim, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 40,
     'budgetLevel': 'Low',
@@ -1478,7 +1584,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Local Business'],
     'tags': ['lake', 'dam', 'scenic', 'jogging', 'bukit mertajam', 'bm'],
-    'formattedAddress': 'Mukim 18, Mengkuang, 14000 Bukit Mertajam, Penang, Malaysia',
+    'formattedAddress':
+        'Mukim 18, Mengkuang, 14000 Bukit Mertajam, Penang, Malaysia',
     'area': 'Bukit Mertajam',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -1588,7 +1695,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['hawker', 'street food', 'seafood', 'gurney', 'george town'],
-    'formattedAddress': '172 Solok Gurney 1, 10250 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '172 Solok Gurney 1, 10250 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -1603,7 +1711,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'World-famous open-air seaside hawker center featuring rows of authentic stalls serving Penang Laksa, Char Koay Teow, grilled seafood, and Rojak.',
+        'World-famous open-air seaside hawker center featuring rows of authentic stalls serving Penang Laksa, Char Koay Teow, grilled seafood, and Rojak.',
   },
   {
     'name': 'Dhammikarama Burmese Temple',
@@ -1625,13 +1733,19 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 130,
     },
     'description':
-      'The only Burmese Buddhist temple in Penang, established in 1803 with exquisite golden pagodas, traditional bell towers, and lush sacred garden statues.',
+        'The only Burmese Buddhist temple in Penang, established in 1803 with exquisite golden pagodas, traditional bell towers, and lush sacred garden statues.',
   },
   {
     'name': 'Wat Chayamangkalaram Reclining Buddha',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
-    'tags': ['temple', 'thai', 'reclining buddha', 'pulau tikus', 'george town'],
+    'tags': [
+      'temple',
+      'thai',
+      'reclining buddha',
+      'pulau tikus',
+      'george town',
+    ],
     'formattedAddress': '17 Lorong Burma, 10250 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 50,
@@ -1647,13 +1761,19 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 130,
     },
     'description':
-      'Famous 1845 Thai Buddhist temple housing a colossal 33-meter gold-plated Reclining Buddha statue and colorful Naga dragon serpents.',
+        'Famous 1845 Thai Buddhist temple housing a colossal 33-meter gold-plated Reclining Buddha statue and colorful Naga dragon serpents.',
   },
   {
     'name': 'Penang Street Art (Armenian Street Murals)',
     'category': 'Art',
     'plannerCategories': ['Art', 'Culture', 'Heritage', 'Local Business'],
-    'tags': ['street art', 'murals', 'ernest zacharevic', 'armenian street', 'george town'],
+    'tags': [
+      'street art',
+      'murals',
+      'ernest zacharevic',
+      'armenian street',
+      'george town',
+    ],
     'formattedAddress': 'Armenian Street, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
@@ -1668,13 +1788,19 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'The vibrant open-air artistic heart of George Town UNESCO World Heritage site, famous for interactive 3D street art murals integrated with real bicycles and motorcycles.',
+        'The vibrant open-air artistic heart of George Town UNESCO World Heritage site, famous for interactive 3D street art murals integrated with real bicycles and motorcycles.',
   },
   {
     'name': 'Tan Jetty Long Wooden Pier',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Nature', 'Local Business'],
-    'tags': ['clan jetty', 'wooden pier', 'sunset', 'waterfront', 'george town'],
+    'tags': [
+      'clan jetty',
+      'wooden pier',
+      'sunset',
+      'waterfront',
+      'george town',
+    ],
     'formattedAddress': 'Pengkalan Weld, 10300 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 40,
@@ -1689,7 +1815,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'Famous for having the longest wooden walkway extending directly over the water, offering breathtaking panoramic ocean views and calm heritage atmosphere.',
+        'Famous for having the longest wooden walkway extending directly over the water, offering breathtaking panoramic ocean views and calm heritage atmosphere.',
   },
   {
     'name': 'Air Itam Asam Laksa (Pasar Air Itam)',
@@ -1710,7 +1836,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Iconic multi-generational laksa institution situated right outside Air Itam market since 1955, celebrated globally for intensely flavorful tamarind-mackerel broth.',
+        'Iconic multi-generational laksa institution situated right outside Air Itam market since 1955, celebrated globally for intensely flavorful tamarind-mackerel broth.',
   },
   {
     'name': 'Siam Road Charcoal Char Koay Teow',
@@ -1731,14 +1857,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Legendary Michelin Bib Gourmand stall famed worldwide for charcoal-fired Char Koay Teow stir-fried with irresistible smoky aroma and rich wok-hei.',
+        'Legendary Michelin Bib Gourmand stall famed worldwide for charcoal-fired Char Koay Teow stir-fried with irresistible smoky aroma and rich wok-hei.',
   },
   {
     'name': 'Deen Maju Nasi Kandar',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['nasi kandar', 'curry', 'halal', 'george town'],
-    'formattedAddress': '170 Jalan Gurdwara, 10300 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '170 Jalan Gurdwara, 10300 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 50,
     'budgetLevel': 'Low',
@@ -1753,14 +1880,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Massively popular George Town Nasi Kandar powerhouse known for signature sweet-savory mixed curry gravy, tender squid, and crispy spiced fried chicken.',
+        'Massively popular George Town Nasi Kandar powerhouse known for signature sweet-savory mixed curry gravy, tender squid, and crispy spiced fried chicken.',
   },
   {
     'name': 'Transfer Road Roti Canai & Roti Bakar',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['roti canai', 'breakfast', 'curry', 'george town'],
-    'formattedAddress': '114 Jalan Transfer, 10050 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '114 Jalan Transfer, 10050 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 40,
     'budgetLevel': 'Low',
@@ -1774,7 +1902,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'Historic morning breakfast pavement stall since the 1970s, serving crispy flaky Roti Canai accompanied by whole chicken drumstick curry and beef curry.',
+        'Historic morning breakfast pavement stall since the 1970s, serving crispy flaky Roti Canai accompanied by whole chicken drumstick curry and beef curry.',
   },
   {
     'name': 'Line Clear Nasi Kandar (Chulia Street)',
@@ -1796,14 +1924,21 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'Storied 24-hour alleyway Nasi Kandar institution operating since 1930, famous for massive tiger prawns, fish head curry, and aromatic spiced rice.',
+        'Storied 24-hour alleyway Nasi Kandar institution operating since 1930, famous for massive tiger prawns, fish head curry, and aromatic spiced rice.',
   },
   {
     'name': 'Penang National Park (Taman Negara Pulau Pinang)',
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Local Business'],
-    'tags': ['national park', 'hiking', 'monkey beach', 'turtle sanctuary', 'teluk bahang'],
-    'formattedAddress': 'Jalan Hassan Abbas, 11050 Teluk Bahang, Penang, Malaysia',
+    'tags': [
+      'national park',
+      'hiking',
+      'monkey beach',
+      'turtle sanctuary',
+      'teluk bahang',
+    ],
+    'formattedAddress':
+        'Jalan Hassan Abbas, 11050 Teluk Bahang, Penang, Malaysia',
     'area': 'Teluk Bahang',
     'durationMinutes': 120,
     'budgetLevel': 'Low',
@@ -1818,14 +1953,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 150,
     },
     'description':
-      'The world’s smallest national park, boasting diverse coastal ecosystems, rare meromictic seasonal lake, protected turtle nesting beaches, and lush rainforest.',
+        'The world’s smallest national park, boasting diverse coastal ecosystems, rare meromictic seasonal lake, protected turtle nesting beaches, and lush rainforest.',
   },
   {
     'name': 'Snake Temple (Ban Ka Lan Temple)',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['temple', 'snakes', 'heritage', 'bayan lepas'],
-    'formattedAddress': 'Jalan Sultan Azlan Shah, 11900 Bayan Lepas, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Sultan Azlan Shah, 11900 Bayan Lepas, Penang, Malaysia',
     'area': 'Bayan Lepas',
     'durationMinutes': 50,
     'budgetLevel': 'Low',
@@ -1840,14 +1976,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Built in 1850 in memory of monk Chor Soo Kong, world-famous for resident green pit vipers dwelling undisturbed among altar trees and smoking incense.',
+        'Built in 1850 in memory of monk Chor Soo Kong, world-famous for resident green pit vipers dwelling undisturbed among altar trees and smoking incense.',
   },
   {
     'name': 'Penang War Museum (Batu Maung)',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['war museum', 'fortress', 'bunkers', 'history', 'batu maung'],
-    'formattedAddress': 'Lot 1335 Mukim 12, Teluk Tempoyak, 11960 Batu Maung, Penang, Malaysia',
+    'formattedAddress':
+        'Lot 1335 Mukim 12, Teluk Tempoyak, 11960 Batu Maung, Penang, Malaysia',
     'area': 'Batu Maung',
     'durationMinutes': 90,
     'budgetLevel': 'Medium',
@@ -1862,14 +1999,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 130,
     },
     'description':
-      'Historic 20-acre British military fortress on Bukit Batu Maung constructed in the 1930s, featuring underground bunkers, cannons, and military artifacts.',
+        'Historic 20-acre British military fortress on Bukit Batu Maung constructed in the 1930s, featuring underground bunkers, cannons, and military artifacts.',
   },
   {
     'name': 'Balik Pulau Famous Kim Laksa',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['laksa', 'siam laksa', 'asam laksa', 'balik pulau'],
-    'formattedAddress': 'Jalan Balik Pulau, 11000 Balik Pulau, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Balik Pulau, 11000 Balik Pulau, Penang, Malaysia',
     'area': 'Balik Pulau',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -1883,14 +2021,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Renowned Balik Pulau countryside culinary gem serving authentic Lemak Siam Laksa and Asam Laksa freshly made with local herbs and mackerel.',
+        'Renowned Balik Pulau countryside culinary gem serving authentic Lemak Siam Laksa and Asam Laksa freshly made with local herbs and mackerel.',
   },
   {
     'name': 'Balik Pulau Goat Farm & Nutmeg Factory',
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Culture', 'Local Business'],
     'tags': ['farm', 'nutmeg', 'countryside', 'agro', 'balik pulau'],
-    'formattedAddress': 'Jalan Bukit Balik Pulau, 11000 Balik Pulau, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Bukit Balik Pulau, 11000 Balik Pulau, Penang, Malaysia',
     'area': 'Balik Pulau',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -1904,14 +2043,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'Charming agro-tourism stop in the hills of Balik Pulau where visitors learn how Penang’s signature nutmeg fruit and balms are processed by hand.',
+        'Charming agro-tourism stop in the hills of Balik Pulau where visitors learn how Penang’s signature nutmeg fruit and balms are processed by hand.',
   },
   {
     'name': 'Karpal Singh Drive Promenade',
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Food', 'Culture', 'Local Business'],
     'tags': ['promenade', 'seafront', 'sunset', 'cafes', 'george town'],
-    'formattedAddress': 'Lebuh Sungai Pinang 5, 11600 George Town, Penang, Malaysia',
+    'formattedAddress':
+        'Lebuh Sungai Pinang 5, 11600 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -1925,14 +2065,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 100,
     },
     'description':
-      'Scenic seaside promenade facing the Penang Strait, lined with modern cafes, local dessert joints, jogging tracks, and sweeping coastal sea breezes.',
+        'Scenic seaside promenade facing the Penang Strait, lined with modern cafes, local dessert joints, jogging tracks, and sweeping coastal sea breezes.',
   },
   {
     'name': "St. George's Anglican Church",
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['church', 'georgian', 'oldest', 'heritage', 'george town'],
-    'formattedAddress': '1 Farquhar Street, 10200 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '1 Farquhar Street, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -1947,14 +2088,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Consecrated in 1819, this elegant neoclassical building is the oldest purpose-built Anglican church in Southeast Asia.',
+        'Consecrated in 1819, this elegant neoclassical building is the oldest purpose-built Anglican church in Southeast Asia.',
   },
   {
     'name': 'Kapitan Keling Mosque',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['mosque', 'indo-moorish', 'heritage', 'george town'],
-    'formattedAddress': '14 Jalan Buckingham, 10200 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '14 Jalan Buckingham, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 50,
     'budgetLevel': 'Low',
@@ -1968,13 +2110,19 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Founded in 1801 by Indian Muslim traders, famous for its grand golden-yellow Mughal domes, minarets, and tranquil prayer hall.',
+        'Founded in 1801 by Indian Muslim traders, famous for its grand golden-yellow Mughal domes, minarets, and tranquil prayer hall.',
   },
   {
     'name': 'Sri Mahamariamman Temple (Queen Street)',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
-    'tags': ['hindu temple', 'gopuram', 'little india', 'heritage', 'george town'],
+    'tags': [
+      'hindu temple',
+      'gopuram',
+      'little india',
+      'heritage',
+      'george town',
+    ],
     'formattedAddress': 'Lebuh Queen, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 40,
@@ -1989,14 +2137,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'The oldest Hindu temple in George Town built in 1833, featuring an ornate sculptural gopuram at the entrance of historic Little India.',
+        'The oldest Hindu temple in George Town built in 1833, featuring an ornate sculptural gopuram at the entrance of historic Little India.',
   },
   {
     'name': 'Sun Yat Sen Museum Penang',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['museum', 'history', 'shophouse', 'george town'],
-    'formattedAddress': '120 Armenian Street, 10200 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '120 Armenian Street, 10200 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 50,
     'budgetLevel': 'Medium',
@@ -2011,14 +2160,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'Heritage Straits shophouse that served as the secret revolutionary base of Dr. Sun Yat Sen in Southeast Asia in 1910.',
+        'Heritage Straits shophouse that served as the secret revolutionary base of Dr. Sun Yat Sen in Southeast Asia in 1910.',
   },
   {
     'name': 'Penang State Museum & Art Gallery',
     'category': 'Art',
     'plannerCategories': ['Art', 'Heritage', 'Culture', 'Local Business'],
     'tags': ['museum', 'art gallery', 'history', 'george town'],
-    'formattedAddress': '57 Jalan Macalister, 10400 George Town, Penang, Malaysia',
+    'formattedAddress':
+        '57 Jalan Macalister, 10400 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2033,14 +2183,21 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'State museum showcasing historical oil paintings, vintage photographs, traditional costumes, and cultural memorabilia documenting Penang’s history.',
+        'State museum showcasing historical oil paintings, vintage photographs, traditional costumes, and cultural memorabilia documenting Penang’s history.',
   },
   {
     'name': 'Suffolk House (Georgian Heritage Mansion)',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Food', 'Culture', 'Local Business'],
-    'tags': ['georgian mansion', 'colonial', 'high tea', 'air itam', 'george town'],
-    'formattedAddress': '250 Jalan Air Itam, 10460 George Town, Penang, Malaysia',
+    'tags': [
+      'georgian mansion',
+      'colonial',
+      'high tea',
+      'air itam',
+      'george town',
+    ],
+    'formattedAddress':
+        '250 Jalan Air Itam, 10460 George Town, Penang, Malaysia',
     'area': 'George Town',
     'durationMinutes': 60,
     'budgetLevel': 'Medium',
@@ -2055,14 +2212,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 130,
     },
     'description':
-      'Award-winning 200-year-old Anglo-Indian Georgian mansion built in early 1800s, surrounded by manicured lawns and offering classic British high tea.',
+        'Award-winning 200-year-old Anglo-Indian Georgian mansion built in early 1800s, surrounded by manicured lawns and offering classic British high tea.',
   },
   {
     'name': 'Tanjung Bungah Floating Mosque',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Nature', 'Local Business'],
     'tags': ['floating mosque', 'coastal', 'architecture', 'tanjung bungah'],
-    'formattedAddress': 'Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia',
+    'formattedAddress':
+        'Jalan Tanjung Bungah, 11200 Tanjung Bungah, Penang, Malaysia',
     'area': 'Tanjung Bungah',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -2076,13 +2234,19 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 120,
     },
     'description':
-      'The first floating mosque built in Malaysia, erected on stilts directly over the Andaman Sea in 2005, blending Middle Eastern and local maritime architecture.',
+        'The first floating mosque built in Malaysia, erected on stilts directly over the Andaman Sea in 2005, blending Middle Eastern and local maritime architecture.',
   },
   {
     'name': 'Raja Uda Apollo Morning Market',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Retail', 'Local Business'],
-    'tags': ['morning market', 'hawker', 'breakfast', 'street food', 'butterworth'],
+    'tags': [
+      'morning market',
+      'hawker',
+      'breakfast',
+      'street food',
+      'butterworth',
+    ],
     'formattedAddress': 'Jalan Raja Uda, 12300 Butterworth, Penang, Malaysia',
     'area': 'Butterworth',
     'durationMinutes': 55,
@@ -2097,7 +2261,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 110,
     },
     'description':
-      'Butterworth’s most famous morning market, bustling with hundreds of hawkers dishing out crispy crullers, apom balik, tom yum noodles, and local delicacies.',
+        'Butterworth’s most famous morning market, bustling with hundreds of hawkers dishing out crispy crullers, apom balik, tom yum noodles, and local delicacies.',
   },
   {
     'name': 'Frog Hill (Bukit Katak Scenic Lake)',
@@ -2118,7 +2282,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
       'rewardPoints': 130,
     },
     'description':
-      'Nicknamed Penang’s Jiuzhaigou, this scenic abandoned red-clay brick quarry features breathtaking turquoise green and blue lakes surrounded by wetlands.',
+        'Nicknamed Penang’s Jiuzhaigou, this scenic abandoned red-clay brick quarry features breathtaking turquoise green and blue lakes surrounded by wetlands.',
   },
   {
     'name': 'Central Market (Pasar Seni)',
@@ -2282,7 +2446,13 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Sultan Abdul Aziz Royal Gallery',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture'],
-    'tags': ['royal gallery', 'selangor sultanate', 'history', 'klang', 'selangor'],
+    'tags': [
+      'royal gallery',
+      'selangor sultanate',
+      'history',
+      'klang',
+      'selangor',
+    ],
     'formattedAddress':
         '34 Jalan Stesen, Kawasan 1, 41000 Klang, Selangor, Malaysia',
     'area': 'Klang',
@@ -2327,8 +2497,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Nature'],
     'tags': ['fort', 'lighthouse', 'cannon', 'kuala selangor', 'selangor'],
-    'formattedAddress':
-        '45000 Kuala Selangor, Selangor, Malaysia',
+    'formattedAddress': '45000 Kuala Selangor, Selangor, Malaysia',
     'area': 'Kuala Selangor',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -2353,8 +2522,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture'],
     'tags': ['dataran merdeka', 'colonial', 'moorish', 'kuala lumpur'],
-    'formattedAddress':
-        'Jalan Raja, City Centre, 50050 Kuala Lumpur, Malaysia',
+    'formattedAddress': 'Jalan Raja, City Centre, 50050 Kuala Lumpur, Malaysia',
     'area': 'Dataran Merdeka',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2401,8 +2569,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Culture',
     'plannerCategories': ['Culture', 'Heritage', 'Nature', 'Food'],
     'tags': ['tribal', 'longhouses', 'indigenous', 'kadazandusun', 'sabah'],
-    'formattedAddress':
-        'Inanam, 88450 Kota Kinabalu, Sabah, Malaysia',
+    'formattedAddress': 'Inanam, 88450 Kota Kinabalu, Sabah, Malaysia',
     'area': 'Kota Kinabalu',
     'durationMinutes': 120,
     'budgetLevel': 'High',
@@ -2447,8 +2614,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Food', 'Local Business'],
     'tags': ['mount kinabalu', 'farm', 'dairy', 'highland', 'sabah'],
-    'formattedAddress':
-        'Kundasang, 89308 Ranau, Sabah, Malaysia',
+    'formattedAddress': 'Kundasang, 89308 Ranau, Sabah, Malaysia',
     'area': 'Kundasang',
     'durationMinutes': 90,
     'budgetLevel': 'Medium',
@@ -2470,8 +2636,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Culture'],
     'tags': ['orangutan', 'wildlife', 'conservation', 'rainforest', 'sabah'],
-    'formattedAddress':
-        'Jalan Sepilok, 90000 Sandakan, Sabah, Malaysia',
+    'formattedAddress': 'Jalan Sepilok, 90000 Sandakan, Sabah, Malaysia',
     'area': 'Sandakan',
     'durationMinutes': 90,
     'budgetLevel': 'Medium',
@@ -2545,8 +2710,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
     'tags': ['waterfront', 'sarawak river', 'brooke', 'kuching', 'sarawak'],
-    'formattedAddress':
-        'Jalan Main Bazaar, 93000 Kuching, Sarawak, Malaysia',
+    'formattedAddress': 'Jalan Main Bazaar, 93000 Kuching, Sarawak, Malaysia',
     'area': 'Kuching',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2567,8 +2731,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['hakka', 'night market', 'street food', 'bau', 'sarawak'],
-    'formattedAddress':
-        'Siniawan, 94000 Bau, Sarawak, Malaysia',
+    'formattedAddress': 'Siniawan, 94000 Bau, Sarawak, Malaysia',
     'area': 'Kuching',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -2593,8 +2756,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Food', 'Culture', 'Local Business'],
     'tags': ['concubine lane', 'white coffee', 'shophouse', 'ipoh', 'perak'],
-    'formattedAddress':
-        'Panglima Lane, 30000 Ipoh, Perak, Malaysia',
+    'formattedAddress': 'Panglima Lane, 30000 Ipoh, Perak, Malaysia',
     'area': 'Ipoh Old Town',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -2615,8 +2777,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Culture',
     'plannerCategories': ['Culture', 'Nature'],
     'tags': ['cave temple', 'limestone', 'zen garden', 'ipoh', 'perak'],
-    'formattedAddress':
-        'Persiaran Rapat Baru 4, 31350 Ipoh, Perak, Malaysia',
+    'formattedAddress': 'Persiaran Rapat Baru 4, 31350 Ipoh, Perak, Malaysia',
     'area': 'Ipoh Old Town',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2637,8 +2798,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Heritage'],
     'tags': ['rain trees', 'lake', 'first garden', 'taiping', 'perak'],
-    'formattedAddress':
-        'Jalan Pekeliling, 34000 Taiping, Perak, Malaysia',
+    'formattedAddress': 'Jalan Pekeliling, 34000 Taiping, Perak, Malaysia',
     'area': 'Taiping',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -2659,8 +2819,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture'],
     'tags': ['royal mosque', 'golden dome', 'kuala kangsar', 'perak'],
-    'formattedAddress':
-        'Jalan Istana, 33000 Kuala Kangsar, Perak, Malaysia',
+    'formattedAddress': 'Jalan Istana, 33000 Kuala Kangsar, Perak, Malaysia',
     'area': 'Kuala Kangsar',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -2736,8 +2895,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Food',
     'plannerCategories': ['Food', 'Local Business'],
     'tags': ['elephant coffee', 'kopitiam', 'muar', 'johor'],
-    'formattedAddress':
-        '121 Jalan Maharani, 84000 Muar, Johor, Malaysia',
+    'formattedAddress': '121 Jalan Maharani, 84000 Muar, Johor, Malaysia',
     'area': 'Muar',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -2762,8 +2920,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Nature',
     'plannerCategories': ['Nature', 'Culture'],
     'tags': ['skybridge', 'geopark', 'cable car', 'langkawi', 'kedah'],
-    'formattedAddress':
-        'Teluk Burau, 07000 Langkawi, Kedah, Malaysia',
+    'formattedAddress': 'Teluk Burau, 07000 Langkawi, Kedah, Malaysia',
     'area': 'Langkawi',
     'durationMinutes': 120,
     'budgetLevel': 'High',
@@ -2786,8 +2943,7 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Culture',
     'plannerCategories': ['Culture', 'Heritage'],
     'tags': ['mahsuri', 'legend', 'malay house', 'langkawi', 'kedah'],
-    'formattedAddress':
-        'Kampung Mawar, 07000 Langkawi, Kedah, Malaysia',
+    'formattedAddress': 'Kampung Mawar, 07000 Langkawi, Kedah, Malaysia',
     'area': 'Langkawi',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2807,7 +2963,13 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Masjid Zahir Alor Setar',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture'],
-    'tags': ['zahir mosque', 'grand mosque', 'black dome', 'alor setar', 'kedah'],
+    'tags': [
+      'zahir mosque',
+      'grand mosque',
+      'black dome',
+      'alor setar',
+      'kedah',
+    ],
     'formattedAddress':
         'Jalan Putera, Bandar Alor Setar, 05000 Alor Setar, Kedah, Malaysia',
     'area': 'Alor Setar',
@@ -2833,7 +2995,13 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Kuantan 188 Tower & Waterfront',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Local Business'],
-    'tags': ['observation tower', 'waterfront', 'kuantan', 'pahang', 'landmark'],
+    'tags': [
+      'observation tower',
+      'waterfront',
+      'kuantan',
+      'pahang',
+      'landmark',
+    ],
     'formattedAddress': 'Jalan Mahkota, 25000 Kuantan, Pahang, Malaysia',
     'area': 'Kuantan',
     'durationMinutes': 60,
@@ -2845,10 +3013,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Kuantan Riverfront Panorama',
-      'description': 'Enjoy the 360-degree observation deck view over the Kuantan River and Pahang coastline.',
+      'description':
+          'Enjoy the 360-degree observation deck view over the Kuantan River and Pahang coastline.',
       'rewardPoints': 110,
     },
-    'description': 'Malaysia\'s second tallest tower offering panoramic views of the Kuantan River, coastal mangroves and the South China Sea.',
+    'description':
+        'Malaysia\'s second tallest tower offering panoramic views of the Kuantan River, coastal mangroves and the South China Sea.',
   },
   {
     'name': 'Restoran Ana Ikan Bakar Petai',
@@ -2865,10 +3035,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.6,
     'culturalTask': {
       'title': 'Pahang Sambal Petai Feast',
-      'description': 'Taste freshly grilled seabass or stingray wrapped in banana leaf with signature red chili petai sambal.',
+      'description':
+          'Taste freshly grilled seabass or stingray wrapped in banana leaf with signature red chili petai sambal.',
       'rewardPoints': 90,
     },
-    'description': 'Famous Tanjung Lumpur seafood institution renowned for charcoal-grilled fish smothered in spicy homemade sambal and fresh stink beans.',
+    'description':
+        'Famous Tanjung Lumpur seafood institution renowned for charcoal-grilled fish smothered in spicy homemade sambal and fresh stink beans.',
   },
   {
     'name': 'Teluk Cempedak Coastal Promenade',
@@ -2884,10 +3056,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Coastal Boardwalk Trek',
-      'description': 'Walk across the wooden cliffside boardwalk connecting Teluk Cempedak to Pelindung Beach.',
+      'description':
+          'Walk across the wooden cliffside boardwalk connecting Teluk Cempedak to Pelindung Beach.',
       'rewardPoints': 100,
     },
-    'description': 'Pahang\'s premier coastal beach with white sands, breezy pine trees and a cliffside boardwalk trail over granite boulder coastlines.',
+    'description':
+        'Pahang\'s premier coastal beach with white sands, breezy pine trees and a cliffside boardwalk trail over granite boulder coastlines.',
   },
   {
     'name': 'Sungai Lembing Historic Underground Tin Mines',
@@ -2904,10 +3078,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.8,
     'culturalTask': {
       'title': 'Subterranean Tin Miner Trail',
-      'description': 'Ride the underground mine train into the deep subterranean granite tunnels that once made Lembing the El Dorado of the East.',
+      'description':
+          'Ride the underground mine train into the deep subterranean granite tunnels that once made Lembing the El Dorado of the East.',
       'rewardPoints': 150,
     },
-    'description': 'One of the world\'s deepest underground tin mining networks, dating back to British colonial times with extensive historical tunnels.',
+    'description':
+        'One of the world\'s deepest underground tin mining networks, dating back to British colonial times with extensive historical tunnels.',
   },
 
   // -------------------------------------------------------------
@@ -2918,7 +3094,8 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Food', 'Local Business'],
     'tags': ['market', 'batik', 'songket', 'keropok', 'kuala terengganu'],
-    'formattedAddress': 'Jalan Sultan Zainal Abidin, 20000 Kuala Terengganu, Terengganu, Malaysia',
+    'formattedAddress':
+        'Jalan Sultan Zainal Abidin, 20000 Kuala Terengganu, Terengganu, Malaysia',
     'area': 'Kuala Terengganu',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -2927,17 +3104,20 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.8,
     'culturalTask': {
       'title': 'Terengganu Songket & Silk Appreciation',
-      'description': 'Discover handwoven Terengganu gold-thread songket and sample traditional keropok lekor or akok.',
+      'description':
+          'Discover handwoven Terengganu gold-thread songket and sample traditional keropok lekor or akok.',
       'rewardPoints': 120,
     },
-    'description': 'Iconic riverside market celebrated for authentic hand-drawn Terengganu batiks, songket weaving, local brassware and traditional Malay kuih.',
+    'description':
+        'Iconic riverside market celebrated for authentic hand-drawn Terengganu batiks, songket weaving, local brassware and traditional Malay kuih.',
   },
   {
     'name': 'Masjid Kristal (Crystal Mosque)',
     'category': 'Culture',
     'plannerCategories': ['Culture', 'Heritage', 'Art'],
     'tags': ['mosque', 'architecture', 'crystal mosque', 'kuala terengganu'],
-    'formattedAddress': 'Pulau Wan Man, 21000 Kuala Terengganu, Terengganu, Malaysia',
+    'formattedAddress':
+        'Pulau Wan Man, 21000 Kuala Terengganu, Terengganu, Malaysia',
     'area': 'Kuala Terengganu',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2948,17 +3128,26 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.8,
     'culturalTask': {
       'title': 'Crystal Mosque Reflection Capture',
-      'description': 'Photograph the shimmering glass and steel domes reflecting over the Terengganu River at sunset.',
+      'description':
+          'Photograph the shimmering glass and steel domes reflecting over the Terengganu River at sunset.',
       'rewardPoints': 130,
     },
-    'description': 'A breathtaking glass, crystal, and steel architectural masterpiece situated on Pulau Wan Man, reflecting scenic river views.',
+    'description':
+        'A breathtaking glass, crystal, and steel architectural masterpiece situated on Pulau Wan Man, reflecting scenic river views.',
   },
   {
     'name': 'Restoran Nasi Dagang Atas Tol',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
-    'tags': ['nasi dagang', 'tuna gulai', 'atas tol', 'kuala terengganu', 'breakfast'],
-    'formattedAddress': 'Kampung Atas Tol, 21070 Kuala Terengganu, Terengganu, Malaysia',
+    'tags': [
+      'nasi dagang',
+      'tuna gulai',
+      'atas tol',
+      'kuala terengganu',
+      'breakfast',
+    ],
+    'formattedAddress':
+        'Kampung Atas Tol, 21070 Kuala Terengganu, Terengganu, Malaysia',
     'area': 'Kuala Terengganu',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2967,17 +3156,26 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.9,
     'culturalTask': {
       'title': 'Heritage Nasi Dagang Tasting',
-      'description': 'Enjoy traditional red-grain steamed rice with rich gulai ikan tongkol (tuna) and pickled cucumber salad.',
+      'description':
+          'Enjoy traditional red-grain steamed rice with rich gulai ikan tongkol (tuna) and pickled cucumber salad.',
       'rewardPoints': 100,
     },
-    'description': 'Renowned across Malaysia for authentic Terengganu nasi dagang cooked with fragrant coconut milk, fenugreek seeds and spiced tuna curry.',
+    'description':
+        'Renowned across Malaysia for authentic Terengganu nasi dagang cooked with fragrant coconut milk, fenugreek seeds and spiced tuna curry.',
   },
   {
     'name': 'Kampung Cina (Chinatown Kuala Terengganu)',
     'category': 'Heritage',
     'plannerCategories': ['Heritage', 'Culture', 'Art', 'Local Business'],
-    'tags': ['chinatown', 'shophouses', 'street art', 'turtle alley', 'kuala terengganu'],
-    'formattedAddress': 'Jalan Kampung Cina, 20100 Kuala Terengganu, Terengganu, Malaysia',
+    'tags': [
+      'chinatown',
+      'shophouses',
+      'street art',
+      'turtle alley',
+      'kuala terengganu',
+    ],
+    'formattedAddress':
+        'Jalan Kampung Cina, 20100 Kuala Terengganu, Terengganu, Malaysia',
     'area': 'Kuala Terengganu',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -2986,17 +3184,20 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Turtle Alley Mural Walk',
-      'description': 'Walk through Turtle Alley and discover the fusion of Peranakan Chinese and Terengganu Malay architectural heritage.',
+      'description':
+          'Walk through Turtle Alley and discover the fusion of Peranakan Chinese and Terengganu Malay architectural heritage.',
       'rewardPoints': 110,
     },
-    'description': 'Historical waterfront settlement of 19th-century colonial shophouses, colorful heritage alleyways, ancestral temples and local cafes.',
+    'description':
+        'Historical waterfront settlement of 19th-century colonial shophouses, colorful heritage alleyways, ancestral temples and local cafes.',
   },
   {
     'name': 'Keropok Lekor Losong BTB 220',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['keropok lekor', 'losong', 'fish snack', 'kuala terengganu'],
-    'formattedAddress': 'Kampung Losong Masjid, 21000 Kuala Terengganu, Terengganu, Malaysia',
+    'formattedAddress':
+        'Kampung Losong Masjid, 21000 Kuala Terengganu, Terengganu, Malaysia',
     'area': 'Kuala Terengganu',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -3005,10 +3206,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.8,
     'culturalTask': {
       'title': 'Losong Fish Sausage Experience',
-      'description': 'Watch fresh mackerel fish and sago dough kneaded and boiled, and taste both steamed (rebus) and crispy fried lekor with sweet chili dip.',
+      'description':
+          'Watch fresh mackerel fish and sago dough kneaded and boiled, and taste both steamed (rebus) and crispy fried lekor with sweet chili dip.',
       'rewardPoints': 90,
     },
-    'description': 'The heart of Terengganu\'s keropok lekor heritage, offering high-ratio fresh fish sausages freshly prepared throughout the day.',
+    'description':
+        'The heart of Terengganu\'s keropok lekor heritage, offering high-ratio fresh fish sausages freshly prepared throughout the day.',
   },
 
   // -------------------------------------------------------------
@@ -3018,8 +3221,15 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'name': 'Pasar Besar Siti Khadijah',
     'category': 'Culture',
     'plannerCategories': ['Culture', 'Heritage', 'Food', 'Local Business'],
-    'tags': ['central market', 'siti khadijah', 'kuih', 'kota bharu', 'kelantan'],
-    'formattedAddress': 'Jalan Buluh Kubu, 15000 Kota Bharu, Kelantan, Malaysia',
+    'tags': [
+      'central market',
+      'siti khadijah',
+      'kuih',
+      'kota bharu',
+      'kelantan',
+    ],
+    'formattedAddress':
+        'Jalan Buluh Kubu, 15000 Kota Bharu, Kelantan, Malaysia',
     'area': 'Kota Bharu',
     'durationMinutes': 75,
     'budgetLevel': 'Low',
@@ -3028,10 +3238,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.9,
     'culturalTask': {
       'title': 'Octagonal Market Discovery',
-      'description': 'Capture the vibrant multi-tier circular market floor and sample authentic Kelantan Kuih Akok or Nasi Tumpang.',
+      'description':
+          'Capture the vibrant multi-tier circular market floor and sample authentic Kelantan Kuih Akok or Nasi Tumpang.',
       'rewardPoints': 130,
     },
-    'description': 'World-famous multi-tiered cultural marketplace operated predominantly by friendly women traders selling colorful spices, keropok, and traditional batiks.',
+    'description':
+        'World-famous multi-tiered cultural marketplace operated predominantly by friendly women traders selling colorful spices, keropok, and traditional batiks.',
   },
   {
     'name': 'Istana Jahar (Museum of Royal Traditions & Customs)',
@@ -3048,17 +3260,20 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Kelantan Malay Architecture Inspection',
-      'description': 'Examine the intricate timber joinery and floral wood carvings of this 1887 royal residence.',
+      'description':
+          'Examine the intricate timber joinery and floral wood carvings of this 1887 royal residence.',
       'rewardPoints': 120,
     },
-    'description': 'Stunning 19th-century royal wooden palace showcasing traditional Kelantan weddings, royal weaponry, and master timber craftsmanship.',
+    'description':
+        'Stunning 19th-century royal wooden palace showcasing traditional Kelantan weddings, royal weaponry, and master timber craftsmanship.',
   },
   {
     'name': 'Restoran Nasi Ulam Cikgu',
     'category': 'Food',
     'plannerCategories': ['Food', 'Culture', 'Local Business'],
     'tags': ['nasi ulam', 'herbal rice', 'budu', 'ayam kampung', 'kota bharu'],
-    'formattedAddress': 'Kampung Kraftangan, Jalan Hilir Balai, 15000 Kota Bharu, Kelantan, Malaysia',
+    'formattedAddress':
+        'Kampung Kraftangan, Jalan Hilir Balai, 15000 Kota Bharu, Kelantan, Malaysia',
     'area': 'Kota Bharu',
     'durationMinutes': 60,
     'budgetLevel': 'Low',
@@ -3068,17 +3283,26 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.8,
     'culturalTask': {
       'title': 'Kelantanese Budu & Ulam Tradition',
-      'description': 'Assemble a traditional herbal rice plate with over 10 raw wild jungle herbs, budu fermented anchovy dip, and crispy deep-fried river fish.',
+      'description':
+          'Assemble a traditional herbal rice plate with over 10 raw wild jungle herbs, budu fermented anchovy dip, and crispy deep-fried river fish.',
       'rewardPoints': 110,
     },
-    'description': 'Located in the Handicraft Village, this iconic Malay eatery offers an extraordinary array of fresh medicinal jungle herbs, budu, and spiced fried chicken.',
+    'description':
+        'Located in the Handicraft Village, this iconic Malay eatery offers an extraordinary array of fresh medicinal jungle herbs, budu, and spiced fried chicken.',
   },
   {
     'name': 'Kopitiam Kita (Famous Roti Titab)',
     'category': 'Food',
     'plannerCategories': ['Food', 'Local Business'],
-    'tags': ['roti titab', 'kopitiam', 'breakfast', 'nasi berlauk', 'kota bharu'],
-    'formattedAddress': '4357-A, Taman Desa Jaya, Jalan Pengkalan Chepa, 15400 Kota Bharu, Kelantan, Malaysia',
+    'tags': [
+      'roti titab',
+      'kopitiam',
+      'breakfast',
+      'nasi berlauk',
+      'kota bharu',
+    ],
+    'formattedAddress':
+        '4357-A, Taman Desa Jaya, Jalan Pengkalan Chepa, 15400 Kota Bharu, Kelantan, Malaysia',
     'area': 'Kota Bharu',
     'durationMinutes': 45,
     'budgetLevel': 'Low',
@@ -3088,10 +3312,12 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Legendary Roti Titab Morning',
-      'description': 'Enjoy thick toasted Hainanese bread with half-boiled egg and 4 dollops of rich aromatic pandan kaya.',
+      'description':
+          'Enjoy thick toasted Hainanese bread with half-boiled egg and 4 dollops of rich aromatic pandan kaya.',
       'rewardPoints': 90,
     },
-    'description': 'Kota Bharu\'s most iconic morning kopitiam, bringing together all famous Kelantan nasi packs under one roof alongside signature Roti Titab.',
+    'description':
+        'Kota Bharu\'s most iconic morning kopitiam, bringing together all famous Kelantan nasi packs under one roof alongside signature Roti Titab.',
   },
   {
     'name': 'Wat Phothivihan (Giant Reclining Buddha)',
@@ -3107,15 +3333,59 @@ const List<Map<String, dynamic>> curatedRealPlaces = [
     'score': 4.7,
     'culturalTask': {
       'title': 'Siamese Heritage in Kelantan',
-      'description': 'Witness the 40-meter-long Reclining Buddha statue, showcasing Kelantan\'s deep cross-border Malaysian-Thai Buddhist harmony.',
+      'description':
+          'Witness the 40-meter-long Reclining Buddha statue, showcasing Kelantan\'s deep cross-border Malaysian-Thai Buddhist harmony.',
       'rewardPoints': 120,
     },
-    'description': 'Home to one of Southeast Asia\'s largest reclining Buddha statues, highlighting the vibrant cultural fusion of Siamese communities in northern Kelantan.',
+    'description':
+        'Home to one of Southeast Asia\'s largest reclining Buddha statues, highlighting the vibrant cultural fusion of Siamese communities in northern Kelantan.',
   },
 ];
 
 class MalaysianAreaSearchEngine {
   const MalaysianAreaSearchEngine._();
+
+  static String _areaKey(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static bool _containsAreaTerm(String value, String term) {
+    final valueKey = _areaKey(value);
+    final termKey = _areaKey(term);
+    if (valueKey.isEmpty || termKey.isEmpty) return false;
+    if (termKey.length <= 2) {
+      return valueKey.split(' ').contains(termKey);
+    }
+    return valueKey == termKey || valueKey.contains(termKey);
+  }
+
+  static MalaysianSubArea? findSpecificSubArea(String areaText) {
+    for (final hub in malaysianAreaHubs) {
+      for (final sub in hub.subAreas) {
+        if (_containsAreaTerm(areaText, sub.name) ||
+            sub.aliases.any((alias) => _containsAreaTerm(areaText, alias))) {
+          return sub;
+        }
+      }
+    }
+    return null;
+  }
+
+  static bool matchesSpecificDestination({
+    required String selectedArea,
+    required String vendorAddress,
+  }) {
+    final selectedSubArea = findSpecificSubArea(selectedArea);
+    if (selectedSubArea == null) return false;
+    return _containsAreaTerm(vendorAddress, selectedSubArea.name) ||
+        selectedSubArea.aliases.any(
+          (alias) => _containsAreaTerm(vendorAddress, alias),
+        );
+  }
 
   static String normalise(String area) {
     final value = area.trim();
@@ -3196,6 +3466,31 @@ class MalaysianAreaSearchEngine {
     return terms.any(lower.contains);
   }
 
+  static Map<String, double>? findKnownCenter(String areaText) {
+    final selectedSubArea = findSpecificSubArea(areaText);
+    if (selectedSubArea != null) {
+      return {
+        'latitude': selectedSubArea.latitude,
+        'longitude': selectedSubArea.longitude,
+      };
+    }
+    final lower = areaText.toLowerCase();
+    for (final hub in malaysianAreaHubs) {
+      if (lower.contains(hub.primaryQuery.toLowerCase()) ||
+          lower.contains(hub.name.toLowerCase()) ||
+          hub.aliases.any((alias) => lower.contains(alias))) {
+        if (hub.subAreas.isNotEmpty) {
+          final firstSub = hub.subAreas.first;
+          return {
+            'latitude': firstSub.latitude,
+            'longitude': firstSub.longitude,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   static double calculateAreaRelevance({
     required String selectedArea,
     required String vendorAddress,
@@ -3206,16 +3501,39 @@ class MalaysianAreaSearchEngine {
     for (final hub in malaysianAreaHubs) {
       for (final sub in hub.subAreas) {
         final subLower = sub.name.toLowerCase();
-        final isSelectedMatchingSub = sLower.contains(subLower) ||
+        final isSelectedMatchingSub =
+            sLower.contains(subLower) ||
             sub.aliases.any((a) => sLower == a || sLower.contains(a));
         if (isSelectedMatchingSub) {
-          final isAddressMatchingSub = vLower.contains(subLower) ||
+          final isAddressMatchingSub =
+              vLower.contains(subLower) ||
               sub.aliases.any((a) => vLower.contains(a));
           if (isAddressMatchingSub) {
             return 1.0;
-          } else {
-            return 0.05;
           }
+          final hubTerms =
+              <String>{
+                    hub.name.toLowerCase(),
+                    hub.primaryQuery.toLowerCase(),
+                    ...hub.aliases,
+                  }
+                  .expand(
+                    (term) => term
+                        .split(RegExp(r'[^a-z0-9]+'))
+                        .where((token) => token.length > 2),
+                  )
+                  .where(
+                    (token) =>
+                        token != 'malaysia' &&
+                        token != 'state' &&
+                        token != 'wilayah' &&
+                        token != 'persekutuan',
+                  )
+                  .toSet();
+          if (hubTerms.any(vLower.contains)) {
+            return 0.72;
+          }
+          return 0.0;
         }
       }
     }
@@ -3254,13 +3572,19 @@ class MalaysianAreaSearchEngine {
     for (final hub in malaysianAreaHubs) {
       final hubMatched =
           hub.name.toLowerCase().contains(query) ||
-          hub.aliases.any((alias) => alias == query || alias.contains(query) || query.contains(alias));
+          hub.aliases.any(
+            (alias) =>
+                alias == query ||
+                alias.contains(query) ||
+                query.contains(alias),
+          );
 
       for (final sub in hub.subAreas) {
         final subName = sub.name.toLowerCase();
         final subFull = sub.fullQuery.toLowerCase();
         final aliasMatched = sub.aliases.any(
-          (alias) => alias == query || alias.contains(query) || query.contains(alias),
+          (alias) =>
+              alias == query || alias.contains(query) || query.contains(alias),
         );
 
         if (subName.contains(query) ||
@@ -3292,7 +3616,9 @@ class MalaysianAreaSearchEngine {
 class PlaceReviewsData {
   const PlaceReviewsData._();
 
-  static List<Map<String, dynamic>> getVerifiedReviews(Map<String, dynamic> place) {
+  static List<Map<String, dynamic>> getVerifiedReviews(
+    Map<String, dynamic> place,
+  ) {
     final name = '${place['name'] ?? ''}'.trim();
     final nameLower = name.toLowerCase();
     final category = '${place['category'] ?? ''}'.toLowerCase();
@@ -3304,21 +3630,24 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Tan Mei Ling',
           'rating': 5,
-          'comment': 'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
+          'comment':
+              'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
           'date': '3 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Hafiz Ridzuan',
           'rating': 5,
-          'comment': 'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal soup, and fast service even during lunch peak.',
+          'comment':
+              'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal soup, and fast service even during lunch peak.',
           'date': '1 week ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Bernard Lim',
           'rating': 4,
-          'comment': 'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
+          'comment':
+              'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
           'date': '2 weeks ago',
           'isVerified': true,
         },
@@ -3330,71 +3659,83 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Kok Keong',
           'rating': 5,
-          'comment': 'Classic BM comfort meal! Steamed cup rice drenched in savory minced meat and roasted pork gravy. Nostalgic taste of Seberang Perai.',
+          'comment':
+              'Classic BM comfort meal! Steamed cup rice drenched in savory minced meat and roasted pork gravy. Nostalgic taste of Seberang Perai.',
           'date': '4 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Evelyn Khor',
           'rating': 5,
-          'comment': 'Super satisfying breakfast near the old BM market. The pork belly is tender and the chili packs a nice kick.',
+          'comment':
+              'Super satisfying breakfast near the old BM market. The pork belly is tender and the chili packs a nice kick.',
           'date': '1 week ago',
           'isVerified': true,
         },
       ];
     }
 
-    if (nameLower.contains('duck egg') || nameLower.contains('char koay teow')) {
+    if (nameLower.contains('duck egg') ||
+        nameLower.contains('char koay teow')) {
       return [
         {
           'reviewerName': 'Marcus Goh',
           'rating': 5,
-          'comment': 'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow.',
+          'comment':
+              'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow.',
           'date': '2 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Nurul Huda',
           'rating': 5,
-          'comment': 'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
+          'comment':
+              'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
           'date': '6 days ago',
           'isVerified': true,
         },
       ];
     }
 
-    if (nameLower.contains('st. anne') || nameLower.contains('st anne') || nameLower.contains('basilica')) {
+    if (nameLower.contains('st. anne') ||
+        nameLower.contains('st anne') ||
+        nameLower.contains('basilica')) {
       return [
         {
           'reviewerName': 'Maria Santos',
           'rating': 5,
-          'comment': 'Serene and magnificent Minor Basilica. Walking up the old hill shrine surrounded by lush trees was peaceful and spiritually uplifting.',
+          'comment':
+              'Serene and magnificent Minor Basilica. Walking up the old hill shrine surrounded by lush trees was peaceful and spiritually uplifting.',
           'date': '5 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'David Chong',
           'rating': 5,
-          'comment': 'A heritage treasure in Bukit Mertajam with over 175 years of history. Beautiful stained glass and gothic architecture.',
+          'comment':
+              'A heritage treasure in Bukit Mertajam with over 175 years of history. Beautiful stained glass and gothic architecture.',
           'date': '1 week ago',
           'isVerified': true,
         },
       ];
     }
 
-    if (nameLower.contains('cheong fatt tze') || nameLower.contains('blue mansion')) {
+    if (nameLower.contains('cheong fatt tze') ||
+        nameLower.contains('blue mansion')) {
       return [
         {
           'reviewerName': 'Sarah Jenkins',
           'rating': 5,
-          'comment': 'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
+          'comment':
+              'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
           'date': '2 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Lim Wei Sheng',
           'rating': 5,
-          'comment': 'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
+          'comment':
+              'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
           'date': '5 days ago',
           'isVerified': true,
         },
@@ -3406,14 +3747,16 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Chloe Dupont',
           'rating': 5,
-          'comment': 'Overwhelmingly beautiful collection of Baba Nyonya jewelry, custom tiles, and gold-leaf wood carvings. Must visit in Penang!',
+          'comment':
+              'Overwhelmingly beautiful collection of Baba Nyonya jewelry, custom tiles, and gold-leaf wood carvings. Must visit in Penang!',
           'date': '1 day ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Ahmad Zaki',
           'rating': 5,
-          'comment': 'Incredible preservation of Straits Chinese heritage. The museum docents are very knowledgeable.',
+          'comment':
+              'Incredible preservation of Straits Chinese heritage. The museum docents are very knowledgeable.',
           'date': '4 days ago',
           'isVerified': true,
         },
@@ -3425,14 +3768,16 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Siti Rohani',
           'rating': 5,
-          'comment': 'The octagonal central market is full of life! Friendly makcik traders, fresh kuih akok, and stunning hand-printed batiks.',
+          'comment':
+              'The octagonal central market is full of life! Friendly makcik traders, fresh kuih akok, and stunning hand-printed batiks.',
           'date': '3 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Lucas Bennett',
           'rating': 5,
-          'comment': 'A sensory wonderland for travelers. The upper floor offers great photo angles of the colourful produce stalls below.',
+          'comment':
+              'A sensory wonderland for travelers. The upper floor offers great photo angles of the colourful produce stalls below.',
           'date': '1 week ago',
           'isVerified': true,
         },
@@ -3444,14 +3789,16 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Farhan Malik',
           'rating': 5,
-          'comment': 'Gleaming steel and crystal domes reflecting over the Terengganu river at sunset. Breathtaking view!',
+          'comment':
+              'Gleaming steel and crystal domes reflecting over the Terengganu river at sunset. Breathtaking view!',
           'date': '2 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Emily Watson',
           'rating': 5,
-          'comment': 'Unique modern Islamic architecture on Pulau Wan Man. Very tranquil and great breeze along the river promenade.',
+          'comment':
+              'Unique modern Islamic architecture on Pulau Wan Man. Very tranquil and great breeze along the river promenade.',
           'date': '5 days ago',
           'isVerified': true,
         },
@@ -3463,14 +3810,16 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Alexander Ross',
           'rating': 5,
-          'comment': 'Southeast Asia\'s finest museum experience! Five massive floors covering indigenous crafts, archaeology, and living traditions.',
+          'comment':
+              'Southeast Asia\'s finest museum experience! Five massive floors covering indigenous crafts, archaeology, and living traditions.',
           'date': '1 day ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Jessica Dayak',
           'rating': 5,
-          'comment': 'Immersive interactive exhibits that showcase Borneo\'s diverse ethnic heritage. Plan at least 2 hours here.',
+          'comment':
+              'Immersive interactive exhibits that showcase Borneo\'s diverse ethnic heritage. Plan at least 2 hours here.',
           'date': '4 days ago',
           'isVerified': true,
         },
@@ -3482,14 +3831,16 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Ravi Kumar',
           'rating': 5,
-          'comment': 'Climbing the 272 colourful rainbow steps up to the colossal limestone cathedral cave is an iconic Malaysian experience.',
+          'comment':
+              'Climbing the 272 colourful rainbow steps up to the colossal limestone cathedral cave is an iconic Malaysian experience.',
           'date': '2 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Elena Volkova',
           'rating': 5,
-          'comment': 'The Lord Murugan golden statue is majestic. Watch out for the cheeky monkeys along the stairway!',
+          'comment':
+              'The Lord Murugan golden statue is majestic. Watch out for the cheeky monkeys along the stairway!',
           'date': '6 days ago',
           'isVerified': true,
         },
@@ -3501,7 +3852,8 @@ class PlaceReviewsData {
         {
           'reviewerName': 'Faizal Azman',
           'rating': 5,
-          'comment': 'Unbeatable red-grain coconut steamed rice with tender tuna (ikan tongkol) gulai. Truly the gold standard of East Coast cuisine.',
+          'comment':
+              'Unbeatable red-grain coconut steamed rice with tender tuna (ikan tongkol) gulai. Truly the gold standard of East Coast cuisine.',
           'date': '3 days ago',
           'isVerified': true,
         },
@@ -3509,45 +3861,54 @@ class PlaceReviewsData {
     }
 
     // Category-specific high-quality verified traveler reviews fallback
-    if (category.contains('food') || category.contains('restaurant') || category.contains('cafe')) {
+    if (category.contains('food') ||
+        category.contains('restaurant') ||
+        category.contains('cafe')) {
       return [
         {
           'reviewerName': 'Kelvin Lee',
           'rating': 5,
-          'comment': 'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their signature specialty dishes!',
+          'comment':
+              'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their signature specialty dishes!',
           'date': '3 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Aishah Rahman',
           'rating': 5,
-          'comment': 'Loved the traditional atmosphere and friendly hospitality. A genuine taste of $area culinary culture.',
+          'comment':
+              'Loved the traditional atmosphere and friendly hospitality. A genuine taste of $area culinary culture.',
           'date': '1 week ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Jason Miller',
           'rating': 4,
-          'comment': 'Great stop on our itinerary. Clean venue, authentic spices, and very welcoming staff.',
+          'comment':
+              'Great stop on our itinerary. Clean venue, authentic spices, and very welcoming staff.',
           'date': '2 weeks ago',
           'isVerified': true,
         },
       ];
     }
 
-    if (category.contains('nature') || category.contains('park') || category.contains('beach')) {
+    if (category.contains('nature') ||
+        category.contains('park') ||
+        category.contains('beach')) {
       return [
         {
           'reviewerName': 'Daniel Lim',
           'rating': 5,
-          'comment': 'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing morning walks.',
+          'comment':
+              'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing morning walks.',
           'date': '4 days ago',
           'isVerified': true,
         },
         {
           'reviewerName': 'Grace Tan',
           'rating': 5,
-          'comment': 'Serene green atmosphere with great photo spots. Peaceful escape from the city bustle.',
+          'comment':
+              'Serene green atmosphere with great photo spots. Peaceful escape from the city bustle.',
           'date': '1 week ago',
           'isVerified': true,
         },
@@ -3558,21 +3919,24 @@ class PlaceReviewsData {
       {
         'reviewerName': 'Wong Chee Keong',
         'rating': 5,
-        'comment': 'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
+        'comment':
+            'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
         'date': '2 days ago',
         'isVerified': true,
       },
       {
         'reviewerName': 'Nur Syafiqah',
         'rating': 5,
-        'comment': 'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
+        'comment':
+            'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
         'date': '5 days ago',
         'isVerified': true,
       },
       {
         'reviewerName': 'Tom Harrison',
         'rating': 4,
-        'comment': 'Engaging visit and great cultural insights into Malaysian traditions. Don\'t forget to snap photos of the exterior details.',
+        'comment':
+            'Engaging visit and great cultural insights into Malaysian traditions. Don\'t forget to snap photos of the exterior details.',
         'date': '2 weeks ago',
         'isVerified': true,
       },
@@ -3672,5 +4036,3 @@ class MalaysianPlannerSync {
     return count;
   }
 }
-
-

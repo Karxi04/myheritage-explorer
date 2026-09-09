@@ -66,7 +66,7 @@ class MissingProfilePage extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                     OutlinedButton.icon(
-                      onPressed: AppServices.auth.signOut,
+                      onPressed: AppServices.signOut,
                       icon: const Icon(Icons.logout, size: 18),
                       label: const Text('Sign out'),
                     ),

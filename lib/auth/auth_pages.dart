@@ -1,6 +1,7 @@
 ﻿import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +10,7 @@ import '../core/app_theme.dart';
 import '../core/explorer_ui.dart';
 import '../core/helpers.dart';
 import '../core/services.dart';
+import '../core/pin_service.dart';
 
 
 part 'screens/role_select_page.dart';
@@ -16,6 +18,9 @@ part 'screens/login_page.dart';
 part 'screens/registration_page.dart';
 part 'screens/forgot_password_page.dart';
 part 'screens/change_password_page.dart';
+part 'screens/change_email_page.dart';
+part 'screens/pin_setup_page.dart';
+part 'screens/pin_entry_page.dart';
 
 part 'screens/vendor_location_picker_page.dart';
 

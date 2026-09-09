@@ -14,7 +14,76 @@ class TravelerProfilePage extends StatefulWidget {
 }
 
 class _TravelerProfilePageState extends State<TravelerProfilePage> {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh user data (like changed email) whenever profile is opened.
+    // Use a silent reload to avoid interrupting the session.
+    _refreshUser();
+  }
+
+  Future<void> _refreshUser() async {
+    try {
+      final user = AppServices.auth.currentUser;
+      if (user != null) {
+        await user.reload();
+        final updatedUser = AppServices.auth.currentUser;
+        if (updatedUser != null &&
+            updatedUser.emailVerified &&
+            updatedUser.email != widget.profile['email']) {
+          // Attempt to update Firestore. If user was force-logged out 
+          // by Firebase, this update will fail, and we won't show the notice.
+          await AppServices.travelerRef(updatedUser.uid).update({
+            'email': updatedUser.email,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          
+          showGlobalNotice(
+            title: 'Session Expired',
+            message: 'Your email address has been verified. Please sign in again with your new email.',
+            buttonText: 'Login Now',
+            onConfirm: () async {
+              await AppServices.signOut();
+            },
+          );
+        } else if (mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      debugPrint('Profile refresh failed: $e');
+    }
+  }
+
   Future<void> deactivateAccount({required bool deletionRequested}) async {
+    // Check 72-hour reactivation cooldown
+    final rawReactivatedAt = widget.profile['lastReactivatedAt'];
+    DateTime? reactivatedAt;
+    if (rawReactivatedAt is Timestamp) {
+      reactivatedAt = rawReactivatedAt.toDate();
+    } else if (rawReactivatedAt is String) {
+      reactivatedAt = DateTime.tryParse(rawReactivatedAt);
+    }
+
+    if (reactivatedAt != null) {
+      final now = DateTime.now();
+      final cooldownEnd = reactivatedAt.add(const Duration(hours: 72));
+      if (now.isBefore(cooldownEnd)) {
+        final remaining = cooldownEnd.difference(now);
+        final hours = remaining.inHours;
+        final minutes = remaining.inMinutes.remainder(60);
+        final timeStr = hours > 0
+            ? '$hours hour${hours == 1 ? '' : 's'} and $minutes minute${minutes == 1 ? '' : 's'}'
+            : '$minutes minute${minutes == 1 ? '' : 's'}';
+        showMessage(
+          context,
+          'Account deactivation is on a 72-hour cooldown after reactivation. Remaining cooldown: $timeStr.',
+          error: true,
+        );
+        return;
+      }
+    }
+
     if (deletionRequested) {
       final keywordConfirmed = await confirmDeletionKeyword(context);
       if (!keywordConfirmed || !mounted) {
@@ -33,7 +102,7 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
         builder: (_) => AlertDialog(
           title: const Text('Deactivate Account?'),
           content: const Text(
-            'Deactivating your account is temporary. Your profile, itineraries and rewards will be hidden until an administrator reactivates your account.',
+            'Deactivating your account is temporary. Your profile, itineraries and rewards will be hidden until you log back in and reactivate your account.',
           ),
           actions: [
             TextButton(
@@ -79,13 +148,7 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
         title: const ExplorerBrand(compact: true),
-        leading: Builder(
-          builder: (context) => IconButton(
-            tooltip: 'Menu',
-            onPressed: () {},
-            icon: const Icon(Icons.menu),
-          ),
-        ),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             tooltip: 'Notifications',
@@ -177,17 +240,8 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          const Text(
-            'SETTINGS & PREFERENCES',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .6,
-            ),
-          ),
-          const SizedBox(height: 8),
+          // SECTION 1: ACCOUNT & PRIVACY
+          _sectionHeader('ACCOUNT & PRIVACY'),
           ExplorerCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -208,6 +262,66 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
                   },
                 ),
                 _divider(),
+                _settingsTile(
+                  icon: widget.profile['isProfileHidden'] == true
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  title: widget.profile['isProfileHidden'] == true
+                      ? 'Profile Privacy (Hidden)'
+                      : 'Profile Privacy (Visible)',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _ProfileInformationPage(
+                          profile: widget.profile,
+                        ),
+                      ),
+                    );
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // SECTION 2: EXPLORE & COMMUNITY
+          _sectionHeader('EXPLORE & COMMUNITY'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _settingsTile(
+                  icon: Icons.person_search_outlined,
+                  title: 'Search Users',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const UserSearchPage(),
+                    ),
+                  ),
+                ),
+                _divider(),
+                _settingsTile(
+                  icon: Icons.storefront_outlined,
+                  title: 'Search Vendors',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const VendorSearchPage(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // SECTION 3: REWARDS & SAFETY
+          _sectionHeader('REWARDS & SAFETY'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
                 _settingsTile(
                   icon: Icons.account_balance_wallet_outlined,
                   title: 'Voucher Wallet',
@@ -232,17 +346,9 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          const Text(
-            'ACCOUNT MAINTENANCE',
-            style: TextStyle(
-              color: ExplorerColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .6,
-            ),
-          ),
-          const SizedBox(height: 8),
+
+          // SECTION 4: SECURITY & LOGIN
+          _sectionHeader('SECURITY & LOGIN'),
           ExplorerCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -258,12 +364,73 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
                   ),
                 ),
                 _divider(),
+                FutureBuilder<bool>(
+                  future: PinService.isPinSet(),
+                  builder: (context, snapshot) {
+                    final hasPin = snapshot.data == true;
+                    return _settingsTile(
+                      icon: hasPin ? Icons.lock_open_outlined : Icons.lock_outline,
+                      title: hasPin ? 'Change or Disable PIN' : 'Setup Security PIN',
+                      onTap: () async {
+                        if (hasPin) {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Security PIN'),
+                              content: const Text('Would you like to change your PIN or disable it?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () async {
+                                    await PinService.disablePin();
+                                    if (context.mounted) {
+                                      Navigator.pop(context, true);
+                                      showMessage(context, 'Security PIN disabled.');
+                                    }
+                                  },
+                                  child: const Text('Disable PIN', style: TextStyle(color: ExplorerColors.danger)),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text('Change PIN'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirmed == false && context.mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const PinSetupPage()),
+                            ).then((_) => setState(() {}));
+                          } else if (confirmed == true) {
+                            setState(() {});
+                          }
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const PinSetupPage()),
+                          ).then((_) => setState(() {}));
+                        }
+                      },
+                    );
+                  },
+                ),
+                _divider(),
                 _settingsTile(
                   icon: Icons.logout,
                   title: 'Logout',
-                  onTap: AppServices.auth.signOut,
+                  onTap: AppServices.signOut,
                 ),
-                _divider(),
+              ],
+            ),
+          ),
+
+          // SECTION 5: DANGER ZONE
+          _sectionHeader('DANGER ZONE'),
+          ExplorerCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
                 _settingsTile(
                   icon: Icons.pause_circle_outline,
                   title: 'Deactivate Account',
@@ -282,6 +449,21 @@ class _TravelerProfilePageState extends State<TravelerProfilePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: ExplorerColors.muted,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .6,
+        ),
       ),
     );
   }
@@ -386,6 +568,7 @@ class _ProfileInformationPageState
   late final Set<String> interests;
   late String budget;
   late String pace;
+  late bool isProfileHidden;
   bool busy = false;
 
   @override
@@ -398,29 +581,45 @@ class _ProfileInformationPageState
         Set<String>.from(widget.profile['travelInterests'] ?? const []);
     budget = '${widget.profile['budgetPreference'] ?? 'Medium'}';
     pace = '${widget.profile['travelPace'] ?? 'Balanced'}';
+    isProfileHidden = widget.profile['isProfileHidden'] == true;
+    
+    // Reload user to get latest email if it was verified/changed
+    AppServices.auth.currentUser?.reload().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> save() async {
-    if (name.text.trim().isEmpty) {
+    final cleanedName = cleanName(name.text);
+    if (cleanedName.isEmpty) {
       showMessage(context, 'Enter your full name.', error: true);
+      return;
+    }
+    if (!isValidName(name.text)) {
+      showMessage(context, 'Name contains invalid characters.', error: true);
+      return;
+    }
+    if (interests.isEmpty) {
+      showMessage(context, 'Select at least one travel interest.', error: true);
       return;
     }
     setState(() => busy = true);
     try {
       final uid = AppServices.auth.currentUser!.uid;
       await AppServices.travelerRef(uid).update({
-        'displayName': name.text.trim(),
+        'displayName': cleanedName,
         'travelInterests': interests.toList(),
         'budgetPreference': budget,
         'travelPace': pace,
+        'isProfileHidden': isProfileHidden,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      await AppServices.auth.currentUser!
-          .updateDisplayName(name.text.trim());
-      widget.profile['displayName'] = name.text.trim();
+      await AppServices.auth.currentUser!.updateDisplayName(cleanedName);
+      widget.profile['displayName'] = cleanedName;
       widget.profile['travelInterests'] = interests.toList();
       widget.profile['budgetPreference'] = budget;
       widget.profile['travelPace'] = pace;
+      widget.profile['isProfileHidden'] = isProfileHidden;
 
       if (mounted) {
         showMessage(context, 'Profile updated.');
@@ -443,8 +642,8 @@ class _ProfileInformationPageState
 
   @override
   Widget build(BuildContext context) {
-    final email =
-        '${widget.profile['email'] ?? AppServices.auth.currentUser?.email ?? ''}';
+    final email = AppServices.auth.currentUser?.email ??
+        '${widget.profile['email'] ?? ''}';
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -487,12 +686,38 @@ class _ProfileInformationPageState
                   ),
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  controller: TextEditingController(text: email),
-                  enabled: false,
-                  decoration: const InputDecoration(
-                    labelText: 'Email Address',
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: TextEditingController(text: email),
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Email Address',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ChangeEmailPage(),
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text('Change'),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 18),
                 const Align(
@@ -535,7 +760,7 @@ class _ProfileInformationPageState
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: budget,
+                  initialValue: budget,
                   decoration: const InputDecoration(
                     labelText: 'Budget Preference',
                   ),
@@ -552,7 +777,7 @@ class _ProfileInformationPageState
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
-                  value: pace,
+                  initialValue: pace,
                   decoration: const InputDecoration(
                     labelText: 'Travel Pace',
                   ),
@@ -567,6 +792,31 @@ class _ProfileInformationPageState
                   onChanged: (value) =>
                       setState(() => pace = value ?? pace),
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Hide Profile from Search',
+                    style: TextStyle(
+                      color: ExplorerColors.navy,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Turn off profile viewing by other people. When enabled, your profile will show as hidden when others search for your name.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                  value: isProfileHidden,
+                  activeColor: ExplorerColors.navy,
+                  onChanged: (val) =>
+                      setState(() => isProfileHidden = val),
+                ),
+                const Divider(),
                 const SizedBox(height: 18),
                 ExplorerCard(
                   backgroundColor: ExplorerColors.successSoft,

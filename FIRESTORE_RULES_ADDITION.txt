@@ -1,0 +1,29 @@
+Add 'user_reports' to your existing TEMPORARY DEVELOPMENT ACCESS list in Firebase Console:
+
+Firebase Console -> Firestore Database -> Rules
+
+Add 'user_reports' to the collection list:
+
+match /{collection}/{document=**} {
+  allow read, write: if signedIn()
+      && collection in [
+        'itineraries',
+        'reviews',
+        'cultural_tasks',
+        'task_submissions',
+        'vouchers',
+        'claimed_vouchers',
+        'redemptions',
+        'notifications',
+        'travel_groups',
+        'group_invitations',
+        'private_chats',
+        'location_requests',
+        'sos_alerts',
+        'hazards',
+        'places',
+        'place_content',
+        'weather_reminders',
+        'user_reports'
+      ];
+}

@@ -5,9 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import 'helpers.dart';
 import 'notification_service.dart';
+import 'pin_service.dart';
 
 class AccountProfile {
   const AccountProfile({required this.role, required this.data});
@@ -59,6 +62,7 @@ class AppServices {
   static final storage = FirebaseStorage.instance;
   static final Map<String, DateTime> _nearbyRewardAlertTimes =
       <String, DateTime>{};
+  static final googleSignIn = GoogleSignIn();
 
   static DocumentReference<Map<String, dynamic>> adminRef(String uid) =>
       db.collection('admins').doc(uid);
@@ -78,6 +82,88 @@ class AppServices {
       'vendor' => vendorRef(uid),
       _ => travelerRef(uid),
     };
+  }
+
+  static Future<void> handleAuthActionLink(Uri uri) async {
+    final mode = uri.queryParameters['mode'];
+    final oobCode = uri.queryParameters['oobCode'];
+    if (oobCode == null) return;
+
+    // Handle recovery (revert), verification (change), and simple verification
+    if (mode == 'recoverEmail' || mode == 'verifyAndChangeEmail' || mode == 'verifyEmail') {
+      try {
+        // 1. Identify the email involved
+        final info = await auth.checkActionCode(oobCode);
+        final targetEmail = info.data['email'];
+        
+        // 2. Apply the action (This might fail if already handled by browser, we ignore failure)
+        try {
+          await auth.applyActionCode(oobCode);
+        } catch (e) {
+          debugPrint('Auth Action apply skipped (likely browser handled): $e');
+        }
+        
+        // 3. Clear Firestore flags for the user even if signed out
+        if (targetEmail != null) {
+          final collections = ['admins', 'travelers', 'vendors'];
+          for (final coll in collections) {
+            // Find any doc where this email is either current or pending
+            final query = await db.collection(coll)
+                .where('emailChangePending', isEqualTo: true)
+                .get();
+            
+            for (var doc in query.docs) {
+              final data = doc.data();
+              if (data['email'] == targetEmail || data['pendingEmail'] == targetEmail) {
+                await doc.reference.update({
+                  'emailChangePending': false,
+                  'pendingEmail': FieldValue.delete(),
+                  'oldEmail': FieldValue.delete(),
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+                debugPrint('Auto-resolved pending email state for $targetEmail');
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('handleAuthActionLink error: $e');
+      }
+    }
+  }
+
+  static Future<void> signOut() async {
+    await PinService.disablePin();
+    PinService.lockSession();
+    if (await googleSignIn.isSignedIn()) {
+      await googleSignIn.signOut();
+    }
+    await auth.signOut();
+  }
+
+  static Future<void> deleteCurrentUser() async {
+    final user = auth.currentUser;
+    if (user != null) {
+      await user.delete();
+    }
+  }
+
+  static Future<UserCredential?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return null;
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      return await auth.signInWithCredential(credential);
+    } catch (e) {
+      debugPrint('Google Sign-In Error: $e');
+      rethrow;
+    }
   }
 
   static String collectionNameForRole(String role) {
@@ -135,6 +221,37 @@ class AppServices {
     }, SetOptions(merge: true));
 
     return true;
+  }
+
+  static Future<Map<String, dynamic>?> findProfileByEmail(String email) async {
+    final cleaned = email.trim().toLowerCase();
+    final collections = ['admins', 'travelers', 'vendors'];
+    
+    for (final coll in collections) {
+      try {
+        final matches = await db.collection(coll)
+            .where('email', isEqualTo: cleaned)
+            .limit(1)
+            .get();
+        
+        if (matches.docs.isNotEmpty) {
+          final data = matches.docs.first.data();
+          data['id'] = matches.docs.first.id;
+          data['collection'] = coll;
+          return data;
+        }
+      } catch (e) {
+        if (e.toString().contains('permission-denied')) {
+          throw Exception(
+            'Security Check Failed: Access to security questions is restricted. '
+            'Please update your Firestore rules to allow read access for password recovery, '
+            'or use the "Email Link" method instead.'
+          );
+        }
+        rethrow;
+      }
+    }
+    return null;
   }
 
   static Future<AccountProfile?> currentAccountProfile() async {
@@ -252,6 +369,18 @@ class AppServices {
     return controller.stream;
   }
 
+  static Future<void> saveSecurityQuestions({
+    required String uid,
+    required String role,
+    required List<Map<String, String>> securityQuestions,
+  }) async {
+    final ref = profileRefForRole(uid, role);
+    await ref.update({
+      'securityQuestions': securityQuestions,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   static Future<void> registerTraveler({
     required String email,
     required String password,
@@ -259,6 +388,7 @@ class AppServices {
     required List<String> interests,
     required String budgetPreference,
     required String travelPace,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final result = await auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -273,6 +403,7 @@ class AppServices {
       interests: interests,
       budgetPreference: budgetPreference,
       travelPace: travelPace,
+      securityQuestions: securityQuestions,
     );
   }
 
@@ -281,6 +412,7 @@ class AppServices {
     required List<String> interests,
     required String budgetPreference,
     required String travelPace,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final user = _currentUserOrThrow();
     await user.updateDisplayName(fullName.trim());
@@ -291,10 +423,10 @@ class AppServices {
       'displayName': fullName.trim(),
       'role': 'traveler',
       'status': 'active',
-      'emailVerified': user.emailVerified,
       'travelInterests': interests,
       'budgetPreference': budgetPreference,
       'travelPace': travelPace,
+      'securityQuestions': securityQuestions,
       'points': 0,
       'favoriteVoucherIds': <String>[],
       'notificationPreferences': {
@@ -305,6 +437,7 @@ class AppServices {
       },
       'localImpactScore': 0,
       'rank': 'Bronze',
+      'emailVerified': user.emailVerified,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -326,6 +459,7 @@ class AppServices {
     String? verificationExtension,
     Uint8List? businessImageBytes,
     String? businessImageExtension,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final result = await auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -349,6 +483,7 @@ class AppServices {
       verificationExtension: verificationExtension,
       businessImageBytes: businessImageBytes,
       businessImageExtension: businessImageExtension,
+      securityQuestions: securityQuestions,
     );
   }
 
@@ -366,6 +501,7 @@ class AppServices {
     String? verificationExtension,
     Uint8List? businessImageBytes,
     String? businessImageExtension,
+    List<Map<String, String>> securityQuestions = const [],
   }) async {
     final user = _currentUserOrThrow();
     await user.updateDisplayName(businessName.trim());
@@ -423,6 +559,7 @@ class AppServices {
       'role': 'vendor',
       'status': 'active',
       'vendorStatus': 'pending',
+      'securityQuestions': securityQuestions,
       'emailVerified': user.emailVerified,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -513,7 +650,23 @@ class AppServices {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    await auth.signOut();
+    await signOut();
+  }
+
+  static Future<void> reactivateOwnAccount() async {
+    final user = auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No signed-in user was found.');
+    }
+
+    final profileRef = await accountRef(user.uid);
+    await profileRef.update({
+      'status': 'active',
+      'deletionRequested': false,
+      'lastReactivatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   static bool notificationPreference(
@@ -573,8 +726,35 @@ class AppServices {
     required String message,
     String type = 'general',
     String? referenceId,
+    String? groupId,
+    String? chatId,
   }) async {
     if (!await _notificationAllowed(userId, type)) return;
+    await db.collection('notifications').add({
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'type': type,
+      'referenceId': referenceId,
+
+      if (groupId != null)
+        'groupId': groupId,
+
+      if (chatId != null)
+        'chatId': chatId,
+
+      'read': false,
+
+      // ==========================================================
+      // USED BY OUR SPARK NOTIFICATION SERVER
+      // ==========================================================
+
+      'pushStatus': 'pending',
+      'pushAttempts': 0,
+
+      'createdAt':
+      FieldValue.serverTimestamp(),
+    });
     try {
       await db.collection('notifications').add({
         'userId': userId,
@@ -634,26 +814,51 @@ class AppServices {
       referenceId: itineraryId,
     );
 
-    // Schedule 1 day before at 9:00 AM (or on start date at 8:00 AM if trip is tomorrow/today)
-    final now = DateTime.now();
-    DateTime reminderDate = DateTime(
+    final reminderDate = nextTripReminderTime(tripStartDate: tripStartDate);
+    if (reminderDate == null) return;
+
+    final leadDays = tripReminderLeadDays(
+      tripStartDate: tripStartDate,
+      reminderTime: reminderDate,
+    );
+    final leadLabel = leadDays == 0
+        ? 'today'
+        : leadDays == 1
+        ? 'tomorrow'
+        : 'in $leadDays days';
+
+    final notifId = itineraryId.hashCode.abs().remainder(100000);
+    await SystemNotificationService.instance.scheduleTripReminder(
+      id: notifId,
+      title: 'Upcoming Trip: $title',
+      body:
+          'Your trip to $area starts $leadLabel ($formattedDate). Open your itinerary to review the route, places, and weather.',
+      reminderTime: reminderDate,
+      payload: 'itinerary:$itineraryId',
+    );
+  }
+
+  static DateTime? nextTripReminderTime({
+    required DateTime tripStartDate,
+    DateTime? now,
+  }) {
+    final current = now ?? DateTime.now();
+    final tripDayAtReminderHour = DateTime(
       tripStartDate.year,
       tripStartDate.month,
       tripStartDate.day,
       8,
       0,
-    ).subtract(const Duration(days: 1));
+    );
 
-    if (reminderDate.isBefore(now)) {
-      reminderDate = DateTime(
-        tripStartDate.year,
-        tripStartDate.month,
-        tripStartDate.day,
-        8,
-        0,
+    for (final leadDays in const [3, 2, 1, 0]) {
+      final reminderTime = tripDayAtReminderHour.subtract(
+        Duration(days: leadDays),
       );
+      if (reminderTime.isAfter(current)) return reminderTime;
     }
 
+// Benji: Schedule notification
     final notifId = itineraryId.hashCode.abs().remainder(100000);
     await SystemNotificationService.instance.scheduleTripReminder(
       id: notifId,
@@ -663,6 +868,26 @@ class AppServices {
       reminderTime: reminderDate,
       payload: 'itinerary:$itineraryId',
     );
+
+    return null;
+  }
+
+  // Testing: New static helper method
+  static int tripReminderLeadDays({
+    required DateTime tripStartDate,
+    required DateTime reminderTime,
+  }) {
+    final tripDate = DateTime(
+      tripStartDate.year,
+      tripStartDate.month,
+      tripStartDate.day,
+    final reminderDate = DateTime(
+      reminderTime.year,
+      reminderTime.month,
+      reminderTime.day,
+    );
+    final days = tripDate.difference(reminderDate).inDays;
+    return days.clamp(0, 3);
   }
 
   static String getItineraryStatus(Map<String, dynamic> itinerary) {
@@ -1792,8 +2017,11 @@ class AppServices {
           'mlPositiveProbability': 0.95,
           'mlRatingMismatch': false,
           'mlSuspiciousProbability': 0.05,
-          'mlDecision': 'valid',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlRiskScore': 0.05,
+          'mlRiskLevel': 'low',
+          'mlNeedsReview': false,
+          'mlDecision': 'normal',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });
@@ -1830,8 +2058,11 @@ class AppServices {
           'mlPositiveProbability': 0.05,
           'mlRatingMismatch': false,
           'mlSuspiciousProbability': 0.98,
+          'mlRiskScore': 0.98,
+          'mlRiskLevel': 'high',
+          'mlNeedsReview': false,
           'mlDecision': 'flagged',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });
@@ -1864,8 +2095,11 @@ class AppServices {
           'mlPositiveProbability': 0.98,
           'mlRatingMismatch': true,
           'mlSuspiciousProbability': 0.89,
+          'mlRiskScore': 0.89,
+          'mlRiskLevel': 'high',
+          'mlNeedsReview': false,
           'mlDecision': 'flagged',
-          'mlModelVersion': 'MyHeritage-ML-v2.2',
+          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });

@@ -20,6 +20,10 @@ class _LoginPageState extends State<LoginPage> {
       showMessage(context, 'Enter your email and password.', error: true);
       return;
     }
+    if (!isValidEmail(email.text)) {
+      showMessage(context, 'Enter a valid email address.', error: true);
+      return;
+    }
     setState(() => busy = true);
     try {
       final credential = await AppServices.auth.signInWithEmailAndPassword(
@@ -30,6 +34,92 @@ class _LoginPageState extends State<LoginPage> {
         credential.user!.uid,
         widget.role,
       );
+
+      // 1. Check if email changed in background (Verified)
+      if (profile != null &&
+          credential.user!.email != null &&
+          profile['email'] != credential.user!.email) {
+        await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+            .update({
+          'email': credential.user!.email,
+          'emailChangePending': false,
+          'pendingEmail': FieldValue.delete(),
+          'oldEmail': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        profile['email'] = credential.user!.email;
+        profile['emailChangePending'] = false;
+      }
+
+      // 2. Lockout check for pending email change
+      if (profile != null && profile['emailChangePending'] == true) {
+        // Reload to check if verification or revert happened
+        await credential.user!.reload();
+        final freshUser = AppServices.auth.currentUser!;
+
+        if (freshUser.email != profile['email']) {
+          // Case A: Verified. Email updated to new one.
+          await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+              .update({
+            'email': freshUser.email,
+            'emailChangePending': false,
+            'pendingEmail': FieldValue.delete(),
+            'oldEmail': FieldValue.delete(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          profile['email'] = freshUser.email;
+          profile['emailChangePending'] = false;
+        } else {
+          // Case B: Original Email. 
+          // They signed in with the original email, but a change is still pending.
+          final pending = profile['pendingEmail'] ?? 'your new address';
+          
+          bool? shouldCancel;
+          if (mounted) {
+            shouldCancel = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AlertDialog(
+                title: const Text('Email Change Pending'),
+                content: Text(
+                  'A request to change your email to $pending is unresolved.\n\n'
+                  'Would you like to continue waiting for verification, or cancel this request and restore access to your current email?'
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Wait for Verification'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Cancel Request'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          if (shouldCancel == true) {
+            // User chose to cancel the request in-app.
+            await AppServices.profileRefForRole(credential.user!.uid, widget.role)
+                .update({
+              'emailChangePending': false,
+              'pendingEmail': FieldValue.delete(),
+              'oldEmail': FieldValue.delete(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            profile['emailChangePending'] = false;
+            // Login proceeds!
+          } else {
+            // Still pending. Force logout.
+            await AppServices.signOut();
+            throw Exception(
+              'Please verify the link sent to $pending to complete the change, '
+              'or cancel the request during your next login attempt.'
+            );
+          }
+        }
+      }
 
       if (profile == null || profile['role'] != widget.role) {
         try {
@@ -50,7 +140,7 @@ class _LoginPageState extends State<LoginPage> {
 
       if (profile == null || profile['role'] != widget.role) {
         final account = await AppServices.currentAccountProfile();
-        await AppServices.auth.signOut();
+        await AppServices.signOut();
 
         if (account != null) {
           throw Exception(
@@ -71,6 +161,64 @@ class _LoginPageState extends State<LoginPage> {
     } on FirebaseAuthException catch (e) {
       if (mounted) {
         showMessage(context, _authMessage(e), error: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        showMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _loginWithGoogle(BuildContext context) async {
+    setState(() => busy = true);
+    try {
+      final userCredential = await AppServices.signInWithGoogle();
+      if (!mounted || userCredential == null) return;
+
+      final email = userCredential.user?.email;
+
+      // Check if profile exists for target role
+      var profile = await AppServices.profileForRole(
+        userCredential.user!.uid,
+        widget.role,
+      );
+      if (!mounted) return;
+
+      if (profile == null) {
+        // Check if registered under another role
+        final account = await AppServices.currentAccountProfile();
+        if (account != null) {
+          await AppServices.signOut();
+          throw Exception(
+            'This Google account is registered as ${AppServices.labelForRole(account.role)}. Please sign in on the ${AppServices.labelForRole(account.role)} login screen.',
+          );
+        }
+
+        // New Google user -> Navigate to complete profile for widget.role
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RegistrationPage(
+                role: widget.role,
+                initialName: userCredential.user?.displayName,
+                initialEmail: email,
+                isGoogle: true,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        Navigator.popUntil(context, (route) => route.isFirst);
       }
     } catch (e) {
       if (mounted) {
@@ -291,6 +439,34 @@ class _LoginPageState extends State<LoginPage> {
                           const Icon(Icons.arrow_forward, size: 17),
                         ],
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : () => _loginWithGoogle(context),
+                      icon: Image.network(
+                        'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                        height: 18,
+                        width: 18,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.account_circle_outlined, size: 18),
+                      ),
+                      label: Text(
+                        tourist
+                            ? 'Sign in with Google'
+                            : 'Sign in as Vendor with Google',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor:
+                            tourist ? ExplorerColors.navy : ExplorerColors.goldDark,
+                        side: BorderSide(
+                          color: tourist
+                              ? ExplorerColors.navy
+                              : ExplorerColors.goldDark,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),

@@ -18,7 +18,7 @@ class VendorPendingPage extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'Sign out',
-            onPressed: AppServices.auth.signOut,
+            onPressed: AppServices.signOut,
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -130,7 +130,7 @@ class VendorPendingPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 TextButton.icon(
-                  onPressed: AppServices.auth.signOut,
+                  onPressed: AppServices.signOut,
                   icon: const Icon(Icons.logout, size: 18),
                   label: const Text('Logout'),
                 ),

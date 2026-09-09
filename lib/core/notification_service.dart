@@ -135,7 +135,7 @@ class SystemNotificationService {
       'myheritage_trip_reminders',
       'Trip Pre-Departure Reminders',
       channelDescription:
-          'Reminders scheduled 1 day prior to your Malaysian heritage trips.',
+          'Reminders scheduled before your Malaysian heritage trips.',
       importance: Importance.high,
       priority: Priority.high,
     );

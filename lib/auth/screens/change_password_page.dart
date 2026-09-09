@@ -25,10 +25,11 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   }
 
   Future<void> changePassword() async {
-    if (newPassword.text.length < 8) {
+    final passwordError = validatePassword(newPassword.text);
+    if (passwordError != null) {
       showMessage(
         context,
-        'Use at least 8 characters for the new password.',
+        passwordError,
         error: true,
       );
       return;
@@ -41,10 +42,15 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     try {
       await AppServices.reauthenticate(currentPassword.text);
       await AppServices.auth.currentUser!.updatePassword(newPassword.text);
-      if (mounted) {
-        showMessage(context, 'Password changed successfully.');
-        Navigator.pop(context);
-      }
+      
+      showGlobalNotice(
+        title: 'Password Changed',
+        message: 'Your password has been updated. For security, please sign in again with your new password.',
+        buttonText: 'Login Now',
+        onConfirm: () async {
+          await AppServices.signOut();
+        },
+      );
     } catch (e) {
       if (mounted) showMessage(context, e.toString(), error: true);
     } finally {
