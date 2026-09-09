@@ -12,6 +12,11 @@ import 'package:myheritage_explorer/models/safe_route.dart';
 import 'package:myheritage_explorer/services/safe_routing_service.dart';
 
 void main() {
+  setUp(() {
+    SafeRoutingService.clearRateLimitCooldown();
+    SafeRoutingService.clearCache();
+  });
+
   const start = LatLng(5.4141, 100.3288);
   const destination = LatLng(5.45, 100.36);
 
@@ -502,29 +507,32 @@ void main() {
       );
     });
 
-    test('generic HTTP 404 without ORS error code returns provider failure', () async {
-      final service = serviceReturning(
-        statusCode: 404,
-        body: '{"error":{"message":"Endpoint not found"}}',
-      );
+    test(
+      'generic HTTP 404 without ORS error code returns provider failure',
+      () async {
+        final service = serviceReturning(
+          statusCode: 404,
+          body: '{"error":{"message":"Endpoint not found"}}',
+        );
 
-      await expectLater(
-        service.calculateSafeRoute(
-          start: start,
-          destination: destination,
-          hazards: [],
-        ),
-        throwsA(
-          isA<SafeRoutingException>()
-              .having(
-                (error) => error.code,
-                'code',
-                SafeRoutingFailureCode.providerFailure,
-              )
-              .having((error) => error.statusCode, 'statusCode', 404),
-        ),
-      );
-    });
+        await expectLater(
+          service.calculateSafeRoute(
+            start: start,
+            destination: destination,
+            hazards: [],
+          ),
+          throwsA(
+            isA<SafeRoutingException>()
+                .having(
+                  (error) => error.code,
+                  'code',
+                  SafeRoutingFailureCode.providerFailure,
+                )
+                .having((error) => error.statusCode, 'statusCode', 404),
+          ),
+        );
+      },
+    );
 
     test('HTTP 404 with ORS error code 2009 maps to noRoute', () async {
       final service = serviceReturning(
@@ -574,6 +582,51 @@ void main() {
               .having((error) => error.statusCode, 'statusCode', 404),
         ),
       );
+    });
+
+    test('HTTP 404 with ORS error code 2010 remains providerFailure', () async {
+      final service = serviceReturning(
+        statusCode: 404,
+        body:
+            '{"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters"}}',
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [
+            hazard(id: '2010-high', severity: 'High'),
+            hazard(
+              id: '2010-medium',
+              severity: 'Medium',
+              latitude: 5.435,
+              longitude: 100.345,
+            ),
+            hazard(
+              id: '2010-low',
+              severity: 'Low',
+              latitude: 5.44,
+              longitude: 100.35,
+            ),
+          ],
+        ),
+        throwsA(
+          isA<SafeRoutingException>()
+              .having(
+                (error) => error.code,
+                'code',
+                SafeRoutingFailureCode.providerFailure,
+              )
+              .having((error) => error.orsErrorCode, 'orsErrorCode', 2010),
+        ),
+      );
+      expect(requestCount, 1);
+      final polygons =
+          ((capturedBody()['options'] as Map<String, dynamic>)['avoid_polygons']
+                  as Map<String, dynamic>)['coordinates']
+              as List;
+      expect(polygons, hasLength(3));
     });
 
     test('a genuine ORS no-route code maps to no-route', () async {
@@ -847,6 +900,433 @@ void main() {
     );
 
     test(
+      'candidate outside one hazard but inside another active hazard is rejected',
+      () {
+        final containing = hazard(
+          id: 'containing',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final unobstructedCandidate =
+            SafeRoutingService.findCandidateEscapePoint(
+              start: start,
+              destination: destination,
+              containingHazards: [containing],
+              unrelatedHazards: const [],
+              bearingOffset: 0,
+            )!;
+        final otherHazard = hazard(
+          id: 'other',
+          severity: 'Low',
+          latitude: unobstructedCandidate.latitude,
+          longitude: unobstructedCandidate.longitude,
+        );
+
+        final rejected = SafeRoutingService.findCandidateEscapePoint(
+          start: start,
+          destination: destination,
+          containingHazards: [containing],
+          unrelatedHazards: [otherHazard],
+          bearingOffset: 0,
+        );
+
+        expect(rejected, isNull);
+      },
+    );
+
+    test('first ORS 2009 escape candidate advances to next bearing', () async {
+      final containing = hazard(
+        id: 'containing',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = serviceReturning(
+        handler: (request, count) async {
+          if (count == 1) {
+            return http.Response(
+              '{"error":{"code":2009,"message":"Route could not be found"}}',
+              404,
+            );
+          }
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final coordinates = (body['coordinates'] as List)
+              .map((coordinate) => List<double>.from(coordinate as List))
+              .toList();
+          return http.Response(routeResponse(coordinates: coordinates), 200);
+        },
+      );
+
+      final result = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [containing],
+      );
+
+      expect(requestCount, 3);
+      final firstCandidate =
+          (jsonDecode(capturedRequests[0].body)['coordinates'] as List)[1];
+      final secondCandidate =
+          (jsonDecode(capturedRequests[1].body)['coordinates'] as List)[1];
+      expect(secondCandidate, isNot(orderedEquals(firstCandidate)));
+      expect(result.startedInsideHazard, isTrue);
+    });
+
+    test('first ORS 2016 escape candidate advances to next bearing', () async {
+      final containing = hazard(
+        id: 'containing-2016',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = serviceReturning(
+        handler: (request, count) async {
+          if (count == 1) {
+            return http.Response(
+              '{"error":{"code":2016,"message":"Could not find point within a radius of 350.0 meters"}}',
+              404,
+            );
+          }
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final coordinates = (body['coordinates'] as List)
+              .map((coordinate) => List<double>.from(coordinate as List))
+              .toList();
+          return http.Response(routeResponse(coordinates: coordinates), 200);
+        },
+      );
+
+      final result = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [containing],
+      );
+
+      expect(requestCount, 3);
+      expect(result.startedInsideHazard, isTrue);
+    });
+
+    test('first ORS 2010 escape candidate advances to second bearing', () async {
+      final containing = hazard(
+        id: 'containing-2010',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = serviceReturning(
+        handler: (request, count) async {
+          if (count == 1) {
+            return http.Response(
+              '{"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters of specified coordinate 1"}}',
+              404,
+            );
+          }
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final coordinates = (body['coordinates'] as List)
+              .map((coordinate) => List<double>.from(coordinate as List))
+              .toList();
+          return http.Response(routeResponse(coordinates: coordinates), 200);
+        },
+      );
+
+      final result = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [containing],
+      );
+
+      expect(requestCount, 3);
+      final firstCandidate =
+          (jsonDecode(capturedRequests[0].body)['coordinates'] as List)[1];
+      final secondCandidate =
+          (jsonDecode(capturedRequests[1].body)['coordinates'] as List)[1];
+      expect(secondCandidate, isNot(orderedEquals(firstCandidate)));
+      expect(result.startedInsideHazard, isTrue);
+    });
+
+    test('several ORS 2010 candidates do not stop later bearings', () async {
+      final containing = hazard(
+        id: 'containing-several-2010',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = serviceReturning(
+        handler: (request, count) async {
+          if (count <= 3) {
+            return http.Response(
+              '{"error":{"code":2010,"message":"Candidate is not routable"}}',
+              404,
+            );
+          }
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final coordinates = (body['coordinates'] as List)
+              .map((coordinate) => List<double>.from(coordinate as List))
+              .toList();
+          return http.Response(routeResponse(coordinates: coordinates), 200);
+        },
+      );
+
+      final result = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [containing],
+      );
+
+      expect(requestCount, 5);
+      expect(result.startedInsideHazard, isTrue);
+    });
+
+    test(
+      'all eight ORS 2010 candidates reach route-derived fallback',
+      () async {
+        final containing = hazard(
+          id: 'containing-all-2010',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final bearing = SafeRoutingService.initialBearingDegrees(
+          start,
+          destination,
+        );
+        final exit = SafeRoutingService.computeDestinationPoint(
+          start,
+          SafetyConfig.highSeverityRadiusMeters + 60,
+          bearing,
+        );
+        final service = serviceReturning(
+          handler: (request, count) async {
+            if (count <= SafeRoutingService.escapeBearingOffsets.length) {
+              return http.Response(
+                '{"error":{"code":2010,"message":"Candidate is not routable"}}',
+                404,
+              );
+            }
+            if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
+              return http.Response(
+                routeResponse(
+                  coordinates: [
+                    [start.longitude, start.latitude],
+                    [exit.longitude, exit.latitude],
+                    [destination.longitude, destination.latitude],
+                  ],
+                ),
+                200,
+              );
+            }
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coordinates = (body['coordinates'] as List)
+                .map((coordinate) => List<double>.from(coordinate as List))
+                .toList();
+            return http.Response(routeResponse(coordinates: coordinates), 200);
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(
+          requestCount,
+          SafeRoutingService.escapeBearingOffsets.length + 2,
+        );
+        final fallbackCoordinates =
+            jsonDecode(
+                  capturedRequests[SafeRoutingService
+                          .escapeBearingOffsets
+                          .length]
+                      .body,
+                )['coordinates']
+                as List;
+        expect(
+          fallbackCoordinates.last,
+          orderedEquals([destination.longitude, destination.latitude]),
+        );
+        expect(result.startedInsideHazard, isTrue);
+      },
+    );
+
+    test('ORS 2010 never progressively relaxes escape avoidance', () async {
+      final containing = hazard(
+        id: 'containing-no-relax',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final unrelatedLow = hazard(
+        id: 'unrelated-low',
+        severity: 'Low',
+        latitude: 5.49,
+        longitude: 100.40,
+      );
+      final service = serviceReturning(
+        statusCode: 404,
+        body: '{"error":{"code":2010,"message":"Candidate is not routable"}}',
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing, unrelatedLow],
+        ),
+        throwsA(
+          isA<SafeRoutingException>()
+              .having(
+                (error) => error.code,
+                'code',
+                SafeRoutingFailureCode.providerFailure,
+              )
+              .having((error) => error.orsErrorCode, 'orsErrorCode', 2010),
+        ),
+      );
+
+      expect(requestCount, SafeRoutingService.escapeBearingOffsets.length + 1);
+      for (final request in capturedRequests) {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final polygons =
+            ((body['options'] as Map<String, dynamic>)['avoid_polygons']
+                    as Map<String, dynamic>)['coordinates']
+                as List;
+        expect(polygons, hasLength(1));
+      }
+    });
+
+    for (final failure in <(int, SafeRoutingFailureCode)>[
+      (401, SafeRoutingFailureCode.unauthorized),
+      (403, SafeRoutingFailureCode.unauthorized),
+      (404, SafeRoutingFailureCode.providerFailure),
+      (429, SafeRoutingFailureCode.rateLimited),
+      (500, SafeRoutingFailureCode.providerUnavailable),
+    ]) {
+      test(
+        'escape candidate HTTP ${failure.$1} aborts without trying another bearing',
+        () async {
+          final containing = hazard(
+            id: 'containing-provider-${failure.$1}',
+            severity: 'High',
+            latitude: start.latitude,
+            longitude: start.longitude,
+          );
+          final service = serviceReturning(statusCode: failure.$1);
+
+          await expectLater(
+            service.calculateSafeRoute(
+              start: start,
+              destination: destination,
+              hazards: [containing],
+            ),
+            throwsA(
+              isA<SafeRoutingException>().having(
+                (error) => error.code,
+                'code',
+                failure.$2,
+              ),
+            ),
+          );
+          expect(requestCount, 1);
+        },
+      );
+    }
+
+    test('escape candidate network failure aborts immediately', () async {
+      requestCount = 0;
+      final containing = hazard(
+        id: 'containing-network',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = SafeRoutingService(
+        apiKey: 'test-key',
+        client: MockClient((request) async {
+          requestCount++;
+          throw http.ClientException('offline', request.url);
+        }),
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (error) => error.code,
+            'code',
+            SafeRoutingFailureCode.networkFailure,
+          ),
+        ),
+      );
+      expect(requestCount, 1);
+    });
+
+    test('escape candidate timeout aborts immediately', () async {
+      requestCount = 0;
+      final pendingResponse = Completer<http.Response>();
+      final containing = hazard(
+        id: 'containing-timeout',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = SafeRoutingService(
+        apiKey: 'test-key',
+        timeout: const Duration(milliseconds: 10),
+        client: MockClient((request) {
+          requestCount++;
+          return pendingResponse.future;
+        }),
+      );
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (error) => error.code,
+            'code',
+            SafeRoutingFailureCode.timeout,
+          ),
+        ),
+      );
+      expect(requestCount, 1);
+    });
+
+    test('malformed escape response aborts immediately', () async {
+      final containing = hazard(
+        id: 'containing-malformed',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+      final service = serviceReturning(body: '{"features":"bad"}');
+
+      await expectLater(
+        service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (error) => error.code,
+            'code',
+            SafeRoutingFailureCode.malformedResponse,
+          ),
+        ),
+      );
+      expect(requestCount, 1);
+    });
+
+    test(
       'Phase 1 exempts containing hazards but retains unrelated hazards',
       () async {
         final containing = hazard(
@@ -886,6 +1366,57 @@ void main() {
             phase2Options['avoid_polygons'] as Map<String, dynamic>;
         final phase2Coords = phase2Avoid['coordinates'] as List;
         expect(phase2Coords, hasLength(2));
+      },
+    );
+
+    test(
+      'overlapping start hazards are all excluded only for the escape request',
+      () async {
+        final containingHigh = hazard(
+          id: 'containing-high',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final containingMedium = hazard(
+          id: 'containing-medium',
+          severity: 'Medium',
+          latitude: start.latitude + 0.0002,
+          longitude: start.longitude,
+        );
+        final unrelated = hazard(
+          id: 'unrelated-low',
+          severity: 'Low',
+          latitude: 5.44,
+          longitude: 100.35,
+        );
+        final service = serviceReturning();
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containingHigh, containingMedium, unrelated],
+        );
+
+        final escapeCoordinates =
+            (((jsonDecode(capturedRequests[0].body)
+                            as Map<String, dynamic>)['options']
+                        as Map<String, dynamic>)['avoid_polygons']
+                    as Map<String, dynamic>)['coordinates']
+                as List;
+        final normalCoordinates =
+            (((jsonDecode(capturedRequests[1].body)
+                            as Map<String, dynamic>)['options']
+                        as Map<String, dynamic>)['avoid_polygons']
+                    as Map<String, dynamic>)['coordinates']
+                as List;
+
+        expect(escapeCoordinates, hasLength(1));
+        expect(normalCoordinates, hasLength(3));
+        expect(
+          result.escapeHazardIds,
+          unorderedEquals([containingHigh.id, containingMedium.id]),
+        );
       },
     );
 
@@ -1258,78 +1789,89 @@ void main() {
       },
     );
 
-    test('probe exempts only start hazard and Phase 2 re-enables it', () async {
-      final containing = hazard(
-        id: 'start-high',
-        severity: 'High',
-        latitude: start.latitude,
-        longitude: start.longitude,
-      );
-      final unrelated = hazard(
-        id: 'unrelated-medium',
-        severity: 'Medium',
-        latitude: 5.47,
-        longitude: 100.38,
-      );
-      final bearing = SafeRoutingService.initialBearingDegrees(
-        start,
-        destination,
-      );
-      final exit = SafeRoutingService.computeDestinationPoint(
-        start,
-        SafetyConfig.highSeverityRadiusMeters + 60,
-        bearing,
-      );
+    test(
+      'route-derived probe retains all unrelated hazards and Phase 2 restores start hazards',
+      () async {
+        final containing = hazard(
+          id: 'start-high',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final unrelatedMedium = hazard(
+          id: 'unrelated-medium',
+          severity: 'Medium',
+          latitude: 5.47,
+          longitude: 100.38,
+        );
+        final unrelatedLow = hazard(
+          id: 'unrelated-low',
+          severity: 'Low',
+          latitude: 5.49,
+          longitude: 100.40,
+        );
+        final bearing = SafeRoutingService.initialBearingDegrees(
+          start,
+          destination,
+        );
+        final exit = SafeRoutingService.computeDestinationPoint(
+          start,
+          SafetyConfig.highSeverityRadiusMeters + 60,
+          bearing,
+        );
 
-      final service = serviceReturning(
-        handler: (request, count) async {
-          if (count <= SafeRoutingService.escapeBearingOffsets.length) {
-            return http.Response('{"features":[]}', 200);
-          }
-          if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
-            return roadRoute([start, exit, destination]);
-          }
-          return roadRoute([exit, destination]);
-        },
-      );
+        final service = serviceReturning(
+          handler: (request, count) async {
+            if (count <= SafeRoutingService.escapeBearingOffsets.length) {
+              return http.Response('{"features":[]}', 200);
+            }
+            if (count == SafeRoutingService.escapeBearingOffsets.length + 1) {
+              return roadRoute([start, exit, destination]);
+            }
+            return roadRoute([exit, destination]);
+          },
+        );
 
-      final result = await service.calculateSafeRoute(
-        start: start,
-        destination: destination,
-        hazards: [containing, unrelated],
-      );
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing, unrelatedMedium, unrelatedLow],
+        );
 
-      final probeBody =
-          jsonDecode(
-                capturedRequests[SafeRoutingService.escapeBearingOffsets.length]
-                    .body,
-              )
-              as Map<String, dynamic>;
-      final phase2Body =
-          jsonDecode(
-                capturedRequests[SafeRoutingService
-                            .escapeBearingOffsets
-                            .length +
-                        1]
-                    .body,
-              )
-              as Map<String, dynamic>;
-      final probePolygons =
-          ((probeBody['options'] as Map<String, dynamic>)['avoid_polygons']
-                  as Map<String, dynamic>)['coordinates']
-              as List;
-      final phase2Polygons =
-          ((phase2Body['options'] as Map<String, dynamic>)['avoid_polygons']
-                  as Map<String, dynamic>)['coordinates']
-              as List;
+        final probeBody =
+            jsonDecode(
+                  capturedRequests[SafeRoutingService
+                          .escapeBearingOffsets
+                          .length]
+                      .body,
+                )
+                as Map<String, dynamic>;
+        final phase2Body =
+            jsonDecode(
+                  capturedRequests[SafeRoutingService
+                              .escapeBearingOffsets
+                              .length +
+                          1]
+                      .body,
+                )
+                as Map<String, dynamic>;
+        final probePolygons =
+            ((probeBody['options'] as Map<String, dynamic>)['avoid_polygons']
+                    as Map<String, dynamic>)['coordinates']
+                as List;
+        final phase2Polygons =
+            ((phase2Body['options'] as Map<String, dynamic>)['avoid_polygons']
+                    as Map<String, dynamic>)['coordinates']
+                as List;
 
-      expect(probePolygons, hasLength(1));
-      expect(phase2Polygons, hasLength(2));
-      expect(result.riskLevel, RouteRiskLevel.hazardFree);
-    });
+        expect(probePolygons, hasLength(2));
+        expect(phase2Polygons, hasLength(3));
+        expect(result.riskLevel, RouteRiskLevel.hazardFree);
+      },
+    );
 
     test(
-      'prohibited start hazard re-entry rejects that risk attempt',
+      'route-derived normal-route re-entry fails without relaxing safety',
       () async {
         final containing = hazard(
           id: 'start-high',
@@ -1365,8 +1907,7 @@ void main() {
             if (count <= SafeRoutingService.escapeBearingOffsets.length) {
               return http.Response('{"features":[]}', 200);
             }
-            if (count == firstFallbackRequest ||
-                count == firstFallbackRequest + 2) {
+            if (count == firstFallbackRequest) {
               return roadRoute([start, exit, destination]);
             }
             if (count == firstFallbackRequest + 1) {
@@ -1376,15 +1917,22 @@ void main() {
           },
         );
 
-        final result = await service.calculateSafeRoute(
-          start: start,
-          destination: destination,
-          hazards: [containing, unrelatedLow],
+        await expectLater(
+          service.calculateSafeRoute(
+            start: start,
+            destination: destination,
+            hazards: [containing, unrelatedLow],
+          ),
+          throwsA(
+            isA<SafeRoutingException>().having(
+              (error) => error.code,
+              'code',
+              SafeRoutingFailureCode.noRoute,
+            ),
+          ),
         );
 
-        expect(result.riskLevel, RouteRiskLevel.lowRisk);
-        expect(result.geometry, isNot(contains(reentry)));
-        expect(requestCount, firstFallbackRequest + 3);
+        expect(requestCount, firstFallbackRequest + 1);
       },
     );
 
@@ -1408,11 +1956,14 @@ void main() {
           SafeRoutingService.escapeBearingOffsets.length + 1;
       final service = serviceReturning(
         handler: (request, count) async {
-          if (count <= firstFallbackRequest) {
+          if (count < firstFallbackRequest) {
             return http.Response('{"features":[]}', 200);
           }
-          if (count == firstFallbackRequest + 1) {
+          if (count == firstFallbackRequest) {
             return roadRoute([start, exit, destination]);
+          }
+          if (count == firstFallbackRequest + 1) {
+            return http.Response('{"features":[]}', 200);
           }
           return roadRoute([exit, destination]);
         },
@@ -1459,11 +2010,15 @@ void main() {
           SafeRoutingService.escapeBearingOffsets.length + 1;
       final service = serviceReturning(
         handler: (request, count) async {
-          if (count < firstFallbackRequest + 2) {
+          if (count < firstFallbackRequest) {
             return http.Response('{"features":[]}', 200);
           }
-          if (count == firstFallbackRequest + 2) {
+          if (count == firstFallbackRequest) {
             return roadRoute([start, exit, destination]);
+          }
+          if (count == firstFallbackRequest + 1 ||
+              count == firstFallbackRequest + 2) {
+            return http.Response('{"features":[]}', 200);
           }
           return roadRoute([exit, destination]);
         },
@@ -1487,6 +2042,18 @@ void main() {
           latitude: start.latitude,
           longitude: start.longitude,
         );
+        final unrelatedMedium = hazard(
+          id: 'unrelated-medium',
+          severity: 'Medium',
+          latitude: 5.48,
+          longitude: 100.39,
+        );
+        final unrelatedLow = hazard(
+          id: 'unrelated-low',
+          severity: 'Low',
+          latitude: 5.49,
+          longitude: 100.40,
+        );
         final bearing = SafeRoutingService.initialBearingDegrees(
           start,
           destination,
@@ -1500,11 +2067,14 @@ void main() {
             SafeRoutingService.escapeBearingOffsets.length + 1;
         final service = serviceReturning(
           handler: (request, count) async {
-            if (count <= firstFallbackRequest) {
+            if (count < firstFallbackRequest) {
               return http.Response('{"features":[]}', 200);
             }
-            if (count == firstFallbackRequest + 1) {
+            if (count == firstFallbackRequest) {
               return roadRoute([start, exit, destination]);
+            }
+            if (count <= firstFallbackRequest + 3) {
+              return http.Response('{"features":[]}', 200);
             }
             return roadRoute([exit, destination]);
           },
@@ -1513,7 +2083,7 @@ void main() {
         final result = await service.calculateSafeRoute(
           start: start,
           destination: destination,
-          hazards: [containingHigh],
+          hazards: [containingHigh, unrelatedMedium, unrelatedLow],
         );
 
         expect(result.riskLevel, RouteRiskLevel.unavoidableExposure);
@@ -2718,6 +3288,792 @@ void main() {
         expect(result.crossedHazardIds, isNot(contains('far-hz')));
       },
     );
+  });
+
+  group('Quota & Rate Limiting Awareness (HTTP 429)', () {
+    test('HTTP 429 parses integer Retry-After header and populates retryAfter Duration', () async {
+      final service = serviceReturning(
+        statusCode: 429,
+        body: '{"error":{"message":"Rate Limit Exceeded"}}',
+        handler: (request, count) async {
+          return http.Response(
+            '{"error":{"message":"Rate Limit Exceeded"}}',
+            429,
+            headers: {'retry-after': '35'},
+          );
+        },
+      );
+
+      SafeRoutingException? thrown;
+      try {
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        );
+      } on SafeRoutingException catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isNotNull);
+      expect(thrown!.code, SafeRoutingFailureCode.rateLimited);
+      expect(thrown.statusCode, 429);
+      expect(thrown.retryAfter, const Duration(seconds: 35));
+      expect(SafeRoutingService.isRateLimited, isTrue);
+      expect(SafeRoutingService.rateLimitRemainingSeconds, greaterThanOrEqualTo(30));
+    });
+
+    test('HTTP 429 without Retry-After header falls back to defaultRateLimitCooldown', () async {
+      final service = serviceReturning(
+        statusCode: 429,
+        body: '{"error":{"message":"Rate Limit Exceeded"}}',
+      );
+
+      SafeRoutingException? thrown;
+      try {
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        );
+      } on SafeRoutingException catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isNotNull);
+      expect(thrown!.code, SafeRoutingFailureCode.rateLimited);
+      expect(thrown.retryAfter, SafeRoutingService.defaultRateLimitCooldown);
+      expect(SafeRoutingService.isRateLimited, isTrue);
+    });
+
+    test('local rate-limit cooldown blocks subsequent requests locally without hitting ORS', () async {
+      SafeRoutingService.rateLimitedUntil = DateTime.now().add(const Duration(seconds: 25));
+
+      final service = serviceReturning(
+        handler: (request, count) async {
+          fail('Network call should not be made during rate limit cooldown');
+        },
+      );
+
+      SafeRoutingException? thrown;
+      try {
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [],
+        );
+      } on SafeRoutingException catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isNotNull);
+      expect(thrown!.code, SafeRoutingFailureCode.rateLimited);
+      expect(thrown.retryAfter, isNotNull);
+      expect(requestCount, 0);
+    });
+
+    test('clearing rate-limit cooldown allows requests to proceed immediately', () async {
+      SafeRoutingService.rateLimitedUntil = DateTime.now().add(const Duration(seconds: 25));
+      expect(SafeRoutingService.isRateLimited, isTrue);
+
+      SafeRoutingService.clearRateLimitCooldown();
+      expect(SafeRoutingService.isRateLimited, isFalse);
+
+      final service = serviceReturning();
+      final route = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [],
+      );
+
+      expect(route, isNotNull);
+      expect(requestCount, 1);
+    });
+
+    test('Escape Mode aborts immediately on HTTP 429 without trying further radial candidates', () async {
+      final containing = hazard(
+        id: 'start-in-hazard-429',
+        severity: 'High',
+        latitude: start.latitude,
+        longitude: start.longitude,
+      );
+
+      final service = serviceReturning(
+        statusCode: 429,
+        body: '{"error":{"message":"Rate Limit Exceeded"}}',
+        handler: (request, count) async {
+          return http.Response(
+            '{"error":{"message":"Rate Limit Exceeded"}}',
+            429,
+            headers: {'retry-after': '20'},
+          );
+        },
+      );
+
+      SafeRoutingException? thrown;
+      try {
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+      } on SafeRoutingException catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isNotNull);
+      expect(thrown!.code, SafeRoutingFailureCode.rateLimited);
+      expect(requestCount, 1);
+    });
+
+    test('HTTP 429 during normal fallback never triggers progressive hazard relaxation', () async {
+      final service = serviceReturning(
+        statusCode: 429,
+        body: '{"error":{"message":"Rate Limit Exceeded"}}',
+      );
+
+      SafeRoutingException? thrown;
+      try {
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [hazard(severity: 'Low'), hazard(severity: 'Medium')],
+        );
+      } on SafeRoutingException catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isNotNull);
+      expect(thrown!.code, SafeRoutingFailureCode.rateLimited);
+      expect(requestCount, 1);
+    });
+
+    group('Proven Radial Escape Ordering & 429 Safety', () {
+      test('1. radial candidates are tried before route-derived fallback', () async {
+        final containing = hazard(
+          id: 'containing-radial-first',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+            if (count == 1) {
+              // Request 1 must be radial candidate 0 (start -> candidate escapePoint)
+              // NOT start -> destination (which would be route-derived probe)
+              final wp = coords[1] as List;
+              final wpLon = (wp[0] as num).toDouble();
+              final wpLat = (wp[1] as num).toDouble();
+              expect(
+                (wpLat - destination.latitude).abs() > 0.001 ||
+                    (wpLon - destination.longitude).abs() > 0.001,
+                isTrue,
+                reason: 'First request must be radial escapePoint, not destination',
+              );
+              return http.Response(
+                routeResponse(
+                  coordinates: [
+                    [start.longitude, start.latitude],
+                    [wpLon, wpLat],
+                  ],
+                ),
+                200,
+              );
+            }
+            // Request 2: Phase 2 to destination
+            final firstPoint =
+                (coords[0] as List).map((e) => (e as num).toDouble()).toList();
+            return http.Response(
+              routeResponse(
+                coordinates: [
+                  firstPoint,
+                  [destination.longitude, destination.latitude],
+                ],
+              ),
+              200,
+            );
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(requestCount, 2);
+      });
+
+      test('2. first radial 2009 -> second bearing attempted', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final attemptedBearings = <List<double>>[];
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+            final wp = (coords.last as List).map((e) => (e as num).toDouble()).toList();
+            attemptedBearings.add(wp);
+
+            if (count == 1) {
+              // Candidate 0 fails with ORS 2009 (HTTP 404)
+              return http.Response(
+                '{"error":{"code":2009,"message":"Route could not be found"}}',
+                404,
+              );
+            }
+            if (count == 2) {
+              // Candidate 1 (bearing 45) Phase 1 succeeds
+              return http.Response(
+                routeResponse(coordinates: [[start.longitude, start.latitude], wp]),
+                200,
+              );
+            }
+            if (count == 3) {
+              // Candidate 1 Phase 2 succeeds
+              return http.Response(
+                routeResponse(coordinates: [wp, [destination.longitude, destination.latitude]]),
+                200,
+              );
+            }
+            fail('Unexpected request count: $count');
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(requestCount, 3);
+        // Bearing 1 and Bearing 2 must have different coordinates
+        expect(attemptedBearings.length >= 2, isTrue);
+        expect(attemptedBearings[0], isNot(equals(attemptedBearings[1])));
+      });
+
+      test('3. first radial 2010 -> second bearing attempted', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+            final wp = (coords.last as List).map((e) => (e as num).toDouble()).toList();
+
+            if (count == 1) {
+              // Candidate 0 fails with ORS 2010 (unroutable point)
+              return http.Response(
+                '{"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters of specified coordinate 1"}}',
+                404,
+              );
+            }
+            if (count == 2) {
+              // Candidate 1 Phase 1 succeeds
+              return http.Response(
+                routeResponse(coordinates: [[start.longitude, start.latitude], wp]),
+                200,
+              );
+            }
+            if (count == 3) {
+              // Candidate 1 Phase 2 succeeds
+              return http.Response(
+                routeResponse(coordinates: [wp, [destination.longitude, destination.latitude]]),
+                200,
+              );
+            }
+            fail('Unexpected request count: $count');
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(requestCount, 3);
+      });
+
+      test('4. several 2009/2010 failures -> later valid bearing succeeds', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+            final wp = (coords.last as List).map((e) => (e as num).toDouble()).toList();
+
+            if (count == 1) {
+              // Bearing 0 fails with 2009
+              return http.Response('{"error":{"code":2009,"message":"No route"}}', 404);
+            }
+            if (count == 2) {
+              // Bearing 45 fails with 2010
+              return http.Response('{"error":{"code":2010,"message":"Unroutable point"}}', 404);
+            }
+            if (count == 3) {
+              // Bearing -45 fails with 2010
+              return http.Response('{"error":{"code":2010,"message":"Unroutable point"}}', 404);
+            }
+            if (count == 4) {
+              // Bearing 90 Phase 1 succeeds
+              return http.Response(
+                routeResponse(coordinates: [[start.longitude, start.latitude], wp]),
+                200,
+              );
+            }
+            if (count == 5) {
+              // Bearing 90 Phase 2 succeeds
+              return http.Response(
+                routeResponse(coordinates: [wp, [destination.longitude, destination.latitude]]),
+                200,
+              );
+            }
+            fail('Unexpected request count: $count');
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(requestCount, 5);
+      });
+
+      test('5. all radial candidates fail -> route-derived fallback starts', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final bearing = SafeRoutingService.initialBearingDegrees(start, destination);
+        final exit = SafeRoutingService.computeDestinationPoint(
+          start,
+          SafetyConfig.highSeverityRadiusMeters + 60,
+          bearing,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+
+            if (count <= 8) {
+              // All 8 radial candidates fail with 2010
+              return http.Response('{"error":{"code":2010,"message":"Unroutable"}}', 404);
+            }
+            if (count == 9) {
+              // Route-derived probe: start -> destination
+              expect((coords[1][1] as num).toDouble(), closeTo(destination.latitude, 0.0001));
+              return http.Response(
+                routeResponse(
+                  coordinates: [
+                    [start.longitude, start.latitude],
+                    [exit.longitude, exit.latitude],
+                    [destination.longitude, destination.latitude],
+                  ],
+                ),
+                200,
+              );
+            }
+            if (count == 10) {
+              // Route-derived safe route: exit -> destination
+              return http.Response(
+                routeResponse(
+                  coordinates: [
+                    [exit.longitude, exit.latitude],
+                    [destination.longitude, destination.latitude],
+                  ],
+                ),
+                200,
+              );
+            }
+            fail('Unexpected request count: $count');
+          },
+        );
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        expect(result.startedInsideHazard, isTrue);
+        expect(requestCount, 10);
+      });
+
+      test('6. 429 aborts candidate loop immediately', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning(
+          handler: (request, count) async {
+            return http.Response('{"error":"Rate limit exceeded"}', 429);
+          },
+        );
+
+        SafeRoutingException? caught;
+        try {
+          await service.calculateSafeRoute(
+            start: start,
+            destination: destination,
+            hazards: [containing],
+          );
+        } on SafeRoutingException catch (e) {
+          caught = e;
+        }
+
+        expect(caught, isNotNull);
+        expect(caught!.code, SafeRoutingFailureCode.rateLimited);
+        // Must abort immediately on candidate 1: exactly 1 request made
+        expect(requestCount, 1);
+      });
+
+      test('7. 429 does not trigger route-derived fallback', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        var probeRequestAttempted = false;
+        final service = serviceReturning(
+          handler: (request, count) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final coords = body['coordinates'] as List;
+            final wpLat = (coords.last[1] as num).toDouble();
+            if ((wpLat - destination.latitude).abs() < 0.0001) {
+              probeRequestAttempted = true;
+            }
+            return http.Response('{"error":"Rate limit exceeded"}', 429);
+          },
+        );
+
+        try {
+          await service.calculateSafeRoute(
+            start: start,
+            destination: destination,
+            hazards: [containing],
+          );
+        } on SafeRoutingException {
+          // Expected
+        }
+
+        expect(probeRequestAttempted, isFalse);
+        expect(requestCount, 1);
+      });
+
+      test('8. unrelated hazards remain avoided during escape', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+        final unrelated = hazard(
+          id: 'unrelated-h2',
+          severity: 'Low',
+          latitude: 5.44,
+          longitude: 100.35,
+        );
+
+        final service = serviceReturning();
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing, unrelated],
+        );
+
+        final escapeRequest = jsonDecode(capturedRequests[0].body) as Map<String, dynamic>;
+        final escapeAvoid = (escapeRequest['options'] as Map<String, dynamic>)['avoid_polygons'] as Map<String, dynamic>;
+        final escapePolygons = escapeAvoid['coordinates'] as List;
+        expect(escapePolygons, hasLength(1), reason: 'Unrelated hazard must be avoided during escape');
+      });
+
+      test('9. start-containing hazards are temporarily excluded only during escape', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning();
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        final escapeBody = jsonDecode(capturedRequests[0].body) as Map<String, dynamic>;
+        expect(escapeBody.containsKey('options'), isFalse, reason: 'Containing hazard excluded in Phase 1');
+      });
+
+      test('10. full avoidance restored after exit', () async {
+        final containing = hazard(
+          id: 'containing-h1',
+          severity: 'High',
+          latitude: start.latitude,
+          longitude: start.longitude,
+        );
+
+        final service = serviceReturning();
+        await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [containing],
+        );
+
+        final phase2Body = jsonDecode(capturedRequests[1].body) as Map<String, dynamic>;
+        final phase2Avoid = (phase2Body['options'] as Map<String, dynamic>)['avoid_polygons'] as Map<String, dynamic>;
+        expect((phase2Avoid['coordinates'] as List), hasLength(1), reason: 'Containing hazard restored in Phase 2');
+      });
+
+      test('11. cache safety remains working', () async {
+        final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+        final service = serviceReturning();
+
+        await service.calculateSafeRoute(start: start, destination: destination, hazards: [h1]);
+        expect(requestCount, 1);
+
+        // Same request -> cache hit (0 ORS calls)
+        await service.calculateSafeRoute(start: start, destination: destination, hazards: [h1]);
+        expect(requestCount, 1);
+
+        // Changed severity -> cache miss (1 ORS call)
+        final h1Modified = hazard(id: 'cached-h1', severity: 'Low', latitude: 5.44, longitude: 100.32);
+        await service.calculateSafeRoute(start: start, destination: destination, hazards: [h1Modified]);
+        expect(requestCount, 2);
+      });
+
+      test('12. normal start-outside-hazard routing unchanged', () async {
+        final outsideHazard = hazard(id: 'outside-h1', severity: 'Medium', latitude: 5.44, longitude: 100.35);
+        final service = serviceReturning();
+
+        final result = await service.calculateSafeRoute(
+          start: start,
+          destination: destination,
+          hazards: [outsideHazard],
+        );
+
+        expect(result.startedInsideHazard, isFalse);
+        expect(requestCount, 1);
+      });
+    });
+
+    test('1. same request + same hazard state => cache hit', () async {
+      final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final service = serviceReturning();
+
+      final route1 = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [h1],
+      );
+      expect(requestCount, 1);
+
+      final route2 = await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [h1],
+      );
+      expect(requestCount, 1);
+      expect(identical(route1, route2) || route1.geometry.length == route2.geometry.length, isTrue);
+    });
+
+    test('2. same hazard ID but changed severity => cache miss', () async {
+      final hLow = hazard(id: 'cached-h1', severity: 'Low', latitude: 5.44, longitude: 100.32);
+      final hHigh = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hLow],
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hHigh],
+      );
+      expect(requestCount, 2);
+    });
+
+    test('3. same hazard ID but changed coordinates => cache miss', () async {
+      final hPos1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.4400, longitude: 100.3200);
+      final hPos2 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.4410, longitude: 100.3210);
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hPos1],
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hPos2],
+      );
+      expect(requestCount, 2);
+    });
+
+    test('4. hazard becomes inactive => cache miss', () async {
+      final hActive = hazard(
+        id: 'cached-h1',
+        severity: 'High',
+        status: HazardReportStatus.verified,
+        latitude: 5.44,
+        longitude: 100.32,
+      );
+      final hInactive = hazard(
+        id: 'cached-h1',
+        severity: 'High',
+        status: HazardReportStatus.resolved,
+        latitude: 5.44,
+        longitude: 100.32,
+      );
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hActive],
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [hInactive],
+      );
+      expect(requestCount, 2);
+    });
+
+    test('5. destination/stops change => cache miss', () async {
+      final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final dest1 = LatLng(5.45, 100.36);
+      final dest2 = LatLng(5.46, 100.37);
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: dest1,
+        hazards: [h1],
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: dest2,
+        hazards: [h1],
+      );
+      expect(requestCount, 2);
+    });
+
+    test('start position change => cache miss', () async {
+      final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [h1],
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: LatLng(start.latitude + 0.005, start.longitude + 0.005),
+        destination: destination,
+        hazards: [h1],
+      );
+      expect(requestCount, 2);
+    });
+
+    test('cache never bypasses destination-inside-hazard validation', () async {
+      final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final safeDest = LatLng(5.45, 100.36);
+      final unsafeDest = LatLng(5.4401, 100.3201); // within 100m of h1 (radius 500m)
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: safeDest,
+        hazards: [h1],
+      );
+      expect(requestCount, 1);
+
+      expect(
+        () => service.calculateSafeRoute(
+          start: start,
+          destination: unsafeDest,
+          hazards: [h1],
+        ),
+        throwsA(
+          isA<SafeRoutingException>().having(
+            (e) => e.code,
+            'code',
+            SafeRoutingFailureCode.destinationInsideHazard,
+          ),
+        ),
+      );
+      expect(requestCount, 1); // rejected locally without hitting ORS
+    });
+
+    test('Result cache is bypassed when allowCache is false', () async {
+      final h1 = hazard(id: 'cached-h1', severity: 'High', latitude: 5.44, longitude: 100.32);
+      final service = serviceReturning();
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [h1],
+        allowCache: false,
+      );
+      expect(requestCount, 1);
+
+      await service.calculateSafeRoute(
+        start: start,
+        destination: destination,
+        hazards: [h1],
+        allowCache: false,
+      );
+      expect(requestCount, 2);
+    });
   });
 }
 

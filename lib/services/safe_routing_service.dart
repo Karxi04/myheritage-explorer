@@ -40,17 +40,22 @@ class SafeRoutingException implements Exception {
     required this.message,
     this.hazardId,
     this.statusCode,
+    this.orsErrorCode,
+    this.retryAfter,
   });
 
   final SafeRoutingFailureCode code;
   final String message;
   final String? hazardId;
   final int? statusCode;
+  final int? orsErrorCode;
+  final Duration? retryAfter;
 
   @override
   String toString() =>
       'SafeRoutingException(${code.code}): $message'
-      '${hazardId == null ? '' : ' (hazard: $hazardId)'}';
+      '${hazardId == null ? '' : ' (hazard: $hazardId)'}'
+      '${retryAfter == null ? '' : ' (retryAfter: ${retryAfter!.inSeconds}s)'}';
 }
 
 /// Calculates real driving routes while asking OpenRouteService to avoid the
@@ -122,18 +127,60 @@ class SafeRoutingService {
     180,
   ];
 
+  static const Duration defaultRateLimitCooldown = Duration(seconds: 20);
+  static DateTime? rateLimitedUntil;
+
+  static bool get isRateLimited {
+    final until = rateLimitedUntil;
+    if (until == null) return false;
+    if (DateTime.now().isBefore(until)) return true;
+    rateLimitedUntil = null;
+    return false;
+  }
+
+  static int get rateLimitRemainingSeconds {
+    final until = rateLimitedUntil;
+    if (until == null) return 0;
+    final remaining = until.difference(DateTime.now()).inSeconds;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  static void clearRateLimitCooldown() {
+    rateLimitedUntil = null;
+  }
+
+  static Duration? parseRetryAfter(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final seconds = int.tryParse(trimmed);
+    if (seconds != null && seconds >= 0) {
+      return Duration(seconds: seconds);
+    }
+    return null;
+  }
+
+  static _SafeRouteCacheEntry? _cache;
+
+  static void clearCache() {
+    _cache = null;
+  }
+
   final http.Client _client;
   final bool _ownsClient;
   final String _apiKey;
   final Duration _timeout;
   final int _maxRequestBytes;
+  int _requestSequence = 0;
 
   Future<SafeRoute> calculateSafeRoute({
     required LatLng start,
     List<NavigationStop>? stops,
     LatLng? destination,
     required List<HazardReport> hazards,
+    bool allowCache = true,
   }) async {
+    _requestSequence = 0;
     _validateRouteEndpoint(start, isStart: true);
 
     final effectiveStops = (stops != null && stops.isNotEmpty)
@@ -182,6 +229,36 @@ class SafeRoutingService {
       }
     }
 
+    final cacheKey = _computeCacheKey(
+      start: start,
+      stops: effectiveStops,
+      activeHazards: activeHazards,
+    );
+
+    if (allowCache && _cache != null) {
+      final now = DateTime.now();
+      if (_cache!.isValid(now) && _cache!.cacheKey == cacheKey) {
+        final cachedRoute = _cache!.route;
+        final isSafe = _verifyCachedRouteSafety(
+          cachedRoute: cachedRoute,
+          start: start,
+          activeHazards: activeHazards,
+        );
+        if (isSafe) {
+          debugPrint('[SafeRouting] cache hit for key=$cacheKey');
+          debugPrint('[SafeRouting] operation completed with 0 ORS requests');
+          return cachedRoute;
+        } else {
+          _debugLog(
+            '[SafeRouting] cached route failed safety verification; discarding cache',
+          );
+          _cache = null;
+        }
+      } else {
+        _cache = null;
+      }
+    }
+
     // Determine every active verified hazard containing the start point.
     final containingHazards = <HazardReport>[];
     for (final hazard in activeHazards) {
@@ -192,22 +269,134 @@ class SafeRoutingService {
       }
     }
 
+    final SafeRoute route;
     // Case A: Start is outside all verified hazards -> progressive fallback routing.
     if (containingHazards.isEmpty) {
-      return _calculateWithFallback(
+      route = await _calculateWithFallback(
         start: start,
         stops: effectiveStops,
         allActiveHazards: activeHazards,
       );
+      _debugLog('[SafeRouting] normal safe route success');
+    } else {
+      // Case B: Start is inside one or more verified hazards -> ESCAPE MODE.
+      _debugLog(
+        '[EscapeMode] start inside hazards=${containingHazards.length} '
+        'ids=[${containingHazards.map((hazard) => hazard.id).join(',')}]',
+      );
+      route = await _calculateEscapeRoute(
+        start: start,
+        stops: effectiveStops,
+        containingHazards: containingHazards,
+        allActiveHazards: activeHazards,
+      );
     }
 
-    // Case B: Start is inside one or more verified hazards -> ESCAPE MODE.
-    return _calculateEscapeRoute(
-      start: start,
-      stops: effectiveStops,
-      containingHazards: containingHazards,
-      allActiveHazards: activeHazards,
+    if (allowCache) {
+      _cache = _SafeRouteCacheEntry(
+        cacheKey: cacheKey,
+        route: route,
+        timestamp: DateTime.now(),
+      );
+    }
+
+    debugPrint(
+      '[SafeRouting] operation completed with $_requestSequence ORS requests',
     );
+    return route;
+  }
+
+  static String _computeCacheKey({
+    required LatLng start,
+    required List<NavigationStop> stops,
+    required List<HazardReport> activeHazards,
+  }) {
+    final startStr =
+        '${start.latitude.toStringAsFixed(5)},${start.longitude.toStringAsFixed(5)}';
+    final stopsStr = stops
+        .map(
+          (s) =>
+              '${s.location.latitude.toStringAsFixed(5)},${s.location.longitude.toStringAsFixed(5)}',
+        )
+        .join(';');
+    final fingerprints = activeHazards.map(_hazardFingerprint).toList()..sort();
+    return '$startStr|$stopsStr|${fingerprints.join(';')}';
+  }
+
+  static String _hazardFingerprint(HazardReport hazard) {
+    final lat = hazard.latitude.toStringAsFixed(5);
+    final lon = hazard.longitude.toStringAsFixed(5);
+    final sev = hazard.severity.trim().toLowerCase();
+    final radius =
+        SafetyConfig.dangerRadiusForSeverity(hazard.severity).toStringAsFixed(1);
+    return '${hazard.id}:$lat,$lon:$sev:$radius';
+  }
+
+  static bool _verifyCachedRouteSafety({
+    required SafeRoute cachedRoute,
+    required LatLng start,
+    required List<HazardReport> activeHazards,
+  }) {
+    if (cachedRoute.geometry.isEmpty) return false;
+
+    final containingHazards = <HazardReport>[];
+    for (final hazard in activeHazards) {
+      final radius = SafetyConfig.dangerRadiusForSeverity(hazard.severity);
+      final hazardPoint = LatLng(hazard.latitude, hazard.longitude);
+      if (distanceMeters(start, hazardPoint) <= radius) {
+        containingHazards.add(hazard);
+      }
+    }
+
+    if (containingHazards.isNotEmpty) {
+      if (!cachedRoute.startedInsideHazard) return false;
+      if (!verifyEscapeRouteExitAndNoReentry(
+        geometry: cachedRoute.geometry,
+        containingHazards: containingHazards,
+      )) {
+        return false;
+      }
+    } else {
+      if (cachedRoute.startedInsideHazard) return false;
+    }
+
+    final highHazards = activeHazards
+        .where((h) => h.severity.trim().toLowerCase() == 'high')
+        .toList(growable: false);
+    final mediumHazards = activeHazards
+        .where((h) => h.severity.trim().toLowerCase() == 'medium')
+        .toList(growable: false);
+
+    final containingIds = containingHazards.map((h) => h.id).toSet();
+    final List<HazardReport> requiredAvoidHazards;
+
+    switch (cachedRoute.riskLevel) {
+      case RouteRiskLevel.hazardFree:
+        requiredAvoidHazards = activeHazards
+            .where((h) => !containingIds.contains(h.id))
+            .toList(growable: false);
+      case RouteRiskLevel.lowRisk:
+        requiredAvoidHazards = [...highHazards, ...mediumHazards]
+            .where((h) => !containingIds.contains(h.id))
+            .toList(growable: false);
+      case RouteRiskLevel.moderateRisk:
+        requiredAvoidHazards = highHazards
+            .where((h) => !containingIds.contains(h.id))
+            .toList(growable: false);
+      case RouteRiskLevel.unavoidableExposure:
+        requiredAvoidHazards = const [];
+    }
+
+    if (requiredAvoidHazards.isNotEmpty) {
+      if (!verifyRouteSegmentsAvoidHazards(
+        geometry: cachedRoute.geometry,
+        hazards: requiredAvoidHazards,
+      )) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   Future<SafeRoute> _calculateWithFallback({
@@ -305,7 +494,23 @@ class SafeRoutingService {
         unrelatedHazards: unrelatedHazards,
         bearingOffset: offset,
       );
-      if (escapePoint == null) continue;
+      if (escapePoint == null) {
+        _debugLog(
+          '[EscapeMode] candidate bearingOffset=$offset '
+          'rejected=insideAnotherHazard',
+        );
+        continue;
+      }
+
+      _debugLog(
+        '[EscapeMode] candidate bearingOffset=$offset '
+        'point=(${escapePoint.latitude.toStringAsFixed(6)},'
+        '${escapePoint.longitude.toStringAsFixed(6)})',
+      );
+      _debugLog(
+        '[EscapeMode] escape avoidPolygons=${unrelatedHazards.length} '
+        'temporarilyExcludedContaining=${containingHazards.length}',
+      );
 
       try {
         // Phase 1: start -> escapePoint (avoiding unrelated hazards only)
@@ -328,9 +533,17 @@ class SafeRoutingService {
 
         // Verification 1: Phase 1 must exit containing hazards and NOT re-enter them
         if (!verifyEscapeRouteExitAndNoReentry(
-          geometry: escapeRoute.geometry,
-          containingHazards: containingHazards,
-        )) {
+              geometry: escapeRoute.geometry,
+              containingHazards: containingHazards,
+            ) ||
+            !verifyRouteSegmentsAvoidHazards(
+              geometry: escapeRoute.geometry,
+              hazards: unrelatedHazards,
+            )) {
+          _debugLog(
+            '[EscapeMode] candidate bearingOffset=$offset '
+            'rejected=unsafeEscapeGeometry',
+          );
           continue;
         }
 
@@ -341,13 +554,22 @@ class SafeRoutingService {
           allActiveHazards: allActiveHazards,
         );
 
-        // Verification 2: Phase 2 road segments must NOT enter starting hazard(s)
+        // A geometrically unsafe response is a rejected candidate, not a
+        // provider no-route result, so it must not weaken hazard avoidance.
         if (!verifyRouteSegmentsAvoidHazards(
           geometry: safeRoute.geometry,
           hazards: containingHazards,
         )) {
+          _debugLog(
+            '[EscapeMode] candidate bearingOffset=$offset '
+            'rejected=normalRouteReentry',
+          );
           continue;
         }
+
+        _debugLog('[EscapeMode] full avoidance restored');
+        _debugLog('[EscapeMode] valid escape route found');
+        _debugLog('[SafeRouting] normal safe route success');
 
         return _combineRoutes(
           escapeRoute: escapeRoute,
@@ -356,17 +578,43 @@ class SafeRoutingService {
           allActiveHazards: allActiveHazards,
         );
       } on SafeRoutingException catch (error) {
-        if (error.code == SafeRoutingFailureCode.missingApiKey ||
-            error.code == SafeRoutingFailureCode.unauthorized ||
-            error.code == SafeRoutingFailureCode.rateLimited ||
-            error.code == SafeRoutingFailureCode.requestTooLarge) {
+        if (error.code == SafeRoutingFailureCode.rateLimited) {
+          _debugLog('[EscapeMode] rateLimited aborting remaining candidates');
           rethrow;
         }
-        if (_isRetryableRouteFailure(error)) continue;
+        if (error.code == SafeRoutingFailureCode.missingApiKey ||
+            error.code == SafeRoutingFailureCode.unauthorized ||
+            error.code == SafeRoutingFailureCode.requestTooLarge ||
+            error.code == SafeRoutingFailureCode.timeout ||
+            error.code == SafeRoutingFailureCode.networkFailure ||
+            error.code == SafeRoutingFailureCode.providerUnavailable ||
+            error.code == SafeRoutingFailureCode.destinationInsideHazard) {
+          rethrow;
+        }
+        if (_isUnroutableEscapeCandidate(error)) {
+          _debugLog(
+            '[EscapeMode] candidate bearingOffset=$offset '
+            'rejected=unroutable ORS=2010',
+          );
+          _debugLog('[EscapeMode] trying next candidate');
+          continue;
+        }
+        if (_isRetryableRouteFailure(error)) {
+          final orsCode = error.orsErrorCode == null
+              ? ''
+              : ' ORS=${error.orsErrorCode}';
+          _debugLog(
+            '[EscapeMode] candidate bearingOffset=$offset '
+            'failure=noRoute$orsCode tryingNextCandidate',
+          );
+          continue;
+        }
         rethrow;
       }
     }
 
+    _debugLog('[EscapeMode] radial candidates exhausted');
+    _debugLog('[EscapeMode] trying route-derived fallback');
     return _calculateRouteDerivedEscape(
       start: start,
       stops: stops,
@@ -384,93 +632,107 @@ class SafeRoutingService {
     required List<HazardReport> allActiveHazards,
   }) async {
     final containingIds = containingHazards.map((hazard) => hazard.id).toSet();
-    final attemptedAvoidSignatures = <String>{};
-    SafeRoutingException? lastNoRouteException;
+    final probeAvoidHazards = allActiveHazards
+        .where((hazard) => !containingIds.contains(hazard.id))
+        .toList(growable: false);
 
-    for (final attempt in _riskAttempts(allActiveHazards)) {
-      final avoidSig = _avoidSignature(attempt.avoidHazards);
-      if (!attemptedAvoidSignatures.add(avoidSig)) continue;
+    _debugLog(
+      '[EscapeMode] routeDerived avoidPolygons=${probeAvoidHazards.length} '
+      'temporarilyExcludedContaining=${containingHazards.length}',
+    );
 
-      final probeAvoidHazards = attempt.avoidHazards
-          .where((hazard) => !containingIds.contains(hazard.id))
-          .toList(growable: false);
-      try {
-        // The start hazards alone are exempted while ORS finds a drivable way
-        // out. Unrelated hazards remain active for this risk level.
-        final probeRoute = await _fetchRoute(
-          start: start,
-          waypoints: [stops.first.location],
-          stops: [stops.first],
-          avoidHazards: probeAvoidHazards,
-          avoidedHazardIds: probeAvoidHazards.map((hazard) => hazard.id),
-          riskLevel: attempt.riskLevel,
-          allActiveHazards: allActiveHazards,
+    try {
+      // Escape discovery always excludes only the polygons containing the start.
+      // Progressive relaxation is deliberately deferred until a safe exit exists.
+      final probeRoute = await _fetchRoute(
+        start: start,
+        waypoints: [stops.first.location],
+        stops: [stops.first],
+        avoidHazards: probeAvoidHazards,
+        avoidedHazardIds: probeAvoidHazards.map((hazard) => hazard.id),
+        riskLevel: RouteRiskLevel.hazardFree,
+        allActiveHazards: allActiveHazards,
+      );
+
+      final exitIndex = firstCompleteExitIndex(
+        geometry: probeRoute.geometry,
+        containingHazards: containingHazards,
+        clearanceMeters: escapeSafetyMarginMeters,
+      );
+      if (exitIndex < 0) {
+        throw const SafeRoutingException(
+          code: SafeRoutingFailureCode.noRoute,
+          message: 'The road route did not reach a safe hazard exit point.',
         );
+      }
 
-        final exitIndex = firstCompleteExitIndex(
-          geometry: probeRoute.geometry,
-          containingHazards: containingHazards,
+      final escapeRoute = _routePrefixThrough(
+        route: probeRoute,
+        endGeometryIndex: exitIndex,
+        escapePoint: probeRoute.geometry[exitIndex],
+        actualStart: start,
+      );
+      if (!verifyEscapeRouteExitAndNoReentry(
+            geometry: escapeRoute.geometry,
+            containingHazards: containingHazards,
+          ) ||
+          !verifyRouteSegmentsAvoidHazards(
+            geometry: escapeRoute.geometry,
+            hazards: probeAvoidHazards,
+          )) {
+        throw const SafeRoutingException(
+          code: SafeRoutingFailureCode.noRoute,
+          message: 'The road-derived escape route failed safety validation.',
         );
-        if (exitIndex < 0) continue;
+      }
 
-        final escapeRoute = _routePrefixThrough(
-          route: probeRoute,
-          endGeometryIndex: exitIndex,
-          escapePoint: probeRoute.geometry[exitIndex],
-          actualStart: start,
+      final safeRoute = await _calculateWithFallback(
+        start: escapeRoute.geometry.last,
+        stops: stops,
+        allActiveHazards: allActiveHazards,
+      );
+
+      if (!verifyRouteSegmentsAvoidHazards(
+        geometry: safeRoute.geometry,
+        hazards: containingHazards,
+      )) {
+        throw const SafeRoutingException(
+          code: SafeRoutingFailureCode.noRoute,
+          message: 'The normal route would re-enter the escaped hazard region.',
         );
-        if (!verifyEscapeRouteExitAndNoReentry(
-              geometry: escapeRoute.geometry,
-              containingHazards: containingHazards,
-            ) ||
-            !verifyRouteSegmentsAvoidHazards(
-              geometry: escapeRoute.geometry,
-              hazards: probeAvoidHazards,
-            )) {
-          continue;
-        }
+      }
 
-        final safeRoute = await _fetchRoute(
-          start: escapeRoute.geometry.last,
-          waypoints: stops.map((stop) => stop.location).toList(growable: false),
-          stops: stops,
-          avoidHazards: attempt.avoidHazards,
-          avoidedHazardIds: attempt.avoidHazards.map((hazard) => hazard.id),
-          riskLevel: attempt.riskLevel,
-          allActiveHazards: allActiveHazards,
-        );
-
-        // Once outside, start hazards that are prohibited at this risk level
-        // are active again. Segment checks protect against provider snapping or
-        // polygon approximation allowing an accidental re-entry.
-        if (!verifyRouteSegmentsAvoidHazards(
-          geometry: safeRoute.geometry,
-          hazards: attempt.avoidHazards,
-        )) {
-          continue;
-        }
-
-        return _combineRoutes(
-          escapeRoute: escapeRoute,
-          safeRoute: safeRoute,
-          escapeHazardIds: containingHazards.map((hazard) => hazard.id),
-          allActiveHazards: allActiveHazards,
-        );
-      } on SafeRoutingException catch (error) {
-        if (_isRetryableRouteFailure(error)) {
-          lastNoRouteException = error;
-          continue;
-        }
+      _debugLog('[EscapeMode] full avoidance restored');
+      _debugLog('[EscapeMode] valid route-derived escape found');
+      _debugLog('[SafeRouting] normal safe route success');
+      return _combineRoutes(
+        escapeRoute: escapeRoute,
+        safeRoute: safeRoute,
+        escapeHazardIds: containingHazards.map((hazard) => hazard.id),
+        allActiveHazards: allActiveHazards,
+      );
+    } on SafeRoutingException catch (error) {
+      if (error.code == SafeRoutingFailureCode.rateLimited) {
+        _debugLog('[EscapeMode] rateLimited aborting remaining candidates');
         rethrow;
       }
-    }
-
-    throw lastNoRouteException ??
-        const SafeRoutingException(
+      if (error.code == SafeRoutingFailureCode.missingApiKey ||
+          error.code == SafeRoutingFailureCode.unauthorized ||
+          error.code == SafeRoutingFailureCode.requestTooLarge ||
+          error.code == SafeRoutingFailureCode.timeout ||
+          error.code == SafeRoutingFailureCode.networkFailure ||
+          error.code == SafeRoutingFailureCode.providerUnavailable ||
+          error.code == SafeRoutingFailureCode.destinationInsideHazard) {
+        rethrow;
+      }
+      if (_isRetryableRouteFailure(error)) {
+        throw const SafeRoutingException(
           code: SafeRoutingFailureCode.noRoute,
-          message:
-              'No hazard-avoiding route could be found from inside the hazard zone.',
+          message: 'Could not find a safe escape route from the hazard area.',
         );
+      }
+      rethrow;
+    }
   }
 
   static String _avoidSignature(List<HazardReport> hazards) {
@@ -480,6 +742,14 @@ class SafeRoutingService {
 
   static bool _isRetryableRouteFailure(SafeRoutingException error) =>
       error.code == SafeRoutingFailureCode.noRoute;
+
+  /// ORS 2010 means the requested coordinate could not be snapped to the
+  /// driving graph. It is retryable only while evaluating a generated escape
+  /// candidate; it remains a provider failure everywhere else.
+  static bool _isUnroutableEscapeCandidate(SafeRoutingException error) =>
+      error.orsErrorCode == 2010 &&
+      (error.code == SafeRoutingFailureCode.invalidRequest ||
+          error.code == SafeRoutingFailureCode.providerFailure);
 
   static SafeRoute _routePrefixThrough({
     required SafeRoute route,
@@ -641,6 +911,19 @@ class SafeRoutingService {
     required RouteRiskLevel riskLevel,
     required List<HazardReport> allActiveHazards,
   }) async {
+    if (isRateLimited) {
+      final remaining = Duration(seconds: rateLimitRemainingSeconds);
+      debugPrint(
+        '[SafeRouting] rate limited locally (remaining=${remaining.inSeconds}s)',
+      );
+      throw SafeRoutingException(
+        code: SafeRoutingFailureCode.rateLimited,
+        message: 'OpenRouteService rate limit cooldown in effect.',
+        retryAfter: remaining,
+      );
+    }
+
+    _requestSequence++;
     final endpointStr = endpoint.toString();
     final keyConfigured = _apiKey.isNotEmpty;
     final destPoint = waypoints.isNotEmpty
@@ -653,8 +936,9 @@ class SafeRoutingService {
         : 'none';
 
     debugPrint(
-      '[SafeRouting] endpoint=$endpointStr start=($startStr) dest=($destStr) '
-      'hazards=${allActiveHazards.length} avoid_polygons=${avoidHazards.length}',
+      '[SafeRouting] request sequence=$_requestSequence endpoint=$endpointStr '
+      'start=($startStr) dest=($destStr) hazards=${allActiveHazards.length} '
+      'avoid_polygons=${avoidHazards.length}',
     );
 
     if (!keyConfigured) {
@@ -724,6 +1008,33 @@ class SafeRoutingService {
 
     debugPrint('[SafeRouting] HTTP=${response.statusCode}');
     if (response.statusCode != 200) {
+      if (response.statusCode == 429) {
+        final retryAfterHeader =
+            response.headers['retry-after'] ?? response.headers['Retry-After'];
+        final cooldown =
+            parseRetryAfter(retryAfterHeader) ?? defaultRateLimitCooldown;
+        rateLimitedUntil = DateTime.now().add(cooldown);
+        debugPrint(
+          '[SafeRouting] rateLimited retryAfter=${cooldown.inSeconds}s',
+        );
+        final orsError = _parseOrsError(response.body);
+        if (orsError != null) {
+          final code = orsError.code == null ? 'unknown' : '${orsError.code}';
+          final message = orsError.message == null
+              ? 'unavailable'
+              : _safeLogText(orsError.message!);
+          debugPrint('[SafeRouting] ORS error code=$code message=$message');
+        }
+        debugPrint('[SafeRouting] failure=rateLimited');
+        throw SafeRoutingException(
+          code: SafeRoutingFailureCode.rateLimited,
+          message: 'OpenRouteService rate limit was reached.',
+          statusCode: 429,
+          orsErrorCode: orsError?.code,
+          retryAfter: cooldown,
+        );
+      }
+
       final orsError = _parseOrsError(response.body);
       if (orsError != null) {
         final code = orsError.code == null ? 'unknown' : '${orsError.code}';
@@ -1016,6 +1327,7 @@ class SafeRoutingService {
   static int firstCompleteExitIndex({
     required List<LatLng> geometry,
     required List<HazardReport> containingHazards,
+    double clearanceMeters = 0,
   }) {
     if (geometry.isEmpty || containingHazards.isEmpty) return -1;
     for (var index = 0; index < geometry.length; index++) {
@@ -1023,7 +1335,7 @@ class SafeRoutingService {
       final isOutsideAll = containingHazards.every((hazard) {
         final radius = SafetyConfig.dangerRadiusForSeverity(hazard.severity);
         final center = LatLng(hazard.latitude, hazard.longitude);
-        return distanceMeters(point, center) > radius;
+        return distanceMeters(point, center) > radius + clearanceMeters;
       });
       if (isOutsideAll) return index;
     }
@@ -1097,6 +1409,10 @@ class SafeRoutingService {
     if (_ownsClient) _client.close();
   }
 
+  static void _debugLog(String message) {
+    if (kDebugMode) debugPrint(message);
+  }
+
   static void _validateRouteEndpoint(LatLng point, {required bool isStart}) {
     if (SafetyConfig.validCoordinates(point.latitude, point.longitude)) return;
     throw SafeRoutingException(
@@ -1112,6 +1428,7 @@ class SafeRoutingService {
   static SafeRoutingException _exceptionForHttpStatus(
     int statusCode, {
     int? orsErrorCode,
+    Duration? retryAfter,
   }) {
     if (statusCode == 400) {
       if (_isOrsNoRouteErrorCode(orsErrorCode)) {
@@ -1120,12 +1437,14 @@ class SafeRoutingService {
           message:
               'OpenRouteService could not find a route between the points.',
           statusCode: statusCode,
+          orsErrorCode: orsErrorCode,
         );
       }
       return SafeRoutingException(
         code: SafeRoutingFailureCode.invalidRequest,
         message: 'OpenRouteService rejected the routing request.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
       );
     }
     if (statusCode == 401 || statusCode == 403) {
@@ -1135,6 +1454,7 @@ class SafeRoutingService {
             ? 'OpenRouteService authorization failed (401 Unauthorized).'
             : 'OpenRouteService access denied (403 Forbidden). Check key restrictions or quota.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
       );
     }
     if (statusCode == 429) {
@@ -1142,6 +1462,8 @@ class SafeRoutingService {
         code: SafeRoutingFailureCode.rateLimited,
         message: 'OpenRouteService rate limit was reached.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
+        retryAfter: retryAfter,
       );
     }
     if (statusCode == 404) {
@@ -1151,6 +1473,7 @@ class SafeRoutingService {
           message:
               'OpenRouteService could not find a route between the points.',
           statusCode: statusCode,
+          orsErrorCode: orsErrorCode,
         );
       }
       return SafeRoutingException(
@@ -1158,6 +1481,7 @@ class SafeRoutingService {
         message:
             'OpenRouteService returned 404 for the configured Directions endpoint.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
       );
     }
     if (statusCode == 413) {
@@ -1165,6 +1489,7 @@ class SafeRoutingService {
         code: SafeRoutingFailureCode.requestTooLarge,
         message: 'OpenRouteService rejected the request as too large.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
       );
     }
     if (statusCode >= 500) {
@@ -1172,12 +1497,14 @@ class SafeRoutingService {
         code: SafeRoutingFailureCode.providerUnavailable,
         message: 'OpenRouteService is temporarily unavailable.',
         statusCode: statusCode,
+        orsErrorCode: orsErrorCode,
       );
     }
     return SafeRoutingException(
       code: SafeRoutingFailureCode.providerFailure,
       message: 'OpenRouteService returned HTTP $statusCode.',
       statusCode: statusCode,
+      orsErrorCode: orsErrorCode,
     );
   }
 
@@ -1405,4 +1732,21 @@ class _OrsErrorDetails {
 
   final int? code;
   final String? message;
+}
+
+class _SafeRouteCacheEntry {
+  _SafeRouteCacheEntry({
+    required this.cacheKey,
+    required this.route,
+    required this.timestamp,
+  });
+
+  static const Duration defaultTtl = Duration(seconds: 45);
+
+  final String cacheKey;
+  final SafeRoute route;
+  final DateTime timestamp;
+
+  bool get isExpired => DateTime.now().difference(timestamp) > defaultTtl;
+  bool isValid(DateTime now) => now.difference(timestamp) <= defaultTtl;
 }
