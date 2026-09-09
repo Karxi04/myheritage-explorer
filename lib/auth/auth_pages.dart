@@ -1,4 +1,5 @@
-﻿import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,9 +8,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../core/explorer_ui.dart';
 import '../core/helpers.dart';
-import '../core/services.dart';
 import '../core/pin_service.dart';
-
+import '../core/services.dart';
 
 part 'screens/role_select_page.dart';
 part 'screens/login_page.dart';
@@ -21,4 +21,3 @@ part 'screens/pin_setup_page.dart';
 part 'screens/pin_entry_page.dart';
 
 part 'screens/vendor_location_picker_page.dart';
-

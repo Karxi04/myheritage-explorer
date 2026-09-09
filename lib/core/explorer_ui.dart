@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 class ExplorerColors {
@@ -45,7 +44,9 @@ class ExplorerBrand extends StatelessWidget {
           width: compact ? 30 : 38,
           height: compact ? 30 : 38,
           decoration: BoxDecoration(
-            color: dark ? Colors.white.withOpacity(.12) : ExplorerColors.navySoft,
+            color: dark
+                ? Colors.white.withOpacity(.12)
+                : ExplorerColors.navySoft,
             borderRadius: BorderRadius.circular(9),
           ),
           child: Icon(
@@ -106,17 +107,19 @@ class ExplorerPageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(16, compact ? 10 : 14, 10, compact ? 10 : 14),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        compact ? 10 : 14,
+        10,
+        compact ? 10 : 14,
+      ),
       decoration: const BoxDecoration(
         color: ExplorerColors.surface,
         border: Border(bottom: BorderSide(color: ExplorerColors.border)),
       ),
       child: Row(
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 8),
-          ],
+          if (leading != null) ...[leading!, const SizedBox(width: 8)],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,13 +224,35 @@ class ExplorerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Container(
-      margin: margin,
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+      side: borderColor == Colors.transparent
+          ? BorderSide.none
+          : BorderSide(color: borderColor),
+    );
+
+    final cardContent = Padding(
       padding: padding,
+      child: child,
+    );
+
+    final body = Material(
+      color: backgroundColor,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: onTap != null
+          ? InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(radius),
+              child: cardContent,
+            )
+          : cardContent,
+    );
+
+    return Container(
+      margin: margin,
       decoration: BoxDecoration(
-        color: backgroundColor,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0A101828),
@@ -236,16 +261,7 @@ class ExplorerCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
-    );
-    if (onTap == null) return content;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(radius),
-        child: content,
-      ),
+      child: body,
     );
   }
 }
@@ -265,11 +281,23 @@ class ExplorerStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, foreground) = switch (tone) {
-      ExplorerStatusTone.success => (ExplorerColors.successSoft, ExplorerColors.success),
-      ExplorerStatusTone.warning => (ExplorerColors.warningSoft, ExplorerColors.goldDark),
-      ExplorerStatusTone.danger => (ExplorerColors.dangerSoft, ExplorerColors.danger),
+      ExplorerStatusTone.success => (
+        ExplorerColors.successSoft,
+        ExplorerColors.success,
+      ),
+      ExplorerStatusTone.warning => (
+        ExplorerColors.warningSoft,
+        ExplorerColors.goldDark,
+      ),
+      ExplorerStatusTone.danger => (
+        ExplorerColors.dangerSoft,
+        ExplorerColors.danger,
+      ),
       ExplorerStatusTone.navy => (ExplorerColors.navySoft, ExplorerColors.navy),
-      ExplorerStatusTone.neutral => (ExplorerColors.subtle, ExplorerColors.muted),
+      ExplorerStatusTone.neutral => (
+        ExplorerColors.subtle,
+        ExplorerColors.muted,
+      ),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -284,13 +312,15 @@ class ExplorerStatusBadge extends StatelessWidget {
             Icon(icon, size: 13, color: foreground),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              color: foreground,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .2,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: .2,
+              ),
             ),
           ),
         ],
@@ -332,7 +362,11 @@ class ExplorerMetricCard extends StatelessWidget {
                 color: ExplorerColors.navySoft,
                 borderRadius: BorderRadius.circular(9),
               ),
-              child: Icon(icon, color: ExplorerColors.navy, size: compact ? 18 : 21),
+              child: Icon(
+                icon,
+                color: ExplorerColors.navy,
+                size: compact ? 18 : 21,
+              ),
             ),
           if (icon != null) SizedBox(height: compact ? 8 : 12),
           Text(
@@ -437,7 +471,9 @@ class ExplorerLabeledValue extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       children: [
         Text(
           label.toUpperCase(),
@@ -511,10 +547,7 @@ class ExplorerEmptyState extends StatelessWidget {
                 style: const TextStyle(color: ExplorerColors.muted),
               ),
             ],
-            if (action != null) ...[
-              const SizedBox(height: 16),
-              action!,
-            ],
+            if (action != null) ...[const SizedBox(height: 16), action!],
           ],
         ),
       ),
@@ -549,10 +582,7 @@ class ExplorerAdminPageTitle extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(color: ExplorerColors.muted),
-        ),
+        Text(subtitle, style: const TextStyle(color: ExplorerColors.muted)),
       ],
     );
 
@@ -571,19 +601,14 @@ class ExplorerAdminPageTitle extends StatelessWidget {
         final actionWrap = Wrap(
           spacing: 10,
           runSpacing: 10,
-          alignment:
-              compact ? WrapAlignment.start : WrapAlignment.end,
+          alignment: compact ? WrapAlignment.start : WrapAlignment.end,
           children: actionWidgets,
         );
 
         if (compact) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              titleContent,
-              const SizedBox(height: 14),
-              actionWrap,
-            ],
+            children: [titleContent, const SizedBox(height: 14), actionWrap],
           );
         }
 
@@ -593,10 +618,7 @@ class ExplorerAdminPageTitle extends StatelessWidget {
             Expanded(child: titleContent),
             const SizedBox(width: 16),
             Flexible(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: actionWrap,
-              ),
+              child: Align(alignment: Alignment.centerRight, child: actionWrap),
             ),
           ],
         );

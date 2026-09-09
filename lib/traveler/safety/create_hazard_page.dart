@@ -1,18 +1,39 @@
 part of '../traveler_pages.dart';
 
 class CreateHazardPage extends StatefulWidget {
-  const CreateHazardPage({super.key});
+  const CreateHazardPage({super.key, this.reportService, this.locationService});
+  final HazardReportService? reportService;
+  final LocationService? locationService;
 
   @override
   State<CreateHazardPage> createState() => _CreateHazardPageState();
 }
 
 class _CreateHazardPageState extends State<CreateHazardPage> {
+  late final _reportService = widget.reportService ?? HazardReportService();
+  late final _locationService =
+      widget.locationService ?? const LocationService();
   final description = TextEditingController();
   String category = 'Unsafe walkway';
   String severity = 'Medium';
   XFile? image;
+  Uint8List? _imageBytes;
+  EvidenceValidationResult? _evidenceValidation;
+  String? _evidenceCheckError;
+  bool _validatingImage = false;
+  Position? _capturedPosition;
+  bool _capturingLocation = true;
+  String? _locationError;
   bool busy = false;
+  bool _pickingImage = false;
+  String _evidenceSource = EvidenceSource.camera;
+  String? _descriptionError;
+
+  @override
+  void initState() {
+    super.initState();
+    _captureLocation();
+  }
 
   @override
   void dispose() {
@@ -21,45 +42,281 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
   }
 
   Future<void> submit() async {
+    if (busy || _pickingImage || _validatingImage) return;
     if (description.text.trim().isEmpty) {
-      showMessage(context, 'Enter a hazard description.', error: true);
+      setState(
+        () => _descriptionError =
+            'Describe the hazard so others know what to avoid.',
+      );
       return;
     }
+    if (image == null || _imageBytes == null) {
+      showMessage(
+        context,
+        'Add photo evidence before submitting.',
+        error: true,
+      );
+      return;
+    }
+    if (_evidenceCheckError != null) {
+      showMessage(context, _evidenceCheckError!, error: true);
+      return;
+    }
+
     setState(() => busy = true);
+
+    final Position position;
     try {
-      final uid = AppServices.auth.currentUser!.uid;
-      final position = await determinePosition();
-      String? imageUrl;
-      if (image != null) {
-        imageUrl = await AppServices.uploadImage(
-          folder: 'hazards',
-          uid: uid,
-          bytes: await image!.readAsBytes(),
-          extension: image!.name.split('.').last,
+      final currentPos = await _locationService.getCurrentPosition();
+      if (!mounted) return;
+      _capturedPosition = currentPos;
+      position = currentPos;
+    } catch (e) {
+      if (mounted) {
+        setState(() => busy = false);
+        showMessage(
+          context,
+          friendlySafetyActionError(
+            e,
+            fallback:
+                'Location could not be captured. Check location access and retry.',
+          ),
+          error: true,
         );
       }
-      await AppServices.db.collection('hazards').add({
-        'reporterId': uid,
-        'category': category,
-        'severity': severity,
-        'description': description.text.trim(),
-        'imageUrl': imageUrl,
-        'location': GeoPoint(position.latitude, position.longitude),
-        'status': 'pending',
-        'upvoteCount': 0,
-        'resolveCount': 0,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      return;
+    }
+
+    List<HazardDuplicateCandidate> duplicates = const [];
+    try {
+      duplicates = await _reportService.findDuplicateCandidates(
+        category: category,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+    } catch (e, stack) {
+      debugPrint('Duplicate hazard check failed: $e\n$stack');
       if (mounted) {
-        showMessage(context, 'Hazard submitted for administrator review.');
+        setState(() => busy = false);
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unable to Check for Nearby Hazards'),
+            content: const Text(
+              'A network error occurred while checking for existing reports. '
+              'Would you like to try checking again, or continue submitting your report?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Try Again'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Continue Submission'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (proceed == null) {
+          return;
+        } else if (proceed == false) {
+          submit();
+          return;
+        } else {
+          await _createReportFinal(position);
+          return;
+        }
+      }
+      return;
+    }
+
+    if (duplicates.isNotEmpty) {
+      if (!mounted) return;
+      setState(() => busy = false);
+      final action = await showDuplicateHazardWarning(
+        context: context,
+        candidates: duplicates,
+        onViewExisting: (report) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => HazardDetailPage(
+                hazardId: report.id,
+                reportService: _reportService,
+              ),
+            ),
+          );
+        },
+      );
+
+      if (!mounted) return;
+      if (action == DuplicateWarningAction.submitAnyway) {
+        await _createReportFinal(position);
+      }
+      return;
+    }
+
+    await _createReportFinal(position);
+  }
+
+  Future<void> _createReportFinal(Position position) async {
+    setState(() => busy = true);
+    try {
+      await _reportService.createReport(
+        category: category,
+        severity: severity,
+        description: description.text.trim(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        imageBytes: _imageBytes,
+        evidenceSource: _evidenceSource,
+        evidenceValidation: _evidenceValidation,
+      );
+
+      if (mounted) {
+        showMessage(context, 'Hazard submitted with status Pending Review.');
         Navigator.pop(context);
       }
-    } catch (e) {
-      if (mounted) showMessage(context, e.toString(), error: true);
+    } catch (e, stack) {
+      debugPrint('Hazard submission failed: $e\n$stack');
+      if (mounted) {
+        showMessage(
+          context,
+          friendlySafetyActionError(
+            e,
+            fallback:
+                'Your report could not be submitted. Check your connection and try again.',
+          ),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
+  }
+
+  Future<void> _captureLocation() async {
+    if (!_capturingLocation && mounted) {
+      setState(() {
+        _capturingLocation = true;
+        _locationError = null;
+      });
+    }
+    try {
+      final position = await _locationService.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          _capturedPosition = position;
+          _locationError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _capturedPosition = null;
+          _locationError = friendlySafetyActionError(
+            error,
+            fallback:
+                'Location could not be captured. Check location access and retry.',
+          );
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _capturingLocation = false);
+    }
+  }
+
+  Future<void> _takePhoto([ImageSource source = ImageSource.camera]) async {
+    if (_validatingImage || busy || _pickingImage) return;
+    setState(() => _pickingImage = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 2000,
+        maxHeight: 2000,
+        imageQuality: 90,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        image = picked;
+        _evidenceSource = source == ImageSource.camera
+            ? EvidenceSource.camera
+            : EvidenceSource.gallery;
+        _imageBytes = bytes;
+        _evidenceCheckError = null;
+      });
+      await _checkEvidence();
+    } catch (error, stack) {
+      debugPrint('Hazard photo capture failed: $error\n$stack');
+      if (mounted) {
+        showMessage(
+          context,
+          'Could not open or read the camera photo. Check camera access and try again.',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
+  Future<void> _checkEvidence() async {
+    final bytes = _imageBytes;
+    if (bytes == null || _validatingImage || busy) return;
+    setState(() {
+      _validatingImage = true;
+      _evidenceValidation = null;
+      _evidenceCheckError = null;
+    });
+    try {
+      final validation = await _reportService.validateEvidence(
+        imageBytes: bytes,
+        evidenceSource: _evidenceSource,
+      );
+      if (mounted) {
+        if (!validation.isValid) {
+          setState(() {
+            _evidenceValidation = validation;
+            _evidenceCheckError =
+                'Unable to use this image. Please choose another photo.';
+          });
+        } else {
+          setState(() {
+            _evidenceValidation = validation;
+            _evidenceCheckError = null;
+          });
+        }
+      }
+    } catch (error, stack) {
+      debugPrint('Hazard evidence check failed: $error\n$stack');
+      if (mounted) {
+        setState(() {
+          _evidenceCheckError =
+              'Unable to use this image. Please choose another photo.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _validatingImage = false);
+    }
+  }
+
+  void _removeEvidence() {
+    if (_validatingImage || busy) return;
+    setState(() {
+      image = null;
+      _imageBytes = null;
+      _evidenceValidation = null;
+      _evidenceCheckError = null;
+      _validatingImage = false;
+    });
   }
 
   @override
@@ -81,46 +338,34 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: ExplorerColors.navy,
-                      borderRadius: BorderRadius.circular(16),
+                  const Text(
+                    'Share a current photo and describe what travelers should avoid.',
+                    style: TextStyle(
+                      color: ExplorerColors.muted,
+                      fontSize: 13,
+                      height: 1.4,
                     ),
-                    child: const Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor: Color(0x26FFFFFF),
-                          foregroundColor: Colors.white,
-                          child: Icon(Icons.health_and_safety_outlined),
-                        ),
-                        SizedBox(width: 13),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Community Safety Report',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Your current GPS location will be included when the report is submitted.',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _LocationCaptureStatus(
+                    loading: _capturingLocation,
+                    captured: _capturedPosition != null,
+                    error: _locationError,
+                    onRetry: _captureLocation,
+                  ),
+                  const SizedBox(height: 16),
+                  EvidencePickerCard(
+                    imageBytes: _imageBytes,
+                    validation: _evidenceValidation,
+                    validating: _validatingImage,
+                    checkError: _evidenceCheckError,
+                    onRetry: _checkEvidence,
+                    requiredEvidence: true,
+                    evidenceSource: _evidenceSource,
+                    onCamera: _takePhoto,
+                    onGallery: () => _takePhoto(ImageSource.gallery),
+                    enabled: !busy && !_pickingImage,
+                    onRemove: _removeEvidence,
                   ),
                   const SizedBox(height: 16),
                   ExplorerCard(
@@ -130,29 +375,37 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                         const ExplorerSectionTitle('Hazard Details'),
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
-                          value: category,
+                          initialValue: category,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Hazard category',
                             prefixIcon: Icon(Icons.category_outlined),
                           ),
-                          items: [
-                            'Unsafe walkway',
-                            'Poor lighting',
-                            'Road obstruction',
-                            'Flooding',
-                            'Suspicious activity',
-                            'Other',
-                          ]
-                              .map(
-                                (value) => DropdownMenuItem(
-                                  value: value,
-                                  child: Text(value),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) => setState(() => category = value!),
+                          items:
+                              const [
+                                    'Unsafe walkway',
+                                    'Poor lighting',
+                                    'Road obstruction',
+                                    'Flooding',
+                                    'Suspicious activity',
+                                    'Other',
+                                  ]
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(
+                                        value,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: busy
+                              ? null
+                              : (value) => setState(() => category = value!),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         const Text(
                           'Severity level',
                           style: TextStyle(
@@ -161,49 +414,26 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(height: 9),
-                        Row(
-                          children: ['Low', 'Medium', 'High'].map((value) {
-                            final selected = severity == value;
-                            final selectedColor = switch (value) {
-                              'High' => ExplorerColors.danger,
-                              'Medium' => ExplorerColors.goldDark,
-                              _ => ExplorerColors.success,
-                            };
-                            return Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  right: value == 'High' ? 0 : 8,
-                                ),
-                                child: ChoiceChip(
-                                  label: SizedBox(
-                                    width: double.infinity,
-                                    child: Text(
-                                      value,
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                  selected: selected,
-                                  selectedColor: selectedColor,
-                                  labelStyle: TextStyle(
-                                    color: selected
-                                        ? Colors.white
-                                        : ExplorerColors.text,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  onSelected: (_) =>
-                                      setState(() => severity = value),
-                                ),
-                              ),
-                            );
-                          }).toList(),
+                        const SizedBox(height: 10),
+                        _SeveritySelector(
+                          selected: severity,
+                          onChanged: (v) {
+                            if (!busy) setState(() => severity = v);
+                          },
                         ),
                         const SizedBox(height: 16),
                         TextField(
                           controller: description,
+                          enabled: !busy,
+                          onChanged: (_) {
+                            if (_descriptionError != null) {
+                              setState(() => _descriptionError = null);
+                            }
+                          },
                           maxLines: 5,
                           maxLength: 500,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
+                            errorText: _descriptionError,
                             labelText: 'Describe the safety concern',
                             hintText:
                                 'Explain what happened, what travelers should avoid and any useful landmarks...',
@@ -214,87 +444,16 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  ExplorerCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const ExplorerSectionTitle(
-                          'Photo Evidence',
-                          subtitle:
-                              'A clear photo helps administrators verify the report.',
-                        ),
-                        const SizedBox(height: 13),
-                        InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: () async {
-                            final picked = await ImagePicker().pickImage(
-                              source: ImageSource.camera,
-                              imageQuality: 80,
-                            );
-                            if (picked != null) setState(() => image = picked);
-                          },
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 24,
-                            ),
-                            decoration: BoxDecoration(
-                              color: ExplorerColors.subtle,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: image == null
-                                    ? ExplorerColors.border
-                                    : ExplorerColors.success,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                CircleAvatar(
-                                  radius: 25,
-                                  backgroundColor: image == null
-                                      ? ExplorerColors.navySoft
-                                      : ExplorerColors.successSoft,
-                                  foregroundColor: image == null
-                                      ? ExplorerColors.navy
-                                      : ExplorerColors.success,
-                                  child: Icon(
-                                    image == null
-                                        ? Icons.camera_alt_outlined
-                                        : Icons.check_rounded,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  image == null
-                                      ? 'Tap to take a photo'
-                                      : image!.name,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: ExplorerColors.navy,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  image == null
-                                      ? 'Camera permission may be requested.'
-                                      : 'Tap again to replace this photo.',
-                                  style: const TextStyle(
-                                    color: ExplorerColors.muted,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   const SizedBox(height: 18),
                   FilledButton.icon(
-                    onPressed: busy ? null : submit,
+                    onPressed:
+                        busy ||
+                            _pickingImage ||
+                            _capturedPosition == null ||
+                            _validatingImage ||
+                            _evidenceValidation?.canSubmit != true
+                        ? null
+                        : submit,
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
@@ -312,20 +471,185 @@ class _CreateHazardPageState extends State<CreateHazardPage> {
                       busy ? 'Submitting Report...' : 'Submit Hazard Report',
                     ),
                   ),
-                  const SizedBox(height: 9),
-                  const Text(
-                    'False or misleading reports may be rejected by the administrator.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ExplorerColors.muted,
-                      fontSize: 10,
-                    ),
-                  ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Severity selector — replaces the buggy ChoiceChip row.
+// ---------------------------------------------------------------------------
+
+class _SeveritySelector extends StatelessWidget {
+  const _SeveritySelector({required this.selected, required this.onChanged});
+
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 8,
+        children: ['Low', 'Medium', 'High'].asMap().entries.map((entry) {
+          final value = entry.value;
+          final isSelected = selected == value;
+          final color = switch (value) {
+            'High' => ExplorerColors.danger,
+            'Medium' => ExplorerColors.goldDark,
+            _ => ExplorerColors.success,
+          };
+          final icon = switch (value) {
+            'High' => Icons.crisis_alert,
+            'Medium' => Icons.warning_amber_rounded,
+            _ => Icons.check_circle_outline,
+          };
+          final desc = switch (value) {
+            'High' => 'Immediate danger',
+            'Medium' => 'Moderate risk',
+            _ => 'Minor issue',
+          };
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.zero,
+              child: Semantics(
+                button: true,
+                selected: isSelected,
+                label: '$value severity',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => onChanged(value),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected ? color : ExplorerColors.subtle,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? color : ExplorerColors.border,
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          icon,
+                          color: isSelected ? Colors.white : color,
+                          size: 22,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          value,
+                          style: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : ExplorerColors.navy,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          desc,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isSelected
+                                ? Colors.white70
+                                : ExplorerColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Location capture status widget
+// ---------------------------------------------------------------------------
+
+class _LocationCaptureStatus extends StatelessWidget {
+  const _LocationCaptureStatus({
+    required this.loading,
+    required this.captured,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final bool captured;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = captured
+        ? ExplorerColors.success
+        : error != null
+        ? ExplorerColors.danger
+        : ExplorerColors.navy;
+    final background = captured
+        ? ExplorerColors.successSoft
+        : error != null
+        ? ExplorerColors.dangerSoft
+        : ExplorerColors.navySoft;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        children: [
+          if (loading)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Icon(
+              captured
+                  ? Icons.location_on_outlined
+                  : Icons.location_off_outlined,
+              color: color,
+              size: 19,
+            ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              loading
+                  ? 'Capturing current location…'
+                  : captured
+                  ? 'Current location captured'
+                  : error ?? 'Location is required for this report.',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (!loading && !captured)
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
       ),
     );
   }

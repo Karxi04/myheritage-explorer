@@ -730,43 +730,29 @@ class AppServices {
     String? chatId,
   }) async {
     if (!await _notificationAllowed(userId, type)) return;
-    await db.collection('notifications').add({
+    final notificationRef = db.collection('notifications').doc();
+    await notificationRef.set({
+      'notificationId': notificationRef.id,
       'userId': userId,
       'title': title,
       'message': message,
       'type': type,
       'referenceId': referenceId,
+      if (type.startsWith('hazard')) 'hazardId': referenceId,
+      'isRead': false,
+      if (groupId != null) 'groupId': groupId,
 
-      if (groupId != null)
-        'groupId': groupId,
-
-      if (chatId != null)
-        'chatId': chatId,
-
+      if (chatId != null) 'chatId': chatId,
       'read': false,
 
       // ==========================================================
       // USED BY OUR SPARK NOTIFICATION SERVER
       // ==========================================================
-
       'pushStatus': 'pending',
       'pushAttempts': 0,
 
-      'createdAt':
-      FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     });
-    try {
-      await db.collection('notifications').add({
-        'userId': userId,
-        'title': title,
-        'message': message,
-        'type': type,
-        'referenceId': referenceId,
-        'read': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-
     // A client device must never display a local notification intended for a
     // different account (for example, while an administrator approves a
     // tourist's task). The Firestore notification is still written above.

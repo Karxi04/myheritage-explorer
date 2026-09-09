@@ -1,0 +1,5 @@
+# Firebase CLI templates are dependencies of the isolated JS rule tests,
+# not source files in this Flutter application.
+analyzer:
+  exclude:
+    - node_modules/**
