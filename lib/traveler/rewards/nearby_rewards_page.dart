@@ -8,6 +8,8 @@ class NearbyRewardsPage extends StatefulWidget {
 }
 
 class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
+  late final String _uid;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _travelerStream;
   bool loading = true;
   bool showMap = false;
   String? error;
@@ -20,6 +22,8 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
   @override
   void initState() {
     super.initState();
+    _uid = AppServices.auth.currentUser!.uid;
+    _travelerStream = AppServices.travelerRef(_uid).snapshots();
     load();
   }
 
@@ -31,14 +35,11 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
 
     try {
       final position = await determinePosition();
-      final snapshot = await AppServices.db
-          .collection('vouchers')
-          .where('status', isEqualTo: 'active')
-          .get();
-      final uid = AppServices.auth.currentUser!.uid;
+      final candidates = await AppServices.nearbyRewardCandidates(position);
       final claimSnapshot = await AppServices.db
           .collection('claimed_vouchers')
-          .where('userId', isEqualTo: uid)
+          .where('userId', isEqualTo: _uid)
+          .limit(AppServices.rewardPageReadLimit)
           .get();
 
       final results =
@@ -46,14 +47,15 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
             ({QueryDocumentSnapshot<Map<String, dynamic>> doc, double distance})
           >[];
 
-      for (final doc in snapshot.docs) {
+      for (final doc in candidates) {
         final data = doc.data();
         final location = data['location'];
         final startsAt = asDate(data['startsAt']);
         final expiry = asDate(data['expiresAt']);
         final cost = (data['pointCost'] as num?)?.toInt() ?? 0;
 
-        if (location is! GeoPoint ||
+        if (data['status'] != 'active' ||
+            location is! GeoPoint ||
             cost <= 0 ||
             '${data['vendorId'] ?? ''}'.trim().isEmpty ||
             (startsAt != null && startsAt.isAfter(DateTime.now())) ||
@@ -68,12 +70,9 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
           location.longitude,
         );
 
-        final radius = ((data['notificationRadiusMeters'] ?? 750.0) as num)
-            .toDouble();
-
         final inventory = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
 
-        if (distance <= radius && inventory > 0) {
+        if (distance <= AppServices.nearbyRewardRadiusMeters && inventory > 0) {
           results.add((doc: doc, distance: distance));
         }
       }
@@ -96,11 +95,6 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
         currentPosition = position;
         loading = false;
       });
-      unawaited(
-        AppServices.checkNearbyRewardNotifications(
-          currentPosition: position,
-        ).catchError((_) => 0),
-      );
     } catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -202,8 +196,6 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nearby Rewards'),
@@ -232,7 +224,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
         ],
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: AppServices.travelerRef(uid).snapshots(),
+        stream: _travelerStream,
         builder: (context, travelerSnapshot) {
           if (!travelerSnapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -341,7 +333,7 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                     const ExplorerSectionTitle(
                       'Rewards within range',
                       subtitle:
-                          'Each vendor chooses the distance for its nearby offer.',
+                          'Every vendor uses the same fair 750-metre discovery range.',
                     ),
                   ],
                 );

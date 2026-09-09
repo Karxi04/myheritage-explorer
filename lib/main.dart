@@ -44,11 +44,20 @@ Future<void> main() async {
           final navigator = appNavigatorKey.currentState;
           if (navigator == null) return;
 
-          navigator.push(
-            MaterialPageRoute(
-              builder: (_) => const NotificationsPage(),
+          final type = '${data['type'] ?? ''}';
+          final referenceId = '${data['referenceId'] ?? ''}'.trim();
+          final destination = switch (type) {
+            'voucher_nearby' when referenceId.isNotEmpty => VoucherDetailPage(
+              voucherId: referenceId,
             ),
-          );
+            'voucher_nearby_digest' => const NearbyRewardsPage(),
+            'voucher_claimed' || 'voucher_redeemed' => VoucherWalletPage(
+              focusClaimId: referenceId.isEmpty ? null : referenceId,
+            ),
+            _ => const NotificationsPage(),
+          };
+
+          navigator.push(MaterialPageRoute(builder: (_) => destination));
         });
       },
     );
@@ -113,6 +122,7 @@ void _openPendingNotificationDestination() {
         focusClaimId: value.substring('claim:'.length).trim(),
       ),
       'voucher_wallet' => const VoucherWalletPage(),
+      'nearby_rewards' => const NearbyRewardsPage(),
       _ => null,
     };
     final itineraryId = _itineraryIdFromNotificationPayload(value);
@@ -134,7 +144,11 @@ void _openPendingNotificationDestination() {
 String _itineraryIdFromNotificationPayload(String? payload) {
   final value = (payload ?? '').trim();
   if (value.isEmpty) return '';
-  if (value == 'rewards' || value == 'voucher_wallet') return '';
+  if (value == 'rewards' ||
+      value == 'voucher_wallet' ||
+      value == 'nearby_rewards') {
+    return '';
+  }
   if (value.startsWith('itinerary:')) {
     return value.substring('itinerary:'.length).trim();
   }
@@ -158,7 +172,7 @@ class MyHeritageApp extends StatelessWidget {
 
 class _SharedLinkTarget {
   const _SharedLinkTarget({this.shareId, this.encodedItinerary})
-      : assert(shareId != null || encodedItinerary != null);
+    : assert(shareId != null || encodedItinerary != null);
 
   final String? shareId;
   final String? encodedItinerary;
@@ -173,8 +187,8 @@ class _SharedLinkTarget {
 }
 
 _SharedLinkTarget? _sharedLinkTargetFromUri(Uri uri) {
-  final queryShare =
-      (uri.queryParameters['share'] ?? uri.queryParameters['id'])?.trim();
+  final queryShare = (uri.queryParameters['share'] ?? uri.queryParameters['id'])
+      ?.trim();
   if (queryShare != null && queryShare.isNotEmpty) {
     return _SharedLinkTarget(shareId: queryShare);
   }

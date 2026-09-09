@@ -40,6 +40,8 @@ class VendorVoucherHistoryPage extends StatelessWidget {
         stream: AppServices.db
             .collection('claimed_vouchers')
             .where('vendorId', isEqualTo: vendorId)
+            .where('voucherId', isEqualTo: voucherId)
+            .limit(AppServices.rewardPageReadLimit)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -53,16 +55,11 @@ class VendorVoucherHistoryPage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final claims =
-              snapshot.data!.docs
-                  .where((doc) => doc.data()['voucherId'] == voucherId)
-                  .toList()
-                ..sort(
-                  (a, b) => (asDate(b.data()['claimedAt']) ?? DateTime(2000))
-                      .compareTo(
-                        asDate(a.data()['claimedAt']) ?? DateTime(2000),
-                      ),
-                );
+          final claims = snapshot.data!.docs.toList()
+            ..sort(
+              (a, b) => (asDate(b.data()['claimedAt']) ?? DateTime(2000))
+                  .compareTo(asDate(a.data()['claimedAt']) ?? DateTime(2000)),
+            );
           final redeemed = claims
               .where((doc) => doc.data()['status'] == 'redeemed')
               .length;
@@ -104,7 +101,7 @@ class VendorVoucherHistoryPage extends StatelessWidget {
               const SizedBox(height: 18),
               const ExplorerSectionTitle(
                 'Activity timeline',
-                subtitle: 'Newest claims appear first.',
+                subtitle: 'The latest 25 claims, newest first.',
               ),
               const SizedBox(height: 10),
               if (claims.isEmpty)

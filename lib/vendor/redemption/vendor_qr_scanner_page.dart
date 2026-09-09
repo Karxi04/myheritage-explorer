@@ -89,6 +89,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
       await AppServices.redeemClaim(
         raw.trim(),
         AppServices.auth.currentUser!.uid,
+        resolvedClaimId: '${preview['claimId'] ?? ''}',
       );
       if (mounted) {
         setState(() {

@@ -57,10 +57,18 @@ class VoucherRedemptionSession {
 
 class AppServices {
   static const redemptionSessionDuration = Duration(minutes: 3);
+  static const double nearbyRewardRadiusMeters = 750;
+  static const int rewardPageReadLimit = 25;
+  static const int nearbyRewardCandidateReadLimit = 25;
+  static const int vendorAnalyticsReadLimit = 100;
+  static const Duration nearbyRewardCheckCooldown = Duration(minutes: 30);
+  static const Duration nearbyRewardAlertCooldown = Duration(hours: 6);
+  static const Duration repeatedNearbyRewardAlertCooldown = Duration(hours: 24);
+  static const double _nearbyRewardCellSizeDegrees = 0.01;
   static final auth = FirebaseAuth.instance;
   static final db = FirebaseFirestore.instance;
   static final storage = FirebaseStorage.instance;
-  static final Map<String, DateTime> _nearbyRewardAlertTimes =
+  static final Map<String, DateTime> _nearbyRewardCheckTimes =
       <String, DateTime>{};
   static final googleSignIn = GoogleSignIn();
 
@@ -72,6 +80,57 @@ class AppServices {
 
   static DocumentReference<Map<String, dynamic>> vendorRef(String uid) =>
       db.collection('vendors').doc(uid);
+
+  static String nearbyRewardLocationCell(GeoPoint location) {
+    final latitudeCell =
+        ((location.latitude + 90) / _nearbyRewardCellSizeDegrees).floor();
+    final longitudeCell =
+        ((location.longitude + 180) / _nearbyRewardCellSizeDegrees).floor();
+    return '${latitudeCell}_$longitudeCell';
+  }
+
+  static List<String> _nearbyRewardLocationCells(Position position) {
+    final latitudeCell =
+        ((position.latitude + 90) / _nearbyRewardCellSizeDegrees).floor();
+    final longitudeCell =
+        ((position.longitude + 180) / _nearbyRewardCellSizeDegrees).floor();
+    return <String>[
+      for (var latitudeOffset = -1; latitudeOffset <= 1; latitudeOffset++)
+        for (var longitudeOffset = -1; longitudeOffset <= 1; longitudeOffset++)
+          '${latitudeCell + latitudeOffset}_${longitudeCell + longitudeOffset}',
+    ];
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  nearbyRewardCandidates(Position position) async {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    final cells = _nearbyRewardLocationCells(position);
+    final nearbySnapshot = await db
+        .collection('vouchers')
+        .where('nearbyLocationCell', whereIn: cells)
+        .limit(nearbyRewardCandidateReadLimit)
+        .get();
+    for (final doc in nearbySnapshot.docs) {
+      byId[doc.id] = doc;
+    }
+
+    // Vouchers created before location cells were introduced remain discoverable
+    // through a small compatibility page. Every individual read stays capped.
+    if (byId.length < nearbyRewardCandidateReadLimit) {
+      final remainingLimit = nearbyRewardCandidateReadLimit - byId.length;
+      final legacySnapshot = await db
+          .collection('vouchers')
+          .where('status', isEqualTo: 'active')
+          .limit(remainingLimit)
+          .get();
+      for (final doc in legacySnapshot.docs) {
+        byId[doc.id] = doc;
+      }
+    }
+    return byId.values
+        .take(nearbyRewardCandidateReadLimit)
+        .toList(growable: false);
+  }
 
   static DocumentReference<Map<String, dynamic>> profileRefForRole(
     String uid,
@@ -90,38 +149,44 @@ class AppServices {
     if (oobCode == null) return;
 
     // Handle recovery (revert), verification (change), and simple verification
-    if (mode == 'recoverEmail' || mode == 'verifyAndChangeEmail' || mode == 'verifyEmail') {
+    if (mode == 'recoverEmail' ||
+        mode == 'verifyAndChangeEmail' ||
+        mode == 'verifyEmail') {
       try {
         // 1. Identify the email involved
         final info = await auth.checkActionCode(oobCode);
         final targetEmail = info.data['email'];
-        
+
         // 2. Apply the action (This might fail if already handled by browser, we ignore failure)
         try {
           await auth.applyActionCode(oobCode);
         } catch (e) {
           debugPrint('Auth Action apply skipped (likely browser handled): $e');
         }
-        
+
         // 3. Clear Firestore flags for the user even if signed out
         if (targetEmail != null) {
           final collections = ['admins', 'travelers', 'vendors'];
           for (final coll in collections) {
             // Find any doc where this email is either current or pending
-            final query = await db.collection(coll)
+            final query = await db
+                .collection(coll)
                 .where('emailChangePending', isEqualTo: true)
                 .get();
-            
+
             for (var doc in query.docs) {
               final data = doc.data();
-              if (data['email'] == targetEmail || data['pendingEmail'] == targetEmail) {
+              if (data['email'] == targetEmail ||
+                  data['pendingEmail'] == targetEmail) {
                 await doc.reference.update({
                   'emailChangePending': false,
                   'pendingEmail': FieldValue.delete(),
                   'oldEmail': FieldValue.delete(),
                   'updatedAt': FieldValue.serverTimestamp(),
                 });
-                debugPrint('Auto-resolved pending email state for $targetEmail');
+                debugPrint(
+                  'Auto-resolved pending email state for $targetEmail',
+                );
               }
             }
           }
@@ -153,7 +218,8 @@ class AppServices {
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       if (googleUser == null) return null;
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
       final AuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
@@ -226,14 +292,15 @@ class AppServices {
   static Future<Map<String, dynamic>?> findProfileByEmail(String email) async {
     final cleaned = email.trim().toLowerCase();
     final collections = ['admins', 'travelers', 'vendors'];
-    
+
     for (final coll in collections) {
       try {
-        final matches = await db.collection(coll)
+        final matches = await db
+            .collection(coll)
             .where('email', isEqualTo: cleaned)
             .limit(1)
             .get();
-        
+
         if (matches.docs.isNotEmpty) {
           final data = matches.docs.first.data();
           data['id'] = matches.docs.first.id;
@@ -245,7 +312,7 @@ class AppServices {
           throw Exception(
             'Security Check Failed: Access to security questions is restricted. '
             'Please update your Firestore rules to allow read access for password recovery, '
-            'or use the "Email Link" method instead.'
+            'or use the "Email Link" method instead.',
           );
         }
         rethrow;
@@ -706,7 +773,7 @@ class AppServices {
 
   static Future<bool> _notificationAllowed(String userId, String type) async {
     final key = switch (type) {
-      'voucher_nearby' => 'nearbyRewards',
+      'voucher_nearby' || 'voucher_nearby_digest' => 'nearbyRewards',
       'voucher_expiry' => 'expiryReminders',
       'voucher_claimed' || 'voucher_redeemed' => 'rewardUpdates',
       _ => null,
@@ -728,8 +795,12 @@ class AppServices {
     String? referenceId,
     String? groupId,
     String? chatId,
+    bool notificationPreferenceChecked = false,
   }) async {
-    if (!await _notificationAllowed(userId, type)) return;
+    if (!notificationPreferenceChecked &&
+        !await _notificationAllowed(userId, type)) {
+      return;
+    }
     final notificationRef = db.collection('notifications').doc();
     await notificationRef.set({
       'notificationId': notificationRef.id,
@@ -854,7 +925,9 @@ class AppServices {
       endDate = asDate(itinerary['endDate']);
     }
 
-    if (startDate == null && itinerary['days'] is List && (itinerary['days'] as List).isNotEmpty) {
+    if (startDate == null &&
+        itinerary['days'] is List &&
+        (itinerary['days'] as List).isNotEmpty) {
       for (final day in (itinerary['days'] as List)) {
         if (day is Map && day['date'] != null) {
           startDate = asDate(day['date']);
@@ -988,29 +1061,32 @@ class AppServices {
         throw Exception('This reward is fully claimed.');
       }
       var claimSequence = 1;
-      while (true) {
-        if (claimLimit != null && claimSequence > claimLimit) {
-          throw Exception(
-            claimLimit == 1
-                ? 'You already claimed this voucher.'
-                : 'You have reached the limit of $claimLimit claims for this voucher.',
-          );
-        }
-        if (claimSequence > 10000) {
-          throw Exception('Unable to allocate another voucher claim.');
-        }
+      if (claimLimit == null) {
+        claimRef = db.collection('claimed_vouchers').doc();
+        claimSequence =
+            ((currentVoucher['claimCount'] as num?)?.toInt() ?? 0) + 1;
+      } else {
+        while (true) {
+          if (claimSequence > claimLimit) {
+            throw Exception(
+              claimLimit == 1
+                  ? 'You already claimed this voucher.'
+                  : 'You have reached the limit of $claimLimit claims for this voucher.',
+            );
+          }
 
-        final slot = claimSequence == 1
-            ? legacyClaimRef
-            : db
-                  .collection('claimed_vouchers')
-                  .doc('${uid}_${voucherId}_$claimSequence');
-        final slotSnapshot = await transaction.get(slot);
-        if (!slotSnapshot.exists) {
-          claimRef = slot;
-          break;
+          final slot = claimSequence == 1
+              ? legacyClaimRef
+              : db
+                    .collection('claimed_vouchers')
+                    .doc('${uid}_${voucherId}_$claimSequence');
+          final slotSnapshot = await transaction.get(slot);
+          if (!slotSnapshot.exists) {
+            claimRef = slot;
+            break;
+          }
+          claimSequence += 1;
         }
-        claimSequence += 1;
       }
 
       final pointsAfterClaim = currentPoints - cost;
@@ -1168,6 +1244,8 @@ class AppServices {
     final matches = await db
         .collection('claimed_vouchers')
         .where('vendorId', isEqualTo: vendorId)
+        .where('redemptionSessionPin', isEqualTo: code)
+        .limit(rewardPageReadLimit)
         .get();
     final matchingClaims = matches.docs.where((doc) {
       final data = doc.data();
@@ -1192,6 +1270,34 @@ class AppServices {
     );
   }
 
+  static ({
+    DocumentReference<Map<String, dynamic>> claimRef,
+    String? qrToken,
+    String? pin,
+  })
+  _redemptionCodeForKnownClaim(String rawCode, String claimId) {
+    final code = rawCode.trim();
+    final parts = code.split('|');
+    if (parts.length == 3 &&
+        parts.first == 'MHE1' &&
+        parts[1] == claimId &&
+        parts[2].isNotEmpty) {
+      return (
+        claimRef: db.collection('claimed_vouchers').doc(claimId),
+        qrToken: parts[2],
+        pin: null,
+      );
+    }
+    if (RegExp(r'^\d{6}$').hasMatch(code)) {
+      return (
+        claimRef: db.collection('claimed_vouchers').doc(claimId),
+        qrToken: null,
+        pin: code,
+      );
+    }
+    throw Exception('Enter a valid QR code or 6-digit redemption PIN.');
+  }
+
   static void _validateRedemptionSession(
     Map<String, dynamic> claim,
     ({String? qrToken, String? pin}) code,
@@ -1211,7 +1317,11 @@ class AppServices {
     }
   }
 
-  static Future<String> redeemClaim(String rawCode, String vendorId) async {
+  static Future<String> redeemClaim(
+    String rawCode,
+    String vendorId, {
+    String? resolvedClaimId,
+  }) async {
     final signedInUser = auth.currentUser;
     if (signedInUser == null || signedInUser.uid != vendorId) {
       throw Exception(
@@ -1219,7 +1329,9 @@ class AppServices {
       );
     }
 
-    final resolved = await _resolveRedemptionCode(rawCode, vendorId);
+    final resolved = resolvedClaimId == null || resolvedClaimId.trim().isEmpty
+        ? await _resolveRedemptionCode(rawCode, vendorId)
+        : _redemptionCodeForKnownClaim(rawCode, resolvedClaimId.trim());
     final claimRef = resolved.claimRef;
     final redemptionRef = db.collection('redemptions').doc();
     String travelerId = '';
@@ -1351,6 +1463,7 @@ class AppServices {
     final claims = await db
         .collection('claimed_vouchers')
         .where('userId', isEqualTo: user.uid)
+        .limit(rewardPageReadLimit)
         .get();
 
     for (final doc in claims.docs) {
@@ -1383,6 +1496,8 @@ class AppServices {
     final snapshot = await db
         .collection('vouchers')
         .where('vendorId', isEqualTo: vendorId)
+        .where('status', isEqualTo: 'active')
+        .limit(rewardPageReadLimit)
         .get();
     final now = DateTime.now();
     final expired = snapshot.docs.where((doc) {
@@ -1413,6 +1528,14 @@ class AppServices {
     final user = auth.currentUser;
     if (user == null) return 0;
 
+    final checkTime = DateTime.now();
+    final previousCheck = _nearbyRewardCheckTimes[user.uid];
+    if (previousCheck != null &&
+        checkTime.difference(previousCheck) < nearbyRewardCheckCooldown) {
+      return 0;
+    }
+    _nearbyRewardCheckTimes[user.uid] = checkTime;
+
     final traveler = (await travelerRef(user.uid).get()).data();
     if (traveler == null ||
         traveler['role'] != 'traveler' ||
@@ -1440,23 +1563,21 @@ class AppServices {
       position = await determinePosition();
     }
 
-    final snapshot = await db
-        .collection('vouchers')
-        .where('status', isEqualTo: 'active')
-        .get();
+    final candidates = await nearbyRewardCandidates(position);
     final now = DateTime.now();
     final matches =
         <
           ({QueryDocumentSnapshot<Map<String, dynamic>> doc, double distance})
         >[];
 
-    for (final doc in snapshot.docs) {
+    for (final doc in candidates) {
       final data = doc.data();
       final location = data['location'];
       final startsAt = asDate(data['startsAt']);
       final expiry = asDate(data['expiresAt']);
       final remaining = (data['inventoryRemaining'] as num?)?.toInt() ?? 0;
       if (location is! GeoPoint ||
+          data['status'] != 'active' ||
           remaining <= 0 ||
           (startsAt != null && startsAt.isAfter(now)) ||
           (expiry != null && !expiry.isAfter(now))) {
@@ -1469,58 +1590,58 @@ class AppServices {
         location.latitude,
         location.longitude,
       );
-      final radius = ((data['notificationRadiusMeters'] ?? 750) as num)
-          .toDouble();
-      if (distance <= radius) matches.add((doc: doc, distance: distance));
+      if (distance <= nearbyRewardRadiusMeters) {
+        matches.add((doc: doc, distance: distance));
+      }
     }
 
     matches.sort((a, b) => a.distance.compareTo(b.distance));
-    try {
-      final previousNotifications = await db
-          .collection('notifications')
-          .where('userId', isEqualTo: user.uid)
-          .get();
-      for (final notification in previousNotifications.docs) {
-        final data = notification.data();
-        if (data['type'] != 'voucher_nearby') continue;
-        final voucherId = '${data['referenceId'] ?? ''}';
-        final notifiedAt = asDate(data['createdAt']);
-        if (voucherId.isNotEmpty && notifiedAt != null) {
-          final key = '${user.uid}_$voucherId';
-          final cached = _nearbyRewardAlertTimes[key];
-          if (cached == null || notifiedAt.isAfter(cached)) {
-            _nearbyRewardAlertTimes[key] = notifiedAt;
-          }
-        }
-      }
-    } catch (_) {
-      // Local suppression below still prevents repeated alerts this session.
+    if (matches.isEmpty) return 0;
+
+    final selectedIds = matches.take(3).map((match) => match.doc.id).toSet();
+    final rawPreviousIds = traveler['nearbyRewardLastVoucherIds'];
+    final previousIds = rawPreviousIds is Iterable
+        ? rawPreviousIds.map((value) => '$value').toSet()
+        : <String>{};
+    final sameSelection =
+        selectedIds.length == previousIds.length &&
+        selectedIds.containsAll(previousIds);
+    final previousAlert = asDate(traveler['nearbyRewardLastAlertAt']);
+    final requiredCooldown = sameSelection
+        ? repeatedNearbyRewardAlertCooldown
+        : nearbyRewardAlertCooldown;
+    if (previousAlert != null &&
+        now.difference(previousAlert) < requiredCooldown) {
+      return 0;
     }
 
-    var alertCount = 0;
-    for (final match in matches.take(3)) {
-      final voucher = match.doc.data();
-      final alertKey = '${user.uid}_${match.doc.id}';
-      final lastNotifiedAt = _nearbyRewardAlertTimes[alertKey];
-      if (lastNotifiedAt != null &&
-          now.difference(lastNotifiedAt) < const Duration(hours: 24)) {
-        continue;
-      }
-      final distanceLabel = match.distance < 1000
-          ? '${match.distance.round()} m away'
-          : '${(match.distance / 1000).toStringAsFixed(1)} km away';
-      await notify(
-        userId: user.uid,
-        title: 'Nearby reward available',
-        message:
-            '${voucher['title'] ?? 'A local voucher'} at ${voucher['vendorName'] ?? 'a verified vendor'} is $distanceLabel.',
-        type: 'voucher_nearby',
-        referenceId: match.doc.id,
-      );
-      _nearbyRewardAlertTimes[alertKey] = now;
-      alertCount += 1;
+    final nearest = matches.first;
+    final nearestVoucher = nearest.doc.data();
+    final distanceLabel = nearest.distance < 1000
+        ? '${nearest.distance.round()} m away'
+        : '${(nearest.distance / 1000).toStringAsFixed(1)} km away';
+    final isDigest = matches.length > 1;
+    await notify(
+      userId: user.uid,
+      title: isDigest
+          ? '${matches.length} nearby rewards available'
+          : 'Nearby reward available',
+      message: isDigest
+          ? 'Rewards are available within 750 metres. The nearest is ${nearestVoucher['title'] ?? 'a local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} ($distanceLabel).'
+          : '${nearestVoucher['title'] ?? 'A local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} is $distanceLabel.',
+      type: isDigest ? 'voucher_nearby_digest' : 'voucher_nearby',
+      referenceId: nearest.doc.id,
+      notificationPreferenceChecked: true,
+    );
+    try {
+      await travelerRef(user.uid).update({
+        'nearbyRewardLastAlertAt': FieldValue.serverTimestamp(),
+        'nearbyRewardLastVoucherIds': selectedIds.toList(growable: false),
+      });
+    } catch (_) {
+      // The in-memory scan cooldown still prevents rapid duplicate alerts.
     }
-    return alertCount;
+    return 1;
   }
 
   static Future<void> seedInitialReviewsIfEmpty() async {

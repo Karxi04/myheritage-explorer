@@ -20,7 +20,6 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
   late DateTime startsAt;
   late DateTime expiry;
   GeoPoint? voucherLocation;
-  double notificationRadiusMeters = 750.0;
   bool unlimitedClaimsPerTourist = true;
   bool busy = false;
 
@@ -50,8 +49,6 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
     voucherLocation = data['location'] is GeoPoint
         ? data['location'] as GeoPoint
         : null;
-    notificationRadiusMeters =
-        ((data['notificationRadiusMeters'] ?? 750.0) as num).toDouble();
   }
 
   DateTime _endOfDay(DateTime value) =>
@@ -143,7 +140,10 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         'perTouristClaimLimit': selectedClaimLimit,
         'expiresAt': Timestamp.fromDate(normalizedExpiry),
         if (voucherLocation != null) 'location': voucherLocation,
-        'notificationRadiusMeters': notificationRadiusMeters,
+        'notificationRadiusMeters': AppServices.nearbyRewardRadiusMeters,
+        'nearbyLocationCell': AppServices.nearbyRewardLocationCell(
+          voucherLocation!,
+        ),
         'status': widget.voucherId == null
             ? 'active'
             : '${widget.voucher?['status'] ?? 'active'}',
@@ -284,7 +284,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         const ExplorerSectionTitle(
           'Nearby discovery',
           subtitle:
-              'Choose where this offer appears in nearby searches and alerts.',
+              'Set the shop location used for nearby searches and alerts.',
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
@@ -311,22 +311,39 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           ),
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<double>(
-          initialValue: notificationRadiusMeters,
-          decoration: const InputDecoration(
-            labelText: 'Nearby search and alert radius',
-            helperText:
-                'Tourists inside this distance can find the voucher as nearby.',
+        const ExplorerCard(
+          backgroundColor: ExplorerColors.navySoft,
+          borderColor: Color(0xFFC8D6EA),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.balance_outlined, color: ExplorerColors.navy),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Fixed nearby range: 750 metres',
+                      style: TextStyle(
+                        color: ExplorerColors.navy,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'The same range applies to every vendor for fair discovery and reward alerts.',
+                      style: TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          items: const [
-            DropdownMenuItem(value: 250.0, child: Text('250 metres')),
-            DropdownMenuItem(value: 500.0, child: Text('500 metres')),
-            DropdownMenuItem(value: 750.0, child: Text('750 metres')),
-            DropdownMenuItem(value: 1000.0, child: Text('1 kilometre')),
-            DropdownMenuItem(value: 2000.0, child: Text('2 kilometres')),
-          ],
-          onChanged: (value) =>
-              setState(() => notificationRadiusMeters = value ?? 750.0),
         ),
         const SizedBox(height: 20),
         const ExplorerSectionTitle(
