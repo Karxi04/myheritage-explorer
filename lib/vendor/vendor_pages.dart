@@ -11,7 +11,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import '../auth/auth_pages.dart';
-import '../core/app_theme.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';

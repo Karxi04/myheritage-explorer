@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 
 import 'auth/auth_gate.dart';
 import 'core/app_theme.dart';
-import 'core/helpers.dart';
+import 'core/notification_service.dart';
 import 'core/push_notification_service.dart';
 import 'core/services.dart';
 import 'firebase_options.dart';
@@ -127,8 +127,6 @@ String _itineraryIdFromNotificationPayload(String? payload) {
   }
   return value;
 }
-  }
-}
 
 class MyHeritageApp extends StatelessWidget {
   const MyHeritageApp({super.key});
@@ -216,13 +214,6 @@ class _AppEntryState extends State<_AppEntry> {
     }
   }
 
-// Backward compatibility for the previous long itinerary links.
-    if (encodedItinerary != null && encodedItinerary.isNotEmpty) {
-      return SharedItineraryPage(encodedItinerary: encodedItinerary);
-    }
-    return null;
-  }
-
   @override
   void dispose() {
     _deepLinkSubscription?.cancel();
@@ -287,7 +278,6 @@ class _AppEntryState extends State<_AppEntry> {
 
     if (_initialDeepLinkTarget != null) {
       return _initialDeepLinkTarget!.page();
-    }
     }
 
     return const AuthGate();
