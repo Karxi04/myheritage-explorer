@@ -3959,6 +3959,9 @@ int get tripDays {
   bool foodExplorationEnabled = false;
   bool loading = false;
   bool saving = false;
+  bool isSaved = false;
+  String? savedItineraryId;
+  String? generationId;
   int totalEstimatedMinutes = 0;
   int remainingMinutes = 0;
   List<Map<String, dynamic>> results = [];
@@ -4100,6 +4103,9 @@ int get tripDays {
         latestGeneratedItinerary = itinerary;
         generatedDays = plannedDays;
         selectedDayIndex = 0;
+        savedItineraryId = null;
+        isSaved = false;
+        generationId = 'gen_${DateTime.now().microsecondsSinceEpoch}';
         if (plannedDays.isNotEmpty) {
           results = plannedDays.first.places;
           totalEstimatedMinutes = plannedDays.first.totalEstimatedMinutes;
@@ -4189,6 +4195,9 @@ int get tripDays {
         results = newPlannedDays[selectedDayIndex].places;
         totalEstimatedMinutes = updatedDay.totalEstimatedMinutes;
         remainingMinutes = updatedDay.remainingMinutes;
+        savedItineraryId = null;
+        isSaved = false;
+        generationId = 'gen_${DateTime.now().microsecondsSinceEpoch}';
       });
       if (mounted) {
         showMessage(context, 'Added authentic dessert stop to ${currentDayModel.dateLabel}!');
@@ -4215,6 +4224,22 @@ int get tripDays {
 
   Future<void> save() async {
     if ((results.isEmpty && generatedDays.isEmpty) || saving) return;
+
+    if (isSaved || savedItineraryId != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This itinerary has already been saved.'),
+            backgroundColor: ExplorerColors.navy,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
     final uid = AppServices.auth.currentUser?.uid;
     if (uid == null) {
       showMessage(
@@ -4228,8 +4253,6 @@ int get tripDays {
     setState(() => saving = true);
 
     try {
-      showMessage(context, 'Saving itinerary to your account...');
-
       final allDaysMap = <Map<String, dynamic>>[];
       final allStopsResolved = <Map<String, dynamic>>[];
 
@@ -4279,14 +4302,18 @@ int get tripDays {
           : selectedArea.trim();
       final tripTitle = tripDays > 1
           ? '$selectedStateName $tripDays-Day Tour'
-          : '$selectedArea Cultural Day';
+          : '$tripArea Cultural Day';
       final tripBudget = ItineraryBudgetEstimator.estimateTrip(
         allDaysMap,
         fallbackStops: allStopsResolved,
       );
 
+      final currentGenId =
+          generationId ?? 'gen_${DateTime.now().microsecondsSinceEpoch}';
+
       final docRef = await AppServices.db.collection('itineraries').add({
         'userId': uid,
+        'generationId': currentGenId,
         'title': tripTitle,
         'stateId': selectedStateId,
         'stateName': selectedStateName,
@@ -4319,6 +4346,12 @@ int get tripDays {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      setState(() {
+        isSaved = true;
+        savedItineraryId = docRef.id;
+        generationId = currentGenId;
+      });
+
       await AppServices.scheduleTripNotification(
         userId: uid,
         itineraryId: docRef.id,
@@ -4329,12 +4362,14 @@ int get tripDays {
       );
 
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Itinerary saved with trip notifications enabled!',
+              'Itinerary saved successfully!',
             ),
             backgroundColor: ExplorerColors.navy,
+            behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
               label: 'View',
               textColor: ExplorerColors.gold,
@@ -4346,6 +4381,7 @@ int get tripDays {
                       itineraryId: docRef.id,
                       initialItinerary: {
                         'userId': uid,
+                        'generationId': currentGenId,
                         'title': tripTitle,
                         'stateId': selectedStateId,
                         'stateName': selectedStateName,
@@ -4681,7 +4717,7 @@ if (availableAreas.isNotEmpty) ...[
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'End Date (No Day Limit)',
+                            'End Date',
                             style: TextStyle(
                               color: ExplorerColors.text,
                               fontSize: 11,
@@ -5125,9 +5161,12 @@ if (availableAreas.isNotEmpty) ...[
             trailing: results.isEmpty
                 ? null
                 : IconButton(
-                    tooltip: 'Save itinerary',
+                    tooltip: isSaved ? 'Itinerary already saved' : 'Save itinerary',
                     onPressed: saving ? null : save,
-                    icon: const Icon(Icons.bookmark_add_outlined),
+                    icon: Icon(
+                      isSaved ? Icons.bookmark : Icons.bookmark_add_outlined,
+                      color: isSaved ? ExplorerColors.gold : null,
+                    ),
                   ),
           ),
           if (results.isNotEmpty && totalEstimatedMinutes > 0) ...[
@@ -5249,7 +5288,9 @@ if (generatedDays.isNotEmpty &&
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(double.infinity, 48),
-                      backgroundColor: ExplorerColors.navy,
+                      backgroundColor: isSaved
+                          ? ExplorerColors.navy.withValues(alpha: 0.85)
+                          : ExplorerColors.navy,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -5259,11 +5300,22 @@ if (generatedDays.isNotEmpty &&
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
-                        : const Icon(Icons.bookmark_add_outlined),
+                        : Icon(
+                            isSaved
+                                ? Icons.bookmark_added
+                                : Icons.bookmark_add_outlined,
+                          ),
                     label: Text(
-                      saving ? 'Saving Itinerary...' : 'Save Itinerary',
+                      saving
+                          ? 'Saving Itinerary...'
+                          : isSaved
+                              ? 'Saved to My Itineraries'
+                              : 'Save Itinerary',
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 14,
