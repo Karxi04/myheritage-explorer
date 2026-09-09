@@ -256,8 +256,27 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
         .where((stop) => stop['optionalFoodExperience'] == true)
         .toList();
     final createdAt = asDate(itn['createdAt']);
-    final startDate = asDate(itn['startDate']) ?? asDate(itn['targetDate']);
-    final endDate = asDate(itn['endDate']) ?? startDate;
+    DateTime? startDate = asDate(itn['startDate']) ?? asDate(itn['targetDate']);
+    if (startDate == null && days.isNotEmpty) {
+      for (final d in days) {
+        final dDate = asDate(d['date']);
+        if (dDate != null) {
+          startDate = dDate;
+          break;
+        }
+      }
+    }
+    DateTime? endDate = asDate(itn['endDate']);
+    if (endDate == null && days.isNotEmpty) {
+      for (final d in days.reversed) {
+        final dDate = asDate(d['date']);
+        if (dDate != null) {
+          endDate = dDate;
+          break;
+        }
+      }
+    }
+    endDate ??= startDate;
     final totalMinutes = schedule.totalEstimatedMinutes;
     final canModify = ItineraryShareHelper.canCurrentUserManage(itn);
     final tripStatus = AppServices.getItineraryStatus(itn);

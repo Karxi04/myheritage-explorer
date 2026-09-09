@@ -4,6 +4,7 @@ import '../models/itinerary_model.dart';
 import '../models/place_model.dart';
 import '../models/travel_preferences_model.dart';
 import 'cultural_task_service.dart';
+import 'malaysia_location_service.dart';
 import 'meal_planning_service.dart';
 import 'place_repository.dart';
 
@@ -48,6 +49,13 @@ class ItineraryRecommendationService {
       activeTasks = await CulturalTaskService.loadActiveTasks();
     } catch (_) {}
 
+    final scopedPlaces = _filterPlacesForSelectedArea(allStatePlaces, preferences);
+    if (scopedPlaces.isEmpty) {
+      throw Exception(
+        'No matching places found in ${preferences.selectedArea}. Please choose another area or add more verified vendors there.',
+      );
+    }
+
     final totalDays = preferences.numberOfDays;
     final globalSelectedIds = <String>{...previouslyVisitedPlaceIds};
 
@@ -68,7 +76,7 @@ class ItineraryRecommendationService {
       final dayStops = _generateSingleDay(
         dayNumber: dayNumber,
         preferences: preferences,
-        availablePlaces: allStatePlaces,
+        availablePlaces: scopedPlaces,
         activeTasks: activeTasks,
         dayInterests: dayInterests,
         globallyUsedIds: globalSelectedIds,
@@ -368,7 +376,17 @@ class ItineraryRecommendationService {
     required int startMinutes,
     required String stateId,
     required String stateName,
+    String selectedArea = '',
   }) {
+    final localPlaces = selectedArea.trim().isEmpty
+        ? availablePlaces
+        : availablePlaces
+            .where((place) => _placeMatchesSelectedArea(
+                  place,
+                  selectedArea: selectedArea,
+                  stateId: stateId,
+                ))
+            .toList();
     final dailyAvailableMin = (availableHours * 60).round();
     final usedMinutes = currentDay.usedScheduleMinutes;
     final remainingMin = dailyAvailableMin - usedMinutes;
@@ -381,7 +399,7 @@ class ItineraryRecommendationService {
     PlaceModel? lastStopPlace;
     if (currentDay.stops.isNotEmpty) {
       final lastStop = currentDay.stops.last;
-      lastStopPlace = availablePlaces.firstWhere(
+      lastStopPlace = localPlaces.firstWhere(
         (p) => p.placeId == lastStop.placeId,
         orElse: () => PlaceModel(
           placeId: lastStop.placeId,
@@ -397,7 +415,7 @@ class ItineraryRecommendationService {
     }
 
     final dessertCandidate = MealPlanningService.selectDessertCandidate(
-      availablePlaces: availablePlaces,
+      availablePlaces: localPlaces,
       alreadyUsedIds: alreadyUsedIds,
       remainingMinutes: remainingMin,
       referenceLocation: lastStopPlace,
@@ -408,7 +426,7 @@ class ItineraryRecommendationService {
     }
 
     final updatedPlaces = currentDay.stops.map((s) {
-      final base = availablePlaces.firstWhere(
+      final base = localPlaces.firstWhere(
         (p) => p.placeId == s.placeId,
         orElse: () => PlaceModel(
           placeId: s.placeId,
@@ -597,6 +615,185 @@ class ItineraryRecommendationService {
     }
 
     return result;
+  }
+
+  static List<PlaceModel> _filterPlacesForSelectedArea(
+    List<PlaceModel> places,
+    TravelPreferences preferences,
+  ) {
+    final selectedArea = preferences.selectedArea.trim();
+    if (_isBroadAreaChoice(selectedArea)) return places;
+
+    return places
+        .where(
+          (place) => _placeMatchesSelectedArea(
+            place,
+            selectedArea: selectedArea,
+            stateId: preferences.stateId,
+          ),
+        )
+        .toList();
+  }
+
+  static bool _placeMatchesSelectedArea(
+    PlaceModel place, {
+    required String selectedArea,
+    required String stateId,
+  }) {
+    final selectedAliases = _areaAliases(selectedArea);
+    if (selectedAliases.isEmpty) return true;
+
+    final placeAreaKey = _areaKey(place.area);
+    final addressKey = _areaKey(place.formattedAddress);
+    final nameKey = _areaKey(place.name);
+
+    if (_mentionsOtherKnownArea(
+      addressKey,
+      selectedAliases: selectedAliases,
+      stateId: stateId,
+    )) {
+      return false;
+    }
+
+    final combinedKey = '$placeAreaKey $addressKey $nameKey';
+    return selectedAliases.any(
+      (alias) => _containsAreaTerm(combinedKey, alias),
+    );
+  }
+
+  static bool _mentionsOtherKnownArea(
+    String valueKey, {
+    required Set<String> selectedAliases,
+    required String stateId,
+  }) {
+    if (valueKey.isEmpty) return false;
+
+    final knownAreas = _knownAreaNamesForState(stateId);
+    for (final area in knownAreas) {
+      final aliases = _areaAliases(area);
+      if (aliases.any(selectedAliases.contains)) continue;
+      if (aliases.any((alias) => _containsAreaTerm(valueKey, alias))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static List<String> _knownAreaNamesForState(String stateId) {
+    final normalizedStateId = MalaysiaLocationService.normalizeStateId(stateId);
+    final state = MalaysiaLocationService.defaultStates.firstWhere(
+      (item) => item.id == normalizedStateId,
+      orElse: () => const MalaysianStateItem(id: '', name: '', areas: []),
+    );
+    final areas = <String>{...state.areas};
+    if (normalizedStateId == 'penang') {
+      areas.addAll(const ['Air Itam', 'Ayer Itam', 'Penang Hill']);
+    }
+    return areas.toList();
+  }
+
+  static bool _isBroadAreaChoice(String value) {
+    final key = _areaKey(value);
+    return key.isEmpty ||
+        key == 'all' ||
+        key == 'all areas' ||
+        key == 'all places' ||
+        key == 'statewide' ||
+        key == 'malaysia';
+  }
+
+  static Set<String> _areaAliases(String value) {
+    final key = _areaKey(value);
+    if (key.isEmpty) return const {};
+
+    final aliases = <String>{key};
+    final withoutParentheses = _areaKey(
+      value.replaceAll(RegExp(r'\([^)]*\)'), ' '),
+    );
+    if (withoutParentheses.isNotEmpty) aliases.add(withoutParentheses);
+
+    for (final part in value.split(RegExp(r'[/&,]'))) {
+      final partKey = _areaKey(part);
+      if (partKey.length > 2) aliases.add(partKey);
+    }
+
+    switch (key) {
+      case 'george town':
+        aliases.addAll(const [
+          'georgetown',
+          'unesco core',
+          'armenian street',
+          'lebuh armenian',
+          'love lane',
+          'chulia street',
+          'little india',
+          'carnarvon',
+          'campbell street',
+          'church street',
+          'lebuh pantai',
+          'beach street',
+          'weld quay',
+          'jalan penang',
+        ]);
+        break;
+      case 'air itam':
+      case 'ayer itam':
+      case 'penang hill':
+        aliases.addAll(const [
+          'air itam',
+          'ayer itam',
+          'penang hill',
+          'bukit bendera',
+          'kek lok si',
+        ]);
+        break;
+      case 'melaka city bandar hilir':
+        aliases.addAll(const ['melaka city', 'bandar hilir']);
+        break;
+      case 'jonker walk heritage core':
+        aliases.addAll(const ['jonker walk', 'jonker']);
+        break;
+      case 'klcc city centre':
+        aliases.addAll(const ['klcc', 'city centre', 'kuala lumpur city centre']);
+        break;
+      case 'chinatown petaling street':
+        aliases.addAll(const ['chinatown', 'petaling street']);
+        break;
+      case 'brickfields little india':
+        aliases.addAll(const ['brickfields', 'little india']);
+        break;
+      case 'kundasang ranau':
+        aliases.addAll(const ['kundasang', 'ranau']);
+        break;
+      case 'langkawi kuah cenang':
+        aliases.addAll(const ['langkawi', 'kuah', 'cenang']);
+        break;
+      case 'kuching waterfront old town':
+        aliases.addAll(const ['kuching', 'kuching waterfront', 'old town']);
+        break;
+      case 'bau wind caves':
+        aliases.addAll(const ['bau', 'wind caves']);
+        break;
+    }
+
+    return aliases;
+  }
+
+  static bool _containsAreaTerm(String valueKey, String term) {
+    final termKey = _areaKey(term);
+    if (valueKey.isEmpty || termKey.isEmpty) return false;
+    if (termKey.length <= 2) {
+      return valueKey.split(' ').contains(termKey);
+    }
+    return valueKey == termKey || valueKey.contains(termKey);
+  }
+
+  static String _areaKey(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   static String _formatMinutes(int minutes) {

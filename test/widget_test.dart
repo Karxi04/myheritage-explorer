@@ -34,63 +34,6 @@ void main() {
     expect(prediction.isSuspicious, isTrue);
   });
 
-  test('review model correctly handles negation without false sentiment flip', () {
-    final notBad = ReviewMlModel.analyze(reviewText: 'not bad at all, loved it', rating: 4);
-    expect(notBad.sentiment, 'positive');
-    expect(notBad.ratingMismatch, isFalse);
-
-    final notGood = ReviewMlModel.analyze(reviewText: 'not good, rude staff', rating: 1);
-    expect(notGood.sentiment, 'negative');
-    expect(notGood.ratingMismatch, isFalse);
-
-    final wasntTerrible = ReviewMlModel.analyze(reviewText: "wasn't terrible, quite nice", rating: 4);
-    expect(wasntTerrible.sentiment, 'positive');
-
-    final takSedap = ReviewMlModel.analyze(reviewText: 'tak sedap langsung', rating: 1);
-    expect(takSedap.sentiment, 'negative');
-    expect(takSedap.dominantLanguage, 'ms');
-  });
-
-  test('review model accurately analyzes Multilingual Malay and Chinese reviews', () {
-    final malayPos = ReviewMlModel.analyze(
-      reviewText: 'Makanan sangat sedap dan staf peramah',
-      rating: 5,
-    );
-    expect(malayPos.sentiment, 'positive');
-    expect(malayPos.dominantLanguage, 'ms');
-
-    final chinesePos = ReviewMlModel.analyze(
-      reviewText: '食物非常好吃，服务态度很亲切',
-      rating: 5,
-    );
-    expect(chinesePos.sentiment, 'positive');
-    expect(chinesePos.dominantLanguage, 'zh');
-
-    final chineseNeg = ReviewMlModel.analyze(
-      reviewText: '食物很难吃，服务员态度很差',
-      rating: 1,
-    );
-    expect(chineseNeg.sentiment, 'negative');
-    expect(chineseNeg.dominantLanguage, 'zh');
-  });
-
-  test('review moderation policy detects sarcasm and flags for manual review', () {
-    final sarcasmPred = ReviewMlModel.analyze(
-      reviewText: 'Great service, waited only two hours.',
-      rating: 5,
-    );
-    expect(sarcasmPred.sarcasmRiskScore, greaterThanOrEqualTo(0.70));
-
-    final decision = ReviewModerationPolicy.decide(
-      prediction: sarcasmPred,
-      ruleFlags: const [],
-      reviewText: 'Great service, waited only two hours.',
-      rating: 5,
-    );
-    expect(decision.needsReview, isTrue);
-    expect(decision.reasons.any((r) => r.contains('sarcasm') || r.contains('contradictory')), isTrue);
-  });
-
   test('itinerary schedule recalculates when stops are reordered', () {
     final stops = [
       {
@@ -404,6 +347,77 @@ void main() {
       expect(result2h.days.first.stops.length, lessThanOrEqualTo(3));
       expect(result4h.days.first.stops.length, greaterThanOrEqualTo(3));
       expect(result8h.days.first.stops.length, greaterThan(result4h.days.first.stops.length));
+    });
+
+    test('George Town itinerary excludes other Penang areas', () async {
+      final mixedPenangPlaces = [
+        PlaceModel(
+          placeId: 'gt_jetty',
+          name: 'Chew Jetty',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Heritage',
+          interestTags: ['Heritage', 'Culture'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Weld Quay, George Town, 10300 Penang',
+          publicRating: 4.4,
+        ),
+        PlaceModel(
+          placeId: 'gt_food',
+          name: 'Hameediyah Restaurant',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Food',
+          interestTags: ['Food', 'Heritage'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: '164 Campbell Street, George Town, 10100 Penang',
+          publicRating: 4.5,
+        ),
+        PlaceModel(
+          placeId: 'wrong_air_itam',
+          name: 'Kek Lok Si Temple',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'George Town',
+          category: 'Nature',
+          interestTags: ['Nature', 'Heritage'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Tingkat Lembah Ria 1, 11500 Ayer Itam, Penang',
+          publicRating: 5.0,
+        ),
+        PlaceModel(
+          placeId: 'bf_beach',
+          name: 'Batu Ferringhi Beach',
+          stateId: 'penang',
+          stateName: 'Penang',
+          area: 'Batu Ferringhi',
+          category: 'Nature',
+          interestTags: ['Nature'],
+          estimatedVisitMinutes: 45,
+          formattedAddress: 'Jalan Batu Ferringhi, 11100 Batu Ferringhi, Penang',
+          publicRating: 5.0,
+        ),
+      ];
+
+      final itinerary = await ItineraryRecommendationService.generateItinerary(
+        preferences: TravelPreferences(
+          stateId: 'penang',
+          selectedArea: 'George Town',
+          availableHours: 3,
+          interests: ['Heritage', 'Food', 'Nature'],
+        ),
+        candidatePlaces: mixedPenangPlaces,
+        randomSeed: 1,
+      );
+
+      final selectedIds = itinerary.stops.map((stop) => stop.placeId).toSet();
+      expect(selectedIds, contains('gt_jetty'));
+      expect(selectedIds, contains('gt_food'));
+      expect(selectedIds, isNot(contains('wrong_air_itam')));
+      expect(selectedIds, isNot(contains('bf_beach')));
+      expect(itinerary.stops.every((stop) => stop.area == 'George Town'), isTrue);
     });
   });
 

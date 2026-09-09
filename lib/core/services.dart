@@ -786,6 +786,23 @@ class AppServices {
       endDate = asDate(itinerary['endDate']);
     }
 
+    if (startDate == null && itinerary['days'] is List && (itinerary['days'] as List).isNotEmpty) {
+      for (final day in (itinerary['days'] as List)) {
+        if (day is Map && day['date'] != null) {
+          startDate = asDate(day['date']);
+          if (startDate != null) break;
+        }
+      }
+      if (endDate == null) {
+        for (final day in (itinerary['days'] as List).reversed) {
+          if (day is Map && day['date'] != null) {
+            endDate = asDate(day['date']);
+            if (endDate != null) break;
+          }
+        }
+      }
+    }
+
     if (startDate == null) {
       final createdAt = asDate(itinerary['createdAt']);
       if (createdAt != null && now.difference(createdAt).inDays > 14) {

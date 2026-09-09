@@ -104,12 +104,29 @@ class PlaceRepository {
     final excludedSet = excludedPlaceIds.toSet();
     final qLower = query.toLowerCase().trim();
     final cleanArea = area.split(',').first.toLowerCase().trim();
+    final mustStayInArea =
+        cleanArea.isNotEmpty &&
+        !const {
+          'all',
+          'all areas',
+          'all places',
+          'statewide',
+          'malaysia',
+        }.contains(_areaKey(cleanArea));
 
     bool isMatchingArea(PlaceModel place) {
       if (cleanArea.isEmpty) return true;
       final pArea = place.area.toLowerCase();
       final pAddr = place.formattedAddress.toLowerCase();
       final pName = place.name.toLowerCase();
+
+      if (_mentionsOtherKnownArea(
+        pAddr,
+        selectedArea: cleanArea,
+        stateId: stateId,
+      )) {
+        return false;
+      }
 
       final normTarget = cleanArea.replaceAll(' ', '').replaceAll('-', '');
       final normArea = pArea.replaceAll(' ', '').replaceAll('-', '');
@@ -123,6 +140,7 @@ class PlaceRepository {
 
     final filtered = allPlaces.where((place) {
       if (excludedSet.contains(place.placeId)) return false;
+      if (mustStayInArea && !isMatchingArea(place)) return false;
 
       // Filter by search query if provided
       if (qLower.isNotEmpty) {
@@ -153,16 +171,134 @@ class PlaceRepository {
       return scoreB.compareTo(scoreA);
     });
 
-    // When showing default suggestions (empty text query) for a specific area,
-    // isolate results to that area so places from other cities do not leak in!
-    if (qLower.isEmpty && cleanArea.isNotEmpty) {
-      final areaMatches = filtered.where(isMatchingArea).toList();
-      if (areaMatches.isNotEmpty) {
-        return areaMatches;
+    return filtered;
+  }
+
+  static bool _mentionsOtherKnownArea(
+    String value, {
+    required String selectedArea,
+    required String stateId,
+  }) {
+    final valueKey = _areaKey(value);
+    if (valueKey.isEmpty) return false;
+
+    final selectedAliases = _areaAliases(selectedArea);
+    final knownAreas = _knownAreaNamesForState(stateId);
+    for (final knownArea in knownAreas) {
+      final aliases = _areaAliases(knownArea);
+      if (aliases.any(selectedAliases.contains)) continue;
+      if (aliases.any((alias) => _containsAreaTerm(valueKey, alias))) {
+        return true;
       }
     }
+    return false;
+  }
 
-    return filtered;
+  static List<String> _knownAreaNamesForState(String stateId) {
+    final normalizedStateId = MalaysiaLocationService.normalizeStateId(stateId);
+    final state = MalaysiaLocationService.defaultStates.firstWhere(
+      (item) => item.id == normalizedStateId,
+      orElse: () => const MalaysianStateItem(id: '', name: '', areas: []),
+    );
+    final areas = <String>{...state.areas};
+    if (normalizedStateId == 'penang') {
+      areas.addAll(const ['Air Itam', 'Ayer Itam', 'Penang Hill']);
+    }
+    return areas.toList();
+  }
+
+  static Set<String> _areaAliases(String value) {
+    final key = _areaKey(value);
+    if (key.isEmpty) return const {};
+
+    final aliases = <String>{key};
+    final withoutParentheses = _areaKey(
+      value.replaceAll(RegExp(r'\([^)]*\)'), ' '),
+    );
+    if (withoutParentheses.isNotEmpty) aliases.add(withoutParentheses);
+
+    for (final part in value.split(RegExp(r'[/&,]'))) {
+      final partKey = _areaKey(part);
+      if (partKey.length > 2) aliases.add(partKey);
+    }
+
+    switch (key) {
+      case 'george town':
+        aliases.addAll(const [
+          'georgetown',
+          'unesco core',
+          'armenian street',
+          'lebuh armenian',
+          'love lane',
+          'chulia street',
+          'little india',
+          'carnarvon',
+          'campbell street',
+          'church street',
+          'lebuh pantai',
+          'beach street',
+          'weld quay',
+          'jalan penang',
+        ]);
+        break;
+      case 'air itam':
+      case 'ayer itam':
+      case 'penang hill':
+        aliases.addAll(const [
+          'air itam',
+          'ayer itam',
+          'penang hill',
+          'bukit bendera',
+          'kek lok si',
+        ]);
+        break;
+      case 'melaka city bandar hilir':
+        aliases.addAll(const ['melaka city', 'bandar hilir']);
+        break;
+      case 'jonker walk heritage core':
+        aliases.addAll(const ['jonker walk', 'jonker']);
+        break;
+      case 'klcc city centre':
+        aliases.addAll(const ['klcc', 'city centre', 'kuala lumpur city centre']);
+        break;
+      case 'chinatown petaling street':
+        aliases.addAll(const ['chinatown', 'petaling street']);
+        break;
+      case 'brickfields little india':
+        aliases.addAll(const ['brickfields', 'little india']);
+        break;
+      case 'kundasang ranau':
+        aliases.addAll(const ['kundasang', 'ranau']);
+        break;
+      case 'langkawi kuah cenang':
+        aliases.addAll(const ['langkawi', 'kuah', 'cenang']);
+        break;
+      case 'kuching waterfront old town':
+        aliases.addAll(const ['kuching', 'kuching waterfront', 'old town']);
+        break;
+      case 'bau wind caves':
+        aliases.addAll(const ['bau', 'wind caves']);
+        break;
+    }
+
+    return aliases;
+  }
+
+  static bool _containsAreaTerm(String valueKey, String term) {
+    final termKey = _areaKey(term);
+    if (valueKey.isEmpty || termKey.isEmpty) return false;
+    if (termKey.length <= 2) {
+      return valueKey.split(' ').contains(termKey);
+    }
+    return valueKey == termKey || valueKey.contains(termKey);
+  }
+
+  static String _areaKey(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   /// Seed initial heritage places into Firestore if the places collection is empty
@@ -256,7 +392,7 @@ class PlaceRepository {
         'name': 'Kek Lok Si Temple',
         'stateId': 'penang',
         'stateName': 'Penang',
-        'area': 'George Town',
+        'area': 'Air Itam',
         'category': 'Culture',
         'interestTags': ['Culture', 'Heritage', 'Nature'],
         'description': 'The largest Buddhist temple in Malaysia, featuring the 7-tier Pagoda of Ten Thousand Buddhas and towering Guanyin statue.',
@@ -418,7 +554,7 @@ class PlaceRepository {
         'name': 'Penang Hill Biosphere Nature Reserve',
         'stateId': 'penang',
         'stateName': 'Penang',
-        'area': 'George Town',
+        'area': 'Air Itam',
         'category': 'Nature',
         'interestTags': ['Nature', 'Heritage'],
         'description': 'Lush UNESCO Biosphere rainforest peak accessed via funicular railway with panoramic island views and nature trails.',

@@ -17,6 +17,8 @@ class ItineraryEditPage extends StatefulWidget {
 class _ItineraryEditPageState extends State<ItineraryEditPage> {
   int selectedDayIndex = 0;
   List<Map<String, dynamic>> days = [];
+  DateTime? _startDate;
+  DateTime? _endDate;
   bool saving = false;
   bool loadingPlaces = false;
 
@@ -136,12 +138,39 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
       ),
     );
 
+    DateTime? resolvedStart = asDate(widget.itinerary['startDate']) ??
+        asDate(widget.itinerary['targetDate']);
+    if (resolvedStart == null && days.isNotEmpty) {
+      for (final d in days) {
+        final dDate = asDate(d['date']);
+        if (dDate != null) {
+          resolvedStart = dDate;
+          break;
+        }
+      }
+    }
+    resolvedStart ??= DateTime.now();
+
+    DateTime? resolvedEnd = asDate(widget.itinerary['endDate']);
+    if (resolvedEnd == null && days.isNotEmpty) {
+      for (final d in days.reversed) {
+        final dDate = asDate(d['date']);
+        if (dDate != null) {
+          resolvedEnd = dDate;
+          break;
+        }
+      }
+    }
+    resolvedEnd ??= (days.length > 1
+        ? resolvedStart.add(Duration(days: days.length - 1))
+        : resolvedStart);
+
+    _startDate = resolvedStart;
+    _endDate = resolvedEnd;
+
     if (days.isEmpty) {
-      final sDate =
-          asDate(widget.itinerary['startDate']) ??
-          asDate(widget.itinerary['targetDate']) ??
-          DateTime.now();
-      final eDate = asDate(widget.itinerary['endDate']) ?? sDate;
+      final sDate = _startDate!;
+      final eDate = _endDate!;
       final daySpan = max(
         1,
         (widget.itinerary['dayCount'] as num?)?.round() ??
@@ -170,14 +199,86 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
         days.add({
           'dayNumber': 1,
           'date': sDate.toIso8601String(),
-          'dateLabel': 'Day 1',
+          'dateLabel': 'Day 1 (${DateFormat('d MMM yyyy').format(sDate)})',
           'stops': allStops,
           'weather': <String, dynamic>{},
         });
       }
+    } else {
+      for (var i = 0; i < days.length; i++) {
+        final d = days[i];
+        final dayD = asDate(d['date']) ?? _startDate!.add(Duration(days: i));
+        days[i]['date'] = dayD.toIso8601String();
+        final rawLabel = '${d['dateLabel'] ?? ''}'.trim();
+        if (rawLabel.isEmpty || rawLabel == 'Day ${i + 1}') {
+          days[i]['dateLabel'] = days.length > 1
+              ? 'Day ${i + 1} (${DateFormat('d MMM').format(dayD)})'
+              : 'Day 1 (${DateFormat('d MMM yyyy').format(dayD)})';
+        }
+      }
     }
 
     _rescheduleCurrentDay();
+  }
+
+  Future<void> _pickTripDates() async {
+    final now = DateTime.now();
+    final firstAllowed = now.subtract(const Duration(days: 365));
+    final lastAllowed = now.add(const Duration(days: 365 * 2));
+    final currentStart = _startDate ?? now;
+
+    if (days.length <= 1) {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: currentStart.isBefore(firstAllowed)
+            ? firstAllowed
+            : (currentStart.isAfter(lastAllowed) ? lastAllowed : currentStart),
+        firstDate: firstAllowed,
+        lastDate: lastAllowed,
+        helpText: 'SELECT TRIP DATE',
+        confirmText: 'SET DATE',
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _startDate = picked;
+        _endDate = picked;
+        if (days.isNotEmpty) {
+          days[0]['date'] = picked.toIso8601String();
+          days[0]['dateLabel'] =
+              'Day 1 (${DateFormat('d MMM yyyy').format(picked)})';
+        }
+      });
+      showMessage(
+        context,
+        'Trip date changed to ${DateFormat('d MMM yyyy').format(picked)}. Remember to tap Save.',
+      );
+    } else {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: currentStart.isBefore(firstAllowed)
+            ? firstAllowed
+            : (currentStart.isAfter(lastAllowed) ? lastAllowed : currentStart),
+        firstDate: firstAllowed,
+        lastDate: lastAllowed,
+        helpText: 'SELECT START DATE FOR ${days.length}-DAY TRIP',
+        confirmText: 'SET START DATE',
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _startDate = picked;
+        _endDate = picked.add(Duration(days: days.length - 1));
+        for (var i = 0; i < days.length; i++) {
+          final dayDate = picked.add(Duration(days: i));
+          days[i]['date'] = dayDate.toIso8601String();
+          days[i]['dateLabel'] =
+              'Day ${i + 1} (${DateFormat('d MMM').format(dayDate)})';
+        }
+      });
+      showMessage(
+        context,
+        'Trip dates updated: ${DateFormat('d MMM').format(picked)} - ${DateFormat('d MMM yyyy').format(_endDate!)} (${days.length} Days). Remember to tap Save.',
+      );
+    }
   }
 
   Future<void> addStop() async {
@@ -434,6 +535,9 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
           .collection('itineraries')
           .doc(widget.itineraryId)
           .update({
+            'startDate': _startDate?.toIso8601String(),
+            'endDate': _endDate?.toIso8601String(),
+            'dayCount': days.length,
             'days': updatedDays,
             'stops': allStopsCombined,
             'travelPace': currentPace,
@@ -510,6 +614,56 @@ class _ItineraryEditPageState extends State<ItineraryEditPage> {
                 ),
               ],
             ),
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_month_outlined,
+                    size: 18,
+                    color: ExplorerColors.navy,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _startDate == null
+                          ? 'Trip Date: Not set'
+                          : days.length > 1
+                              ? '${DateFormat('d MMM yyyy').format(_startDate!)} - ${DateFormat('d MMM yyyy').format(_endDate ?? _startDate!)} (${days.length} Days)'
+                              : '${DateFormat('d MMM yyyy').format(_startDate!)} (1 Day)',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: ExplorerColors.navy,
+                      ),
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ExplorerColors.goldSoft,
+                      foregroundColor: ExplorerColors.goldDark,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: _pickTripDates,
+                    icon: const Icon(Icons.edit_calendar_rounded, size: 14),
+                    label: const Text(
+                      'Change Date',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: ExplorerColors.border),
             if (days.length > 1) ...[
               Container(
                 color: Colors.white,

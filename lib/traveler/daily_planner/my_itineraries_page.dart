@@ -304,15 +304,39 @@ class _MyItinerariesPageState extends State<MyItinerariesPage> {
                                   final createdAt = asDate(
                                     itinerary['createdAt'],
                                   );
-                                  final startDate = asDate(
-                                    itinerary['startDate'],
-                                  );
-                                  final endDate = asDate(itinerary['endDate']);
-                                  final status = AppServices.getItineraryStatus(
-                                    itinerary,
-                                  );
-                                  final days =
-                                      (itinerary['days'] as List?)?.length ?? 1;
+                                   final daysList = (itinerary['days'] as List?)
+                                           ?.whereType<Map>()
+                                           .map((e) => Map<String, dynamic>.from(e))
+                                           .toList() ??
+                                       const [];
+                                   DateTime? startDate = asDate(itinerary['startDate']) ??
+                                       asDate(itinerary['targetDate']);
+                                   if (startDate == null && daysList.isNotEmpty) {
+                                     for (final d in daysList) {
+                                       final dDate = asDate(d['date']);
+                                       if (dDate != null) {
+                                         startDate = dDate;
+                                         break;
+                                       }
+                                     }
+                                   }
+                                   DateTime? endDate = asDate(itinerary['endDate']);
+                                   if (endDate == null && daysList.isNotEmpty) {
+                                     for (final d in daysList.reversed) {
+                                       final dDate = asDate(d['date']);
+                                       if (dDate != null) {
+                                         endDate = dDate;
+                                         break;
+                                       }
+                                     }
+                                   }
+                                   endDate ??= startDate;
+                                   final status = AppServices.getItineraryStatus(
+                                     itinerary,
+                                   );
+                                   final days = daysList.isNotEmpty
+                                       ? daysList.length
+                                       : ((itinerary['days'] as List?)?.length ?? 1);
 
                                   String dateSubtext = '';
                                   if (startDate != null) {
