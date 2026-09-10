@@ -39,14 +39,11 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
   }
 
   String _redemptionSessionError(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '');
-    final normalized = message.toLowerCase();
-    if (normalized.contains('resource-exhausted') ||
-        normalized.contains('quota exceeded') ||
-        normalized.contains('quota reached')) {
-      return 'Firebase has reached its request quota, so a new QR code and PIN cannot be saved right now. Your voucher is safe. Please try again after the quota resets or ask the project administrator to check Firebase usage.';
-    }
-    return message;
+    return rewardModuleErrorMessage(
+      error,
+      fallback:
+          'A redemption code could not be generated. Your voucher is safe; please try again.',
+    );
   }
 
   Future<void> _startRedemptionSession(String claimId) async {
@@ -855,7 +852,11 @@ class _ClaimedVoucherDirectionsPageState
       if (!mounted) return;
       setState(() {
         loadingPosition = false;
-        positionError = error.toString().replaceFirst('Exception: ', '');
+        positionError = rewardModuleErrorMessage(
+          error,
+          fallback:
+              'Your location could not be detected. Check location permission and try again.',
+        );
       });
     }
   }
@@ -985,7 +986,11 @@ class _ClaimedVoucherDirectionsPageState
       if (mounted) {
         _showDirectRouteFallback(
           origin,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Walking directions could not be loaded. A direct route is shown instead.',
+          ),
         );
       }
     } finally {

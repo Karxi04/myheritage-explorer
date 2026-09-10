@@ -1445,13 +1445,19 @@ class AppServices {
       });
     });
 
-    await notify(
-      userId: travelerId,
-      title: 'Redemption successful',
-      message: '$voucherTitle was successfully redeemed.',
-      type: 'voucher_redeemed',
-      referenceId: claimRef.id,
-    );
+    // Redemption is complete once the transaction commits. A notification
+    // failure must not tell the vendor that the voucher is still redeemable.
+    try {
+      await notify(
+        userId: travelerId,
+        title: 'Redemption successful',
+        message: '$voucherTitle was successfully redeemed.',
+        type: 'voucher_redeemed',
+        referenceId: claimRef.id,
+      );
+    } catch (error) {
+      debugPrint('Voucher redemption notification skipped: $error');
+    }
 
     return claimRef.id;
   }

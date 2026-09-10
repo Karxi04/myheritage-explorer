@@ -35,6 +35,7 @@ import '../core/services.dart';
 import '../core/pin_service.dart';
 import '../core/ai_chat_service.dart';
 import '../core/chatbot_module_service.dart';
+import '../rewards/reward_module_support.dart';
 import '../models/app_notification.dart';
 import '../models/evidence_validation_result.dart';
 import '../models/hazard_report.dart';

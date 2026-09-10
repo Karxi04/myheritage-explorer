@@ -151,7 +151,11 @@ class _VoucherDetailPageState extends State<VoucherDetailPage> {
       if (context.mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'This voucher could not be claimed. Check its availability and try again.',
+          ),
           error: true,
         );
       }

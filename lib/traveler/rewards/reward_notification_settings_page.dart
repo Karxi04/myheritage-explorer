@@ -17,7 +17,11 @@ class RewardNotificationSettingsPage extends StatelessWidget {
       if (context.mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Your reward notification preference could not be saved. Please try again.',
+          ),
           error: true,
         );
       }
@@ -67,7 +71,11 @@ class RewardNotificationSettingsPage extends StatelessWidget {
       if (context.mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Background nearby alerts could not be enabled. Check location permission and try again.',
+          ),
           error: true,
         );
       }

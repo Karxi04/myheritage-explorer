@@ -98,7 +98,11 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
     } catch (exception) {
       if (!mounted) return;
       setState(() {
-        error = exception.toString().replaceFirst('Exception: ', '');
+        error = rewardModuleErrorMessage(
+          exception,
+          fallback:
+              'Nearby rewards could not be loaded. Check your connection and location permission, then try again.',
+        );
         loading = false;
       });
     }
@@ -473,9 +477,10 @@ class _NearbyRewardsPageState extends State<NearbyRewardsPage> {
                                       if (context.mounted) {
                                         showMessage(
                                           context,
-                                          exception.toString().replaceFirst(
-                                            'Exception: ',
-                                            '',
+                                          rewardModuleErrorMessage(
+                                            exception,
+                                            fallback:
+                                                'This nearby voucher could not be claimed. Check its availability and try again.',
                                           ),
                                           error: true,
                                         );

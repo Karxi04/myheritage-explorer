@@ -12,19 +12,35 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
   bool processing = false;
   bool scanning = true;
   bool hasError = false;
+  bool redemptionSucceeded = false;
   String result = 'Scan the temporary QR code or enter the active 6-digit PIN.';
 
   Future<void> redeem(String? raw) async {
-    if (raw == null || raw.trim().isEmpty || processing) return;
+    if (processing) return;
+    final validationMessage = RewardInputValidation.redemptionCode(raw);
+    if (validationMessage != null) {
+      setState(() {
+        result = validationMessage;
+        hasError = true;
+        redemptionSucceeded = false;
+        scanning = false;
+      });
+      await Future<void>.delayed(const Duration(seconds: 1));
+      if (mounted) setState(() => scanning = true);
+      return;
+    }
+
+    final code = raw!.trim();
     setState(() {
       processing = true;
       scanning = false;
       hasError = false;
+      redemptionSucceeded = false;
     });
 
     try {
       final preview = await AppServices.redemptionPreview(
-        raw.trim(),
+        code,
         AppServices.auth.currentUser!.uid,
       );
       if (!mounted) return;
@@ -82,27 +98,34 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
         setState(() {
           result = 'Redemption cancelled. No voucher was changed.';
           hasError = false;
+          redemptionSucceeded = false;
         });
         return;
       }
 
       await AppServices.redeemClaim(
-        raw.trim(),
+        code,
         AppServices.auth.currentUser!.uid,
         resolvedClaimId: '${preview['claimId'] ?? ''}',
       );
       if (mounted) {
         setState(() {
-          result = 'Redemption successful.';
+          result = '${preview['title'] ?? 'Voucher'} redeemed successfully.';
           hasError = false;
+          redemptionSucceeded = true;
           manualCode.clear();
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          result = e.toString().replaceFirst('Exception: ', '');
+          result = rewardModuleErrorMessage(
+            e,
+            fallback:
+                'The voucher could not be validated. Ask the tourist to generate a new code and try again.',
+          );
           hasError = true;
+          redemptionSucceeded = false;
         });
       }
     } finally {
@@ -124,7 +147,7 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final success = result == 'Redemption successful.';
+    final success = redemptionSucceeded;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -278,6 +301,9 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
           const SizedBox(height: 14),
           TextField(
             controller: manualCode,
+            maxLength: 120,
+            autocorrect: false,
+            enableSuggestions: false,
             textInputAction: TextInputAction.done,
             onSubmitted: processing ? null : redeem,
             decoration: InputDecoration(
@@ -287,7 +313,15 @@ class _VendorQrScannerPageState extends State<VendorQrScannerPage> {
               prefixIcon: const Icon(Icons.password_outlined),
               suffixIcon: IconButton(
                 tooltip: 'Clear code',
-                onPressed: manualCode.clear,
+                onPressed: () {
+                  manualCode.clear();
+                  setState(() {
+                    result =
+                        'Scan the temporary QR code or enter the active 6-digit PIN.';
+                    hasError = false;
+                    redemptionSucceeded = false;
+                  });
+                },
                 icon: const Icon(Icons.close),
               ),
             ),

@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
@@ -15,6 +15,7 @@ import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/services.dart';
 import '../core/pin_service.dart';
+import '../rewards/reward_module_support.dart';
 import '../traveler/traveler_pages.dart';
 
 part 'dashboard/vendor_dashboard_page.dart';
