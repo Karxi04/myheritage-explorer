@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'helpers.dart';
 import 'notification_service.dart';
 import 'pin_service.dart';
+import 'push_notification_service.dart';
 
 class AdminSessionManager {
   static const String _lastActiveKey = 'admin_last_active_timestamp';
@@ -131,6 +132,7 @@ class AppServices {
   static final storage = FirebaseStorage.instance;
   static final Map<String, DateTime> _nearbyRewardCheckTimes =
       <String, DateTime>{};
+  static final Set<String> _nearbyRewardChecksInProgress = <String>{};
   static final googleSignIn = GoogleSignIn();
 
   static DocumentReference<Map<String, dynamic>> adminRef(String uid) =>
@@ -954,13 +956,14 @@ class AppServices {
     String? referenceId,
     String? groupId,
     String? chatId,
+    String? notificationId,
     bool notificationPreferenceChecked = false,
   }) async {
     if (!notificationPreferenceChecked &&
         !await _notificationAllowed(userId, type)) {
       return;
     }
-    final notificationRef = db.collection('notifications').doc();
+    final notificationRef = db.collection('notifications').doc(notificationId);
     await notificationRef.set({
       'notificationId': notificationRef.id,
       'userId': userId,
@@ -1749,19 +1752,41 @@ class AppServices {
   static Future<int> checkNearbyRewardNotifications({
     Position? currentPosition,
     bool requestPermission = false,
+    bool force = false,
   }) async {
     final user = auth.currentUser;
     if (user == null) return 0;
 
     final checkTime = DateTime.now();
     final previousCheck = _nearbyRewardCheckTimes[user.uid];
-    if (previousCheck != null &&
+    if (!force &&
+        previousCheck != null &&
         checkTime.difference(previousCheck) < nearbyRewardCheckCooldown) {
       return 0;
     }
-    _nearbyRewardCheckTimes[user.uid] = checkTime;
+    if (!_nearbyRewardChecksInProgress.add(user.uid)) return 0;
 
-    final traveler = (await travelerRef(user.uid).get()).data();
+    try {
+      return await _performNearbyRewardNotificationCheck(
+        userId: user.uid,
+        checkTime: checkTime,
+        currentPosition: currentPosition,
+        requestPermission: requestPermission,
+        force: force,
+      );
+    } finally {
+      _nearbyRewardChecksInProgress.remove(user.uid);
+    }
+  }
+
+  static Future<int> _performNearbyRewardNotificationCheck({
+    required String userId,
+    required DateTime checkTime,
+    required Position? currentPosition,
+    required bool requestPermission,
+    required bool force,
+  }) async {
+    final traveler = (await travelerRef(userId).get()).data();
     if (traveler == null ||
         traveler['role'] != 'traveler' ||
         traveler['status'] != 'active') {
@@ -1779,16 +1804,31 @@ class AppServices {
     if (currentPosition != null) {
       position = currentPosition;
     } else {
-      if (!await Geolocator.isLocationServiceEnabled()) return 0;
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (requestPermission) {
+          throw Exception(
+            'Turn on your phone location, then check for nearby rewards again.',
+          );
+        }
+        return 0;
+      }
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied && !requestPermission) {
         return 0;
       }
-      if (permission == LocationPermission.deniedForever) return 0;
+      if (permission == LocationPermission.deniedForever) {
+        if (requestPermission) {
+          throw Exception(
+            'Location access is blocked. Allow location for MyHeritage Explorer in your phone settings.',
+          );
+        }
+        return 0;
+      }
       position = await determinePosition();
     }
 
     final candidates = await nearbyRewardCandidates(position);
+    _nearbyRewardCheckTimes[userId] = checkTime;
     final now = DateTime.now();
     final matches =
         <
@@ -1835,7 +1875,8 @@ class AppServices {
     final requiredCooldown = sameSelection
         ? repeatedNearbyRewardAlertCooldown
         : nearbyRewardAlertCooldown;
-    if (previousAlert != null &&
+    if (!force &&
+        previousAlert != null &&
         now.difference(previousAlert) < requiredCooldown) {
       return 0;
     }
@@ -1846,20 +1887,39 @@ class AppServices {
         ? '${nearest.distance.round()} m away'
         : '${(nearest.distance / 1000).toStringAsFixed(1)} km away';
     final isDigest = matches.length > 1;
-    await notify(
-      userId: user.uid,
-      title: isDigest
-          ? '${matches.length} nearby rewards available'
-          : 'Nearby reward available',
-      message: isDigest
-          ? 'Rewards are available within 750 metres. The nearest is ${nearestVoucher['title'] ?? 'a local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} ($distanceLabel).'
-          : '${nearestVoucher['title'] ?? 'A local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} is $distanceLabel.',
-      type: isDigest ? 'voucher_nearby_digest' : 'voucher_nearby',
-      referenceId: nearest.doc.id,
-      notificationPreferenceChecked: true,
-    );
+    final title = isDigest
+        ? '${matches.length} nearby rewards available'
+        : 'Nearby reward available';
+    final message = isDigest
+        ? 'Rewards are available within 750 metres. The nearest is ${nearestVoucher['title'] ?? 'a local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} ($distanceLabel).'
+        : '${nearestVoucher['title'] ?? 'A local voucher'} at ${nearestVoucher['vendorName'] ?? 'a verified vendor'} is $distanceLabel.';
+    final notificationId = db.collection('notifications').doc().id;
+    final deliveredLocally = await SystemNotificationService.instance
+        .showNearbyRewardNotification(
+          id: stableNotificationId(nearest.doc.id, 91),
+          title: title,
+          body: message,
+          voucherId: nearest.doc.id,
+        );
+    if (deliveredLocally) {
+      PushNotificationService.markNotificationAsHandled(notificationId);
+    }
     try {
-      await travelerRef(user.uid).update({
+      await notify(
+        userId: userId,
+        title: title,
+        message: message,
+        type: isDigest ? 'voucher_nearby_digest' : 'voucher_nearby',
+        referenceId: nearest.doc.id,
+        notificationId: notificationId,
+        notificationPreferenceChecked: true,
+      );
+    } catch (error) {
+      if (!deliveredLocally) rethrow;
+      debugPrint('Nearby reward notification history was not saved: $error');
+    }
+    try {
+      await travelerRef(userId).update({
         'nearbyRewardLastAlertAt': FieldValue.serverTimestamp(),
         'nearbyRewardLastVoucherIds': selectedIds.toList(growable: false),
       });

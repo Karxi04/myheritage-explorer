@@ -1,7 +1,16 @@
 part of '../traveler_pages.dart';
 
-class RewardNotificationSettingsPage extends StatelessWidget {
+class RewardNotificationSettingsPage extends StatefulWidget {
   const RewardNotificationSettingsPage({super.key});
+
+  @override
+  State<RewardNotificationSettingsPage> createState() =>
+      _RewardNotificationSettingsPageState();
+}
+
+class _RewardNotificationSettingsPageState
+    extends State<RewardNotificationSettingsPage> {
+  bool checkingNearbyRewards = false;
 
   Future<void> _setPreference(
     BuildContext context,
@@ -82,6 +91,68 @@ class RewardNotificationSettingsPage extends StatelessWidget {
     }
   }
 
+  Future<void> _checkNearbyRewardsNow(BuildContext context) async {
+    if (checkingNearbyRewards) return;
+    setState(() => checkingNearbyRewards = true);
+    try {
+      final notificationsEnabled = await SystemNotificationService.instance
+          .areNotificationsEnabled();
+      if (!notificationsEnabled) {
+        if (!context.mounted) return;
+        final openSettings =
+            await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Allow phone notifications'),
+                content: const Text(
+                  'Phone notifications are turned off for MyHeritage Explorer. Allow notifications in your phone settings, then run this check again.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Not now'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Open Settings'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (openSettings) await Geolocator.openAppSettings();
+        return;
+      }
+
+      final result = await AppServices.checkNearbyRewardNotifications(
+        requestPermission: true,
+        force: true,
+      );
+      if (!context.mounted) return;
+      showMessage(
+        context,
+        result > 0
+            ? 'Nearby reward alert sent. Check your phone notification panel and tap the alert to open the voucher.'
+            : 'No active vouchers were found within 750 metres. Check that the vendor saved the correct map location and that the voucher has inventory remaining.',
+        error: result == 0,
+      );
+    } catch (error) {
+      if (context.mounted) {
+        showMessage(
+          context,
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'The nearby reward check could not finish. Check location access and your internet connection, then try again.',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => checkingNearbyRewards = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = AppServices.auth.currentUser!.uid;
@@ -90,6 +161,17 @@ class RewardNotificationSettingsPage extends StatelessWidget {
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: AppServices.travelerRef(uid).snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return ExplorerEmptyState(
+              icon: Icons.notifications_off_outlined,
+              title: 'Notification settings are unavailable',
+              subtitle: rewardModuleErrorMessage(
+                snapshot.error!,
+                fallback:
+                    'Your reward notification settings could not be loaded. Check your connection and try again.',
+              ),
+            );
+          }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -197,6 +279,37 @@ class RewardNotificationSettingsPage extends StatelessWidget {
                           _setPreference(context, 'rewardUpdates', value),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: nearby && !checkingNearbyRewards
+                      ? () => _checkNearbyRewardsNow(context)
+                      : null,
+                  icon: checkingNearbyRewards
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.notifications_active_outlined),
+                  label: Text(
+                    checkingNearbyRewards
+                        ? 'Checking your location...'
+                        : 'Check Nearby Rewards Now',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Use this before your demo to confirm location access, eligible vouchers, and phone notification delivery.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 11,
+                  height: 1.35,
                 ),
               ),
               const SizedBox(height: 20),

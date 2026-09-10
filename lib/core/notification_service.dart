@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -108,6 +109,76 @@ class SystemNotificationService {
       );
     } catch (e) {
       debugPrint('Show notification error: $e');
+    }
+  }
+
+  Future<bool> areNotificationsEnabled() async {
+    if (kIsWeb) return false;
+    if (!_isInitialized) await init();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final androidImplementation = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      return await androidImplementation?.areNotificationsEnabled() ?? false;
+    }
+    return true;
+  }
+
+  Future<bool> showNearbyRewardNotification({
+    required int id,
+    required String title,
+    required String body,
+    required String voucherId,
+  }) async {
+    // In the background, the Firestore notification is delivered by FCM. A
+    // second local presentation here would produce a duplicate phone banner.
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return false;
+    }
+    if (!_isInitialized) await init();
+    if (!await areNotificationsEnabled()) {
+      debugPrint(
+        'Nearby reward notification skipped: phone notifications are disabled.',
+      );
+      return false;
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      'myheritage_nearby_rewards',
+      'Nearby rewards',
+      channelDescription:
+          'Alerts when an active voucher is available within the nearby reward area.',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+      category: AndroidNotificationCategory.recommendation,
+      showWhen: true,
+    );
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    try {
+      await _notificationsPlugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(
+          android: androidDetails,
+          iOS: darwinDetails,
+          macOS: darwinDetails,
+        ),
+        payload: 'voucher:$voucherId',
+      );
+      return true;
+    } catch (error) {
+      debugPrint('Nearby reward notification display failed: $error');
+      return false;
     }
   }
 

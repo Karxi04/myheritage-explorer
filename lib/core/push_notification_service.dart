@@ -25,7 +25,6 @@ Future<void> firebaseMessagingBackgroundHandler(
     'Background FCM received: ${message.messageId}',
   );
 }
-
 class PushNotificationService {
   PushNotificationService._();
 
@@ -659,6 +658,12 @@ class PushNotificationService {
     }
 
     return true;
+  }
+
+  /// Prevents a nearby reward alert that was already presented directly from
+  /// being shown again when its Firestore document or foreground FCM arrives.
+  static void markNotificationAsHandled(String notificationId) {
+    _rememberNotification(notificationId);
   }
 
   // ============================================================

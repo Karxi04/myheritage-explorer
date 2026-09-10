@@ -29,6 +29,7 @@ import '../auth/auth_pages.dart';
 import '../core/helpers.dart';
 import '../core/explorer_ui.dart';
 import '../core/geoapify_config.dart';
+import '../core/notification_service.dart';
 import '../core/safety_config.dart';
 import '../core/safety_error_message.dart';
 import '../core/services.dart';
