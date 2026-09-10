@@ -395,7 +395,12 @@ class _VendorProfilePageState extends State<VendorProfilePage> {
                               context,
                               MaterialPageRoute(
                                   builder: (_) => const PinSetupPage()),
-                            ).then((_) => setState(() {}));
+                            ).then((result) {
+                              setState(() {});
+                              if (result is String && result.isNotEmpty && context.mounted) {
+                                showMessage(context, result);
+                              }
+                            });
                           } else if (confirmed == true) {
                             setState(() {});
                           }
@@ -404,7 +409,12 @@ class _VendorProfilePageState extends State<VendorProfilePage> {
                             context,
                             MaterialPageRoute(
                                 builder: (_) => const PinSetupPage()),
-                          ).then((_) => setState(() {}));
+                          ).then((result) {
+                            setState(() {});
+                            if (result is String && result.isNotEmpty && context.mounted) {
+                              showMessage(context, result);
+                            }
+                          });
                         }
                       },
                     );

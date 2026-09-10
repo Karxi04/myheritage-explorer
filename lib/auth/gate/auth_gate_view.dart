@@ -362,6 +362,7 @@ class _PinSecurityGate extends StatefulWidget {
 
 class _PinSecurityGateState extends State<_PinSecurityGate> {
   bool _setupStarted = false;
+  bool _showingPrompt = false;
 
   @override
   void initState() {
@@ -370,11 +371,15 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
   }
 
   void _showPrompt() async {
-    if (!mounted) return;
-    
+    if (!mounted || _showingPrompt) return;
+    _showingPrompt = true;
+
     // Add a very small delay to allow any pending transitions to finish
     await Future.delayed(const Duration(milliseconds: 100));
-    if (!mounted) return;
+    if (!mounted) {
+      _showingPrompt = false;
+      return;
+    }
 
     final decision = await showDialog<bool>(
       context: context,
@@ -398,8 +403,11 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
       ),
     );
 
+    _showingPrompt = false;
+    if (!mounted) return;
+
     if (decision == true) {
-      if (mounted) setState(() => _setupStarted = true);
+      setState(() => _setupStarted = true);
     } else if (decision == false) {
       // User explicitly clicked "Maybe Later"
       PinService.authorizeSession();
@@ -407,7 +415,7 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
     } else {
       // Dialog was dismissed somehow without a decision 
       // (shouldn't happen with barrierDismissible: false, but for safety)
-      if (mounted) _showPrompt(); 
+      _showPrompt(); 
     }
   }
 
@@ -416,9 +424,17 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
     if (_setupStarted) {
       return PinSetupPage(
         onSetupComplete: widget.onDecision,
-        onCancel: () => setState(() => _setupStarted = false),
+        onCancel: () {
+          setState(() => _setupStarted = false);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _showPrompt());
+        },
       );
     }
+
+    if (!_showingPrompt) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showPrompt());
+    }
+
     return const _ProfileLoadingPage(message: 'Securing account...');
   }
 }
