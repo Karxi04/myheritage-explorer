@@ -70,10 +70,39 @@ Future<void> showVoucherClaimReceipt(
   }
 }
 
-class VoucherDetailPage extends StatelessWidget {
+class VoucherDetailPage extends StatefulWidget {
   const VoucherDetailPage({super.key, required this.voucherId});
 
   final String voucherId;
+
+  @override
+  State<VoucherDetailPage> createState() => _VoucherDetailPageState();
+}
+
+class _VoucherDetailPageState extends State<VoucherDetailPage> {
+  late final String _uid;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _voucherStream;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _travelerStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _claimStream;
+
+  String get voucherId => widget.voucherId;
+
+  @override
+  void initState() {
+    super.initState();
+    _uid = AppServices.auth.currentUser!.uid;
+    _voucherStream = AppServices.db
+        .collection('vouchers')
+        .doc(voucherId)
+        .snapshots();
+    _travelerStream = AppServices.travelerRef(_uid).snapshots();
+    _claimStream = AppServices.db
+        .collection('claimed_vouchers')
+        .where('userId', isEqualTo: _uid)
+        .where('voucherId', isEqualTo: voucherId)
+        .limit(AppServices.rewardPageReadLimit)
+        .snapshots();
+  }
 
   Future<void> _toggleFavourite(String uid, bool favourite) async {
     await AppServices.travelerRef(uid).update({
@@ -131,14 +160,10 @@ class VoucherDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
     return Scaffold(
       appBar: AppBar(title: const Text('Reward Details')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: AppServices.db
-            .collection('vouchers')
-            .doc(voucherId)
-            .snapshots(),
+        stream: _voucherStream,
         builder: (context, voucherSnapshot) {
           if (voucherSnapshot.hasError) {
             return emptyState('Unable to load this reward');
@@ -152,7 +177,7 @@ class VoucherDetailPage extends StatelessWidget {
           final voucher = voucherSnapshot.data!.data()!;
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: AppServices.travelerRef(uid).snapshots(),
+            stream: _travelerStream,
             builder: (context, travelerSnapshot) {
               final traveler = travelerSnapshot.data?.data();
               final points = (traveler?['points'] as num?)?.toInt() ?? 0;
@@ -163,10 +188,7 @@ class VoucherDetailPage extends StatelessWidget {
               final favourite = favourites.contains(voucherId);
 
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db
-                    .collection('claimed_vouchers')
-                    .where('userId', isEqualTo: uid)
-                    .snapshots(),
+                stream: _claimStream,
                 builder: (context, claimSnapshot) {
                   final claimedCount =
                       claimSnapshot.data?.docs
@@ -223,7 +245,7 @@ class VoucherDetailPage extends StatelessWidget {
                                     onPressed: traveler == null
                                         ? null
                                         : () =>
-                                              _toggleFavourite(uid, favourite),
+                                              _toggleFavourite(_uid, favourite),
                                     icon: Icon(
                                       favourite
                                           ? Icons.favorite

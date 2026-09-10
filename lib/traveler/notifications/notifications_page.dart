@@ -74,10 +74,7 @@ class TravelerNotificationBell extends StatelessWidget {
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
 
-  Future<void> _openPrivateChat(
-    BuildContext context,
-    String chatId,
-  ) async {
+  Future<void> _openPrivateChat(BuildContext context, String chatId) async {
     if (chatId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -145,10 +142,7 @@ class NotificationsPage extends StatelessWidget {
     );
   }
 
-  Future<void> _openGroupChat(
-    BuildContext context,
-    String groupId,
-  ) async {
+  Future<void> _openGroupChat(BuildContext context, String groupId) async {
     if (groupId.isEmpty) return;
 
     final uid = AppServices.auth.currentUser?.uid;
@@ -198,10 +192,7 @@ class NotificationsPage extends StatelessWidget {
     );
   }
 
-  Future<void> _openSos(
-    BuildContext context,
-    String alertId,
-  ) async {
+  Future<void> _openSos(BuildContext context, String alertId) async {
     if (alertId.isEmpty) return;
 
     final alertSnapshot = await AppServices.db
@@ -252,6 +243,7 @@ class NotificationsPage extends StatelessWidget {
 
     if (data['read'] != true) {
       await document.reference.update({
+        'isRead': true,
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
@@ -259,8 +251,9 @@ class NotificationsPage extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    final type = '${data['type'] ?? 'general'}';
-    final referenceId = '${data['referenceId'] ?? ''}';
+    final type = '${data['type'] ?? 'general'}'.trim().toLowerCase();
+    final referenceId = '${data['referenceId'] ?? data['voucherId'] ?? ''}'
+        .trim();
 
     switch (type) {
       case 'group_message':
@@ -301,7 +294,37 @@ class NotificationsPage extends StatelessWidget {
         );
         return;
 
-      case 'itinerary':
+      case 'voucher_nearby':
+      case 'nearby_voucher':
+      case 'nearby_reward':
+      case 'voucher_nearby_digest':
+        if (referenceId.isNotEmpty) {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => VoucherDetailPage(voucherId: referenceId),
+            ),
+          );
+        } else {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const NearbyRewardsPage()),
+          );
+        }
+        return;
+
+      case 'voucher_claimed':
+      case 'voucher_redeemed':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VoucherWalletPage(
+              focusClaimId: referenceId.isEmpty ? null : referenceId,
+            ),
+          ),
+        );
+        return;
+
       case 'itinerary':
         final itineraryId = '${data['referenceId'] ?? ''}'.trim();
         if (itineraryId.isNotEmpty && context.mounted) {
@@ -341,6 +364,12 @@ class NotificationsPage extends StatelessWidget {
       'private_location_shared' => Icons.location_on_outlined,
       'sos' => Icons.sos_rounded,
       'companion_group' => Icons.groups_outlined,
+      'voucher_nearby' ||
+      'nearby_voucher' ||
+      'nearby_reward' ||
+      'voucher_nearby_digest' => Icons.near_me_outlined,
+      'voucher_claimed' => Icons.card_giftcard_outlined,
+      'voucher_redeemed' => Icons.redeem_outlined,
       'itinerary' => Icons.route_outlined,
       String value when value.startsWith('hazard') =>
         Icons.warning_amber_rounded,
@@ -363,8 +392,7 @@ class NotificationsPage extends StatelessWidget {
           children: [
             ExplorerPageHeader(
               title: 'Notifications',
-              subtitle:
-                  'Messages, safety alerts, location requests and account updates.',
+              subtitle: 'Messages, rewards, safety alerts and account updates.',
               leading: IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back_rounded),
@@ -429,10 +457,7 @@ class NotificationsPage extends StatelessWidget {
                         borderColor: read
                             ? ExplorerColors.border
                             : const Color(0xFFB9CBE2),
-                        onTap: () => _handleNotificationTap(
-                          context,
-                          document,
-                        ),
+                        onTap: () => _handleNotificationTap(context, document),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

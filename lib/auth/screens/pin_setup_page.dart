@@ -69,6 +69,7 @@ class _PinSetupPageState extends State<PinSetupPage> {
 
     try {
       final canUseBiometrics = await PinService.canCheckBiometrics();
+      if (!mounted) return;
       
       if (canUseBiometrics) {
         final enableBiometrics = await showDialog<bool>(
@@ -109,41 +110,49 @@ class _PinSetupPageState extends State<PinSetupPage> {
 
     if (!mounted) return;
 
-    showGlobalNotice(
-      title: 'Security PIN Set',
-      message: 'Your 6-digit security PIN has been saved locally on this device.',
-      onConfirm: () {
-        if (widget.onSetupComplete != null) {
-          widget.onSetupComplete!();
-        } else if (mounted && Navigator.canPop(context)) {
-          Navigator.pop(context);
+    if (widget.onSetupComplete != null) {
+      widget.onSetupComplete!();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = appNavigatorKey.currentContext;
+        if (ctx != null) {
+          showMessage(ctx, 'Setup success!');
         }
-      },
-    );
+      });
+    } else {
+      if (!mounted) return;
+      Navigator.pop(context, 'Setup success!');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ExplorerColors.background,
-      appBar: AppBar(
-        title: const Text('Setup Security PIN'),
-        automaticallyImplyLeading: widget.onSetupComplete == null,
-        leading: widget.onCancel != null 
-            ? IconButton(
-                onPressed: widget.onCancel,
-                icon: const Icon(Icons.arrow_back),
-              )
-            : null,
-        actions: [
-          if (widget.onSetupComplete != null)
-            IconButton(
-              onPressed: () => AppServices.signOut(),
-              icon: const Icon(Icons.logout),
-              tooltip: 'Sign out',
-            ),
-        ],
-      ),
+    return PopScope(
+      canPop: widget.onCancel == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && widget.onCancel != null) {
+          widget.onCancel!();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: ExplorerColors.background,
+        appBar: AppBar(
+          title: const Text('Setup Security PIN'),
+          automaticallyImplyLeading: widget.onSetupComplete == null,
+          leading: widget.onCancel != null 
+              ? IconButton(
+                  onPressed: widget.onCancel,
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
+          actions: [
+            if (widget.onSetupComplete != null)
+              IconButton(
+                onPressed: () => AppServices.signOut(),
+                icon: const Icon(Icons.logout),
+                tooltip: 'Sign out',
+              ),
+          ],
+        ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -197,8 +206,9 @@ class _PinSetupPageState extends State<PinSetupPage> {
           },
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildPinDisplay() {
     final text = isConfirming ? confirmController.text : pinController.text;

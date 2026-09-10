@@ -18,6 +18,10 @@ class RewardsPage extends StatefulWidget {
 
 class _RewardsPageState extends State<RewardsPage> {
   final TextEditingController searchController = TextEditingController();
+  late final String _uid;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _travelerStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _voucherStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _claimStream;
   String searchQuery = '';
   String category = 'All';
   String sortMode = 'Recommended';
@@ -45,6 +49,33 @@ class _RewardsPageState extends State<RewardsPage> {
         .collection('vouchers')
         .where('status', isEqualTo: 'active')
         .limit(100)
+        .snapshots();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _uid = AppServices.auth.currentUser!.uid;
+    _travelerStream = AppServices.travelerRef(_uid).snapshots();
+
+    final focusedVoucherId = widget.focusVoucherId?.trim();
+    final Query<Map<String, dynamic>> voucherQuery;
+    if (focusedVoucherId != null && focusedVoucherId.isNotEmpty) {
+      voucherQuery = AppServices.db
+          .collection('vouchers')
+          .where(FieldPath.documentId, isEqualTo: focusedVoucherId)
+          .limit(1);
+    } else {
+      voucherQuery = AppServices.db
+          .collection('vouchers')
+          .where('status', isEqualTo: 'active')
+          .limit(AppServices.rewardPageReadLimit);
+    }
+    _voucherStream = voucherQuery.snapshots();
+    _claimStream = AppServices.db
+        .collection('claimed_vouchers')
+        .where('userId', isEqualTo: _uid)
+        .limit(AppServices.rewardPageReadLimit)
         .snapshots();
   }
 
@@ -189,9 +220,7 @@ class _RewardsPageState extends State<RewardsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
-
-    if (widget.embedded) return _buildRewardsBody(uid);
+    if (widget.embedded) return _buildRewardsBody();
 
     return Scaffold(
       appBar: AppBar(
@@ -227,11 +256,11 @@ class _RewardsPageState extends State<RewardsPage> {
           ),
         ],
       ),
-      body: _buildRewardsBody(uid),
+      body: _buildRewardsBody(),
     );
   }
 
-  Widget _buildRewardsBody(String uid) {
+  Widget _buildRewardsBody() {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _travelerStream,
       builder: (context, travelerSnapshot) {
@@ -252,6 +281,7 @@ class _RewardsPageState extends State<RewardsPage> {
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _vouchersStream,
+          stream: _voucherStream,
           builder: (context, voucherSnapshot) {
             if (voucherSnapshot.hasError) {
               return emptyState('Unable to load the reward catalogue');
@@ -262,6 +292,7 @@ class _RewardsPageState extends State<RewardsPage> {
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _claimedVouchersStream,
+              stream: _claimStream,
               builder: (context, claimSnapshot) {
                 final claimedCounts = <String, int>{};
                 for (final claim in claimSnapshot.data?.docs ?? const []) {
@@ -283,7 +314,8 @@ class _RewardsPageState extends State<RewardsPage> {
                   final inventory =
                       (voucher['inventoryRemaining'] as num?)?.toInt() ?? 0;
                   final cost = (voucher['pointCost'] as num?)?.toInt() ?? 0;
-                  return (startsAt == null || !startsAt.isAfter(now)) &&
+                  return voucher['status'] == 'active' &&
+                      (startsAt == null || !startsAt.isAfter(now)) &&
                       (expiry == null || expiry.isAfter(now)) &&
                       inventory > 0 &&
                       cost > 0 &&
@@ -309,12 +341,10 @@ class _RewardsPageState extends State<RewardsPage> {
                   final matchesFavourite =
                       !favouritesOnly || favouriteVoucherIds.contains(doc.id);
                   final distance = _distanceTo(voucher);
-                  final nearbyRadius =
-                      ((voucher['notificationRadiusMeters'] ?? 750) as num)
-                          .toDouble();
                   final matchesNearby =
                       !nearbyOnly ||
-                      (distance != null && distance <= nearbyRadius);
+                      (distance != null &&
+                          distance <= AppServices.nearbyRewardRadiusMeters);
                   return matchesCategory &&
                       matchesFavourite &&
                       matchesNearby &&
@@ -606,7 +636,7 @@ class _RewardsPageState extends State<RewardsPage> {
                                           ? 'Remove from favourites'
                                           : 'Add to favourites',
                                       onPressed: () =>
-                                          AppServices.travelerRef(uid).update({
+                                          AppServices.travelerRef(_uid).update({
                                             'favoriteVoucherIds': favourite
                                                 ? FieldValue.arrayRemove([
                                                     doc.id,

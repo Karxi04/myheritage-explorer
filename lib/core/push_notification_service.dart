@@ -798,25 +798,13 @@ class PushNotificationService {
     );
   }
 
-  // ============================================================
-  // HANDLE TERMINATED-APP TAP
-  // ============================================================
+  // Opens a notification that launched the app after the navigator is ready.
+  static Future<void> handlePendingInitialNotification() async {
+    final pending = _pendingLaunchNotification;
+    if (pending == null) return;
 
-  static Future<void>
-  handlePendingInitialNotification() async {
-    final pending =
-        _pendingLaunchNotification;
-
-    if (pending == null) {
-      return;
-    }
-
-    _pendingLaunchNotification =
-    null;
-
-    _tapHandler?.call(
-      pending,
-    );
+    _pendingLaunchNotification = null;
+    _tapHandler?.call(pending);
   }
 
   static Future<void> dispose() async {

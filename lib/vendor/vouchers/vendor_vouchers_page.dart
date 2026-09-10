@@ -9,13 +9,18 @@ class VendorVouchersPage extends StatefulWidget {
 
 class _VendorVouchersPageState extends State<VendorVouchersPage> {
   String filter = 'All';
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _voucherStream;
 
   @override
   void initState() {
     super.initState();
+    final uid = AppServices.auth.currentUser!.uid;
+    _voucherStream = AppServices.db
+        .collection('vouchers')
+        .where('vendorId', isEqualTo: uid)
+        .limit(AppServices.rewardPageReadLimit)
+        .snapshots();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final uid = AppServices.auth.currentUser?.uid;
-      if (uid == null) return;
       try {
         await AppServices.archiveExpiredVouchers(uid);
       } catch (_) {
@@ -62,8 +67,6 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
-
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
@@ -88,10 +91,7 @@ class _VendorVouchersPageState extends State<VendorVouchersPage> {
         label: const Text('New Voucher'),
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: AppServices.db
-            .collection('vouchers')
-            .where('vendorId', isEqualTo: uid)
-            .snapshots(),
+        stream: _voucherStream,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());

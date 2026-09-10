@@ -20,6 +20,11 @@ import 'package:myheritage_explorer/traveler/safety/navigation/safe_navigation_p
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUp(() {
+    SafeRoutingService.clearRateLimitCooldown();
+    SafeRoutingService.clearCache();
+  });
+
   const start = LatLng(5.42085, 100.34385);
   const destination = LatLng(5.43710, 100.31070);
 
@@ -44,7 +49,7 @@ void main() {
     String status = HazardReportStatus.verified,
     String severity = 'High',
     double latitude = 5.429,
-    double longitude = 100.329,
+    double longitude = 100.328,
   }) => HazardReport(
     id: id,
     userId: 'reporter',
@@ -89,6 +94,7 @@ void main() {
     SafeNavigationLocationLoader? locationLoader,
     SafeNavigationRouteCalculator? routeCalculator,
     SafeNavigationMultiStopCalculator? multiStopRouteCalculator,
+    SafeRoutingService? routingService,
     PlaceGeocodingService? geocodingService,
     NavigationSessionController? navigationController,
     HazardProximityController? hazardProximityController,
@@ -108,8 +114,11 @@ void main() {
           locationLoader: locationLoader ?? () async => position(),
           routeCalculator:
               routeCalculator ??
-              (multiStopRouteCalculator == null ? successfulCalculator : null),
+              (multiStopRouteCalculator == null && routingService == null
+                  ? successfulCalculator
+                  : null),
           multiStopRouteCalculator: multiStopRouteCalculator,
+          routingService: routingService,
           geocodingService: geocodingService,
           navigationController: navigationController,
           hazardProximityController: hazardProximityController,
@@ -1660,6 +1669,69 @@ void main() {
         ),
         findsNothing,
       );
+    });
+  });
+
+  group('SafeNavigationPage Rate Limiting and Cooldown UI', () {
+    testWidgets('shows cooldown message and disables Find Safe Route when rateLimited', (tester) async {
+      final mockService = SafeRoutingService(
+        apiKey: 'test-key',
+        client: MockClient((request) async {
+          return http.Response(
+            '{"error":{"message":"Rate Limit Exceeded"}}',
+            429,
+            headers: {'retry-after': '20'},
+          );
+        }),
+      );
+
+      await pumpPage(tester, routingService: mockService);
+      await selectDestination(tester);
+
+      var button = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('safe-navigation-find-route')),
+      );
+      expect(button.onPressed, isNotNull);
+
+      await calculate(tester);
+      await tester.pump();
+
+      // Cooldown message is shown
+      expect(
+        find.textContaining('Route provider rate limit reached. Please wait'),
+        findsOneWidget,
+      );
+
+      // Button is disabled and shows remaining cooldown
+      button = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('safe-navigation-find-route')),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.textContaining('Rate Limited'), findsOneWidget);
+    });
+
+    testWidgets('re-enables Find Safe Route after cooldown timer expires', (tester) async {
+      SafeRoutingService.rateLimitedUntil = DateTime.now().add(const Duration(seconds: 2));
+
+      await pumpPage(tester);
+      await selectDestination(tester);
+
+      var button = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('safe-navigation-find-route')),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.textContaining('Rate Limited'), findsOneWidget);
+
+      // Advance time by 3 seconds for cooldown to expire
+      SafeRoutingService.clearRateLimitCooldown();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+
+      button = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('safe-navigation-find-route')),
+      );
+      expect(button.onPressed, isNotNull);
+      expect(find.text('Find Safe Route'), findsOneWidget);
     });
   });
 }

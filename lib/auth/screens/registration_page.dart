@@ -79,13 +79,14 @@ class _RegistrationPageState extends State<RegistrationPage> {
   }
 
   String? validatePasswordInput(String? value) {
+    if (widget.isGoogle) return null;
     if (value == null || value.isEmpty) return 'Required';
     return validatePassword(value);
   }
 
   Future<void> submit() async {
     if (!formKey.currentState!.validate()) return;
-    if (fields['password']!.text != fields['confirm']!.text) {
+    if (!widget.isGoogle && fields['password']!.text != fields['confirm']!.text) {
       showMessage(context, 'Passwords do not match.', error: true);
       return;
     }
@@ -144,6 +145,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
             travelPace: pace,
           );
         } else {
+          final hoursFormatted = (openingTime != null && closingTime != null)
+              ? '${openingTime!.format(context)} - ${closingTime!.format(context)} (${selectedDays.toList().join(', ')})'
+              : '';
           Uint8List? bytes;
           String? extension;
           if (verification != null) {
@@ -163,7 +167,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
             category: category,
             contactNumber: '+60 ${fields['phone']!.text.trim()}',
             shopLocation: fields['location']!.text.trim(),
-            businessHours: '${openingTime!.format(context)} - ${closingTime!.format(context)} (${selectedDays.toList().join(', ')})',
+            businessHours: hoursFormatted,
             description: fields['description']!.text.trim(),
             latitude: vendorLocation!.latitude,
             longitude: vendorLocation!.longitude,
@@ -183,6 +187,11 @@ class _RegistrationPageState extends State<RegistrationPage> {
           travelPace: pace,
         );
       } else {
+        final formattedHours = (openingTime != null && closingTime != null)
+            ? '${openingTime!.format(context)} - ${closingTime!.format(context)}'
+            : '';
+        final days = selectedDays.toList().join(', ');
+
         Uint8List? bytes;
         String? extension;
         if (verification != null) {
@@ -196,9 +205,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
           coverExtension = businessImage!.name.split('.').last;
         }
 
-        final hours = '${openingTime!.format(context)} - ${closingTime!.format(context)}';
-        final days = selectedDays.toList().join(', ');
-
         await AppServices.registerVendor(
           email: emailAddr,
           password: fields['password']!.text,
@@ -207,7 +213,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
           category: category,
           contactNumber: '+60 ${fields['phone']!.text.trim()}',
           shopLocation: fields['location']!.text.trim(),
-          businessHours: '$hours ($days)',
+          businessHours: '$formattedHours ($days)',
           description: fields['description']!.text.trim(),
           latitude: vendorLocation!.latitude,
           longitude: vendorLocation!.longitude,
@@ -321,6 +327,10 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return;
     }
 
+    final existingAuthHours = (openingTime != null && closingTime != null)
+        ? '${openingTime!.format(context)} - ${closingTime!.format(context)} (${selectedDays.toList().join(', ')})'
+        : '';
+
     Uint8List? bytes;
     String? extension;
     if (verification != null) {
@@ -341,7 +351,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
       category: category,
       contactNumber: '+60 ${fields['phone']!.text.trim()}',
       shopLocation: fields['location']!.text.trim(),
-      businessHours: '${openingTime!.format(context)} - ${closingTime!.format(context)} (${selectedDays.toList().join(', ')})',
+      businessHours: existingAuthHours,
       description: fields['description']!.text.trim(),
       latitude: vendorLocation!.latitude,
       longitude: vendorLocation!.longitude,
@@ -388,19 +398,62 @@ class _RegistrationPageState extends State<RegistrationPage> {
     super.dispose();
   }
 
+  Future<void> _handleCancelAndBackToLogin() async {
+    AppServices.pendingGoogleRole = null;
+    final user = AppServices.auth.currentUser;
+    if (user != null) {
+      final uid = user.uid;
+      // 1. Delete any unfinished profile documents in Firestore for this UID
+      await AppServices.cleanupUnfinishedUserRegistrationData(uid);
+
+      // 2. Delete the Firebase Auth user if registration was cancelled
+      try {
+        await AppServices.deleteCurrentUser();
+      } catch (_) {}
+
+      // 3. Sign out
+      try {
+        await AppServices.signOut();
+      } catch (_) {}
+    }
+    if (mounted) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final traveler = widget.role == 'traveler';
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(traveler ? 'Traveler registration' : 'Vendor registration'),
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
-            child: _buildRegistrationForm(traveler),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _handleCancelAndBackToLogin();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            onPressed: _handleCancelAndBackToLogin,
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back to Login',
+          ),
+          title: Text(traveler ? 'Traveler registration' : 'Vendor registration'),
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: _buildRegistrationForm(traveler),
+            ),
           ),
         ),
       ),
@@ -453,49 +506,53 @@ class _RegistrationPageState extends State<RegistrationPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: fields['password'],
-                validator: validatePasswordInput,
-                obscureText: obscurePassword,
-                obscuringCharacter: '*',
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  suffixIcon: IconButton(
-                    onPressed: () => setState(
-                        () => obscurePassword = !obscurePassword),
-                    icon: Icon(
-                      obscurePassword
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
+              if (!widget.isGoogle) ...[
+                TextFormField(
+                  controller: fields['password'],
+                  validator: validatePasswordInput,
+                  obscureText: obscurePassword,
+                  obscuringCharacter: '*',
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(
+                          () => obscurePassword = !obscurePassword),
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: fields['confirm'],
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Required';
-                  if (v != fields['password']!.text) {
-                    return 'Passwords do not match';
-                  }
-                  return null;
-                },
-                obscureText: obscureConfirm,
-                obscuringCharacter: '*',
-                decoration: InputDecoration(
-                  labelText: 'Confirm password',
-                  suffixIcon: IconButton(
-                    onPressed: () => setState(
-                        () => obscureConfirm = !obscureConfirm),
-                    icon: Icon(
-                      obscureConfirm
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: fields['confirm'],
+                  validator: (v) {
+                    if (widget.isGoogle) return null;
+                    if (v == null || v.isEmpty) return 'Required';
+                    if (v != fields['password']!.text) {
+                      return 'Passwords do not match';
+                    }
+                    return null;
+                  },
+                  obscureText: obscureConfirm,
+                  obscuringCharacter: '*',
+                  decoration: InputDecoration(
+                    labelText: 'Confirm password',
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(
+                          () => obscureConfirm = !obscureConfirm),
+                      icon: Icon(
+                        obscureConfirm
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
                     ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 12),
+              ],
               const SizedBox(height: 16),
               if (traveler) ...[
                 const Align(
@@ -766,6 +823,12 @@ class _RegistrationPageState extends State<RegistrationPage> {
                 child: Text(
                   busy ? 'Creating account...' : 'Complete Registration',
                 ),
+              ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: busy ? null : _handleCancelAndBackToLogin,
+                icon: const Icon(Icons.arrow_back, size: 16),
+                label: const Text('Cancel & Back to Login'),
               ),
             ],
           ),

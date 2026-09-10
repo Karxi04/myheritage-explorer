@@ -1,10 +1,31 @@
 part of '../auth_gate.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _splashComplete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        setState(() => _splashComplete = true);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_splashComplete) {
+      return const AppSplashScreen();
+    }
+
     return StreamBuilder<User?>(
       stream: AppServices.auth.userChanges(),
       builder: (context, authSnapshot) {
@@ -17,11 +38,123 @@ class AuthGate extends StatelessWidget {
         final user = authSnapshot.data;
         if (user == null) {
           MobileNotificationService.instance.clearPendingPayload();
-          return const RoleSelectPage();
+          if (kIsWeb) {
+            return FutureBuilder<bool>(
+              future: AdminSessionManager.wasTimedOut(),
+              builder: (context, snapshot) {
+                final isTimedOut = snapshot.data == true;
+                return AdminLoginPage(timedOut: isTimedOut);
+              },
+            );
+          }
+          return const LoginPage();
         }
 
         return _ResolvedRoleGate(key: ValueKey(user.uid), user: user);
       },
+    );
+  }
+}
+
+class AppSplashScreen extends StatefulWidget {
+  const AppSplashScreen({super.key});
+
+  @override
+  State<AppSplashScreen> createState() => _AppSplashScreenState();
+}
+
+class _AppSplashScreenState extends State<AppSplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.navy,
+      body: Center(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 24,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.account_balance_outlined,
+                      size: 52,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  const Text(
+                    'MyHeritage Explorer',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -.6,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Smart Cultural Tourism Platform',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: .3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -86,7 +219,13 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
           // If no profile exists, check if user is a Google user who needs to complete setup
           final isGoogle = widget.user.providerData.any((p) => p.providerId == 'google.com');
           if (isGoogle) {
-            return _GoogleRoleSetupGate(user: widget.user);
+            final targetRole = AppServices.pendingGoogleRole ?? 'traveler';
+            return RegistrationPage(
+              role: targetRole,
+              initialName: widget.user.displayName,
+              initialEmail: widget.user.email,
+              isGoogle: true,
+            );
           }
           return MissingProfilePage(uid: widget.user.uid);
         }
@@ -206,7 +345,23 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
               'Open the web application to access the administrator portal.',
         );
       }
-      return AdminShell(profile: profile);
+      return FutureBuilder<bool>(
+        future: AdminSessionManager.isSessionTimedOut(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const _ProfileLoadingPage(
+              message: 'Verifying administrator session...',
+            );
+          }
+          if (snapshot.data == true) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              await AppServices.performAdminSignOut(timedOut: true);
+            });
+            return const AdminLoginPage(timedOut: true);
+          }
+          return AdminShell(profile: profile);
+        },
+      );
     }
 
     if (kIsWeb) {
@@ -240,117 +395,7 @@ class _ResolvedRoleGateState extends State<_ResolvedRoleGate> {
   }
 }
 
-class _GoogleRoleSetupGate extends StatelessWidget {
-  const _GoogleRoleSetupGate({required this.user});
-  final User user;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ExplorerColors.background,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 450),
-              child: Column(
-                children: [
-                  const ExplorerBrand(),
-                  const SizedBox(height: 32),
-                  const Text(
-                    'Complete Your Profile',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ExplorerColors.navy,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Welcome, ${user.displayName ?? 'Explorer'}! Please choose your role to finish setting up your account.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: ExplorerColors.muted),
-                  ),
-                  const SizedBox(height: 40),
-                  _RoleSelectionButton(
-                    title: 'I am a Tourist',
-                    icon: Icons.explore_outlined,
-                    onPressed: () => _navigateToRegistration(context, 'traveler'),
-                  ),
-                  const SizedBox(height: 16),
-                  _RoleSelectionButton(
-                    title: 'I am a Vendor',
-                    icon: Icons.storefront_outlined,
-                    onPressed: () => _navigateToRegistration(context, 'vendor'),
-                  ),
-                  const SizedBox(height: 32),
-                  TextButton.icon(
-                    onPressed: () async {
-                      try {
-                        // Delete the Firebase Auth user to avoid ghost accounts 
-                        // without a Firestore profile.
-                        await AppServices.deleteCurrentUser();
-                      } catch (_) {
-                        // If deletion fails, we still want to sign out.
-                      }
-                      await AppServices.signOut();
-                    },
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Cancel & Sign Out'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _navigateToRegistration(BuildContext context, String role) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RegistrationPage(
-          role: role,
-          initialName: user.displayName,
-          initialEmail: user.email,
-          isGoogle: true,
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleSelectionButton extends StatelessWidget {
-  const _RoleSelectionButton({
-    required this.title,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String title;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon),
-        label: Text(title),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      ),
-    );
-  }
-}
 
 class _PinSecurityGate extends StatefulWidget {
   const _PinSecurityGate({required this.onDecision});
@@ -362,6 +407,7 @@ class _PinSecurityGate extends StatefulWidget {
 
 class _PinSecurityGateState extends State<_PinSecurityGate> {
   bool _setupStarted = false;
+  bool _showingPrompt = false;
 
   @override
   void initState() {
@@ -370,11 +416,15 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
   }
 
   void _showPrompt() async {
-    if (!mounted) return;
-    
+    if (!mounted || _showingPrompt) return;
+    _showingPrompt = true;
+
     // Add a very small delay to allow any pending transitions to finish
     await Future.delayed(const Duration(milliseconds: 100));
-    if (!mounted) return;
+    if (!mounted) {
+      _showingPrompt = false;
+      return;
+    }
 
     final decision = await showDialog<bool>(
       context: context,
@@ -398,8 +448,11 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
       ),
     );
 
+    _showingPrompt = false;
+    if (!mounted) return;
+
     if (decision == true) {
-      if (mounted) setState(() => _setupStarted = true);
+      setState(() => _setupStarted = true);
     } else if (decision == false) {
       // User explicitly clicked "Maybe Later"
       PinService.authorizeSession();
@@ -407,7 +460,7 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
     } else {
       // Dialog was dismissed somehow without a decision 
       // (shouldn't happen with barrierDismissible: false, but for safety)
-      if (mounted) _showPrompt(); 
+      _showPrompt(); 
     }
   }
 
@@ -416,9 +469,17 @@ class _PinSecurityGateState extends State<_PinSecurityGate> {
     if (_setupStarted) {
       return PinSetupPage(
         onSetupComplete: widget.onDecision,
-        onCancel: () => setState(() => _setupStarted = false),
+        onCancel: () {
+          setState(() => _setupStarted = false);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _showPrompt());
+        },
       );
     }
+
+    if (!_showingPrompt) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showPrompt());
+    }
+
     return const _ProfileLoadingPage(message: 'Securing account...');
   }
 }

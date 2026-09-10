@@ -1181,51 +1181,88 @@ class _ItineraryHazardBanner extends StatelessWidget {
             : a.distanceMeters.compareTo(b.distanceMeters);
       });
     final primary = ordered.first;
-    final headline = ordered.length == 1
-        ? '${primary.hazard.severity}-severity hazard nearby'
-        : '${ordered.length} active hazards nearby';
+    final isSingle = ordered.length == 1;
 
-    return Material(
-      color: ExplorerColors.dangerSoft,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
+    // Single hazard: "Unsafe walkway • Medium • 82m away"
+    // Multiple: show count as headline, nearest below
+    final bodyLine = isSingle
+        ? '${primary.hazard.category} • ${primary.hazard.severity} • ${primary.distanceLabel}'
+        : 'Nearest: ${primary.hazard.category} • ${primary.hazard.severity} • ${primary.distanceLabel}';
+
+    return Semantics(
+      label: isSingle
+          ? 'Safety alert: ${primary.hazard.severity}-severity ${primary.hazard.category}, ${primary.distanceLabel}. Tap to view hazard details.'
+          : 'Safety alert: ${ordered.length} active hazards nearby. Nearest: ${primary.hazard.category}, ${primary.distanceLabel}. Tap to review.',
+      button: true,
+      child: Material(
+        color: ExplorerColors.dangerSoft,
         borderRadius: BorderRadius.circular(10),
-        onTap: () => _showItinerarySafetyWarnings(context, ordered),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.warning_amber_rounded,
-                color: ExplorerColors.danger,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      headline,
-                      style: const TextStyle(
-                        color: ExplorerColors.danger,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      '${primary.hazard.category} - ${primary.distanceLabel}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ExplorerColors.text,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _showItinerarySafetyWarnings(context, ordered),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: ExplorerColors.danger,
+                  size: 20,
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Top-line label: "SAFETY ALERT" or "SAFETY ALERT (3)"
+                      Text(
+                        isSingle
+                            ? 'SAFETY ALERT'
+                            : 'SAFETY ALERT  •  ${ordered.length} hazards',
+                        style: const TextStyle(
+                          color: ExplorerColors.danger,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      // Main hazard info
+                      Text(
+                        bodyLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: ExplorerColors.text,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      // Tap affordance hint
+                      Text(
+                        isSingle
+                            ? 'Tap to view hazard details'
+                            : 'Tap to review all hazards',
+                        style: const TextStyle(
+                          color: ExplorerColors.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: ExplorerColors.danger,
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1286,10 +1323,19 @@ Future<void> _showItinerarySafetyWarnings(
                         color: ExplorerColors.danger,
                       ),
                       title: Text(
-                        '${warning.hazard.severity}-severity ${warning.hazard.category}',
+                        '${warning.hazard.severity} — ${warning.hazard.category}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: ExplorerColors.navy,
+                        ),
                       ),
                       subtitle: Text(
-                        '${warning.distanceLabel} - Official status: Verified',
+                        '${warning.distanceLabel} • Verified hazard',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: ExplorerColors.muted,
+                        ),
                       ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                     ),

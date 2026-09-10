@@ -160,7 +160,7 @@ class RewardNotificationSettingsPage extends StatelessWidget {
                       value: nearby,
                       title: const Text('Nearby rewards'),
                       subtitle: const Text(
-                        'Alert me when an active reward is within the vendor’s selected range.',
+                        'Check every 10 minutes and alert me when an active reward is within 750 metres.',
                       ),
                       secondary: const Icon(Icons.near_me_outlined),
                       onChanged: (value) =>

@@ -57,15 +57,17 @@ class HazardAddressDetails {
 /// and page navigations while the app is running.
 class HazardAddressResolver {
   static final Map<String, HazardAddressDetails> _cache = {};
+  static final Map<String, Future<HazardAddressDetails>> _inFlight = {};
 
   /// Key generator using 5 decimal places (~1.1 meter accuracy).
   static String coordinateKey(double lat, double lon) {
     return '${lat.toStringAsFixed(5)},${lon.toStringAsFixed(5)}';
   }
 
-  /// Clears in-memory cache (primarily for automated testing).
+  /// Clears in-memory cache and in-flight requests (primarily for automated testing).
   static void clearCache() {
     _cache.clear();
+    _inFlight.clear();
   }
 
   /// Populates cache directly (useful for tests or prefetching).
@@ -74,7 +76,9 @@ class HazardAddressResolver {
     double lon,
     HazardAddressDetails details,
   ) {
-    _cache[coordinateKey(lat, lon)] = details;
+    final key = coordinateKey(lat, lon);
+    _cache[key] = details;
+    _inFlight.remove(key);
   }
 
   /// Returns cached details if available for [latitude] and [longitude].
@@ -84,8 +88,10 @@ class HazardAddressResolver {
 
   /// Resolves the human-readable address for [latitude] and [longitude].
   ///
-  /// Returns cached details if available, otherwise invokes [geocodingService]
-  /// and caches the result. Gracefully falls back to coordinates if geocoding fails.
+  /// Returns cached details if available. If an identical coordinate request
+  /// is already in progress, deduplicates by reusing the active in-flight Future.
+  /// Otherwise invokes [geocodingService], caches the result, and gracefully
+  /// falls back to coordinates if geocoding fails.
   static Future<HazardAddressDetails> resolve({
     required double latitude,
     required double longitude,
@@ -106,6 +112,27 @@ class HazardAddressResolver {
       return cached;
     }
 
+    final inProgress = _inFlight[key];
+    if (inProgress != null) {
+      return inProgress;
+    }
+
+    final future = _doResolve(
+      key: key,
+      latitude: latitude,
+      longitude: longitude,
+      geocodingService: geocodingService,
+    );
+    _inFlight[key] = future;
+    return future;
+  }
+
+  static Future<HazardAddressDetails> _doResolve({
+    required String key,
+    required double latitude,
+    required double longitude,
+    PlaceGeocodingService? geocodingService,
+  }) async {
     final service = geocodingService ?? PlaceGeocodingService();
     try {
       final stop = await service.reverseGeocode(LatLng(latitude, longitude));
@@ -120,6 +147,8 @@ class HazardAddressResolver {
       );
       _cache[key] = fallback;
       return fallback;
+    } finally {
+      _inFlight.remove(key);
     }
   }
 

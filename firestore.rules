@@ -30,6 +30,100 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/travelers/$(request.auth.uid)).data.status == 'active';
     }
 
+    function isTravelerVoucherInventoryUpdate() {
+      return isActiveTraveler()
+        && resource.data.status == 'active'
+        && resource.data.inventoryRemaining is number
+        && resource.data.inventoryRemaining > 0
+        && request.resource.data.inventoryRemaining
+          == resource.data.inventoryRemaining - 1
+        && (
+          ('claimCount' in resource.data
+            && request.resource.data.claimCount == resource.data.claimCount + 1)
+          || (!('claimCount' in resource.data)
+            && request.resource.data.claimCount == 1)
+        )
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'inventoryRemaining', 'claimCount', 'updatedAt'
+        ]);
+    }
+
+    function isTravelerRedemptionSessionUpdate() {
+      return signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.travelerId == request.auth.uid
+        )
+        && resource.data.status == 'claimed'
+        && request.resource.data.status == 'claimed'
+        && request.resource.data.redemptionSessionToken is string
+        && request.resource.data.redemptionSessionToken.size() == 28
+        && request.resource.data.redemptionSessionPin is string
+        && request.resource.data.redemptionSessionPin.matches('^[0-9]{6}$')
+        && request.resource.data.redemptionSessionCreatedAt == request.time
+        && request.resource.data.redemptionSessionExpiresAt is timestamp
+        && request.resource.data.redemptionSessionExpiresAt > request.time
+        && request.resource.data.redemptionSessionExpiresAt
+          <= request.time + duration.value(5, 'm')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'redemptionSessionToken',
+          'redemptionSessionPin',
+          'redemptionSessionCreatedAt',
+          'redemptionSessionExpiresAt'
+        ]);
+    }
+
+    function isRewardNotificationCreate(notificationId) {
+      return signedIn()
+        && request.resource.data.keys().hasAll([
+          'notificationId',
+          'userId',
+          'title',
+          'message',
+          'type',
+          'referenceId',
+          'isRead',
+          'read',
+          'pushStatus',
+          'pushAttempts',
+          'createdAt'
+        ])
+        && request.resource.data.notificationId == notificationId
+        && request.resource.data.title is string
+        && request.resource.data.message is string
+        && request.resource.data.referenceId is string
+        && request.resource.data.isRead == false
+        && request.resource.data.read == false
+        && request.resource.data.pushStatus == 'pending'
+        && request.resource.data.pushAttempts == 0
+        && request.resource.data.createdAt == request.time
+        && (
+          (
+            request.resource.data.userId == request.auth.uid
+            && request.resource.data.type in [
+              'voucher_claimed',
+              'voucher_nearby',
+              'voucher_nearby_digest'
+            ]
+          )
+          || (
+            request.resource.data.type == 'voucher_redeemed'
+            && get(
+              /databases/$(database)/documents/claimed_vouchers/$(request.resource.data.referenceId)
+            ).data.vendorId == request.auth.uid
+            && request.resource.data.userId in [
+              get(
+                /databases/$(database)/documents/claimed_vouchers/$(request.resource.data.referenceId)
+              ).data.userId,
+              get(
+                /databases/$(database)/documents/claimed_vouchers/$(request.resource.data.referenceId)
+              ).data.travelerId
+            ]
+          )
+        );
+    }
+
     function validStatus(value) {
       return value in ['Pending Review', 'Verified', 'Rejected', 'Resolved'];
     }
@@ -189,7 +283,10 @@ service cloud.firestore {
 
     match /vouchers/{voucherId} {
       allow read: if signedIn();
-      allow write: if isAdmin() || (signedIn() && exists(/databases/$(database)/documents/vendors/$(request.auth.uid)));
+      allow create, delete: if isAdmin() || (signedIn() && exists(/databases/$(database)/documents/vendors/$(request.auth.uid)));
+      allow update: if isAdmin()
+        || (signedIn() && exists(/databases/$(database)/documents/vendors/$(request.auth.uid)))
+        || isTravelerVoucherInventoryUpdate();
     }
 
     match /claimed_vouchers/{claimId} {
@@ -200,7 +297,11 @@ service cloud.firestore {
         isAdmin()
       );
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if signedIn() && (resource.data.vendorId == request.auth.uid || isAdmin());
+      allow update: if signedIn() && (
+        resource.data.vendorId == request.auth.uid
+        || isAdmin()
+        || isTravelerRedemptionSessionUpdate()
+      );
     }
 
     match /redemptions/{redemptionId} {
@@ -505,13 +606,15 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read: if signedIn() && resource.data.userId == request.auth.uid;
 
-      allow create: if isAdmin()
-        && request.resource.data.notificationId == notificationId
-        && request.resource.data.type == 'hazard_status'
-        && request.resource.data.hazardId is string
-        && request.resource.data.isRead == false
-        && request.resource.data.createdAt == request.time
-        && getAfter(/databases/$(database)/documents/hazard_reports/$(request.resource.data.hazardId)).data.userId == request.resource.data.userId;
+      allow create: if (
+        isAdmin()
+          && request.resource.data.notificationId == notificationId
+          && request.resource.data.type == 'hazard_status'
+          && request.resource.data.hazardId is string
+          && request.resource.data.isRead == false
+          && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/hazard_reports/$(request.resource.data.hazardId)).data.userId == request.resource.data.userId
+      ) || isRewardNotificationCreate(notificationId);
 
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid

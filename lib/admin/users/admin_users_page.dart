@@ -152,32 +152,364 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
   }
 
   Future<String> _travelerDataMessage() async {
-    final snapshot = await AppServices.db.collection('travelers').get();
-    final travelers = snapshot.docs.map((doc) => doc.data()).toList();
-    final active = travelers
-        .where((data) => '${data['status'] ?? ''}' == 'active')
-        .length;
-    return 'Traveler records ready: $active active travelers from ${travelers.length} records.';
+    final results = await Future.wait([
+      AppServices.db.collection('travelers').count().get(),
+      AppServices.db.collection('travelers').where('status', isEqualTo: 'active').count().get(),
+    ]);
+    final total = results[0].count ?? 0;
+    final active = results[1].count ?? 0;
+    return 'Traveler records ready: $active active travelers from $total records.';
   }
 
   Future<String> _vendorDataMessage() async {
-    final snapshot = await AppServices.db.collection('vendors').get();
-    final vendors = snapshot.docs.map((doc) => doc.data()).toList();
-    final active = vendors
-        .where((data) => '${data['status'] ?? ''}' == 'active')
-        .length;
-    final verified = vendors
-        .where((data) => '${data['vendorStatus'] ?? ''}' == 'verified')
-        .length;
-    return 'Vendor data ready: $verified verified vendors and $active active vendors from ${vendors.length} records.';
+    final results = await Future.wait([
+      AppServices.db.collection('vendors').count().get(),
+      AppServices.db.collection('vendors').where('status', isEqualTo: 'active').count().get(),
+      AppServices.db.collection('vendors').where('vendorStatus', isEqualTo: 'verified').count().get(),
+    ]);
+    final total = results[0].count ?? 0;
+    final active = results[1].count ?? 0;
+    final verified = results[2].count ?? 0;
+    return 'Vendor data ready: $verified verified vendors and $active active vendors from $total records.';
   }
 
   Future<String> _platformDataMessage() async {
-    final snapshots = await Future.wait([
-      AppServices.db.collection('travelers').get(),
-      AppServices.db.collection('vendors').get(),
+    final results = await Future.wait([
+      AppServices.db.collection('travelers').count().get(),
+      AppServices.db.collection('vendors').count().get(),
     ]);
-    return 'Platform data ready: ${snapshots[0].size} travelers and ${snapshots[1].size} vendors.';
+    final travelerCount = results[0].count ?? 0;
+    final vendorCount = results[1].count ?? 0;
+    return 'Platform data ready: $travelerCount travelers and $vendorCount vendors.';
+  }
+
+  void _confirmAndDeleteAccount(_AdminAccountRow row) {
+    final isVendor = row.role == 'vendor';
+    final name = '${row.data['businessName'] ?? row.data['displayName'] ?? 'Account'}';
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever, color: ExplorerColors.danger, size: 28),
+            SizedBox(width: 10),
+            Text(
+              'Delete Account Permanently',
+              style: TextStyle(
+                color: ExplorerColors.navy,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to permanently delete $name (${isVendor ? 'Vendor' : 'Tourist'})? '
+          'This action will permanently remove their record from Cloud Firestore and cannot be undone.',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: ExplorerColors.danger,
+            ),
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              try {
+                await row.reference.delete();
+                setState(() {
+                  _rows.removeWhere((r) => r.id == row.id);
+                });
+                if (mounted) {
+                  showMessage(
+                    context,
+                    '$name has been permanently deleted.',
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  showMessage(
+                    context,
+                    'Failed to delete account: $e',
+                    error: true,
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.delete_forever, size: 18),
+            label: const Text('Delete Permanently'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(_AdminAccountRow row) {
+    final isVendor = row.role == 'vendor';
+    final data = row.data;
+
+    final nameController = TextEditingController(
+      text: isVendor ? '${data['businessName'] ?? ''}' : '${data['displayName'] ?? ''}',
+    );
+    final ownerController = TextEditingController(
+      text: '${data['ownerName'] ?? ''}',
+    );
+    final emailController = TextEditingController(
+      text: '${data['email'] ?? ''}',
+    );
+    final contactController = TextEditingController(
+      text: '${data['contactNumber'] ?? ''}',
+    );
+    final locationController = TextEditingController(
+      text: '${data['shopLocation'] ?? ''}',
+    );
+    final hoursController = TextEditingController(
+      text: '${data['businessHours'] ?? ''}',
+    );
+    final descController = TextEditingController(
+      text: '${data['businessDescription'] ?? ''}',
+    );
+
+    String vendorStatus = '${data['vendorStatus'] ?? 'verified'}';
+    if (!['verified', 'pending', 'rejected'].contains(vendorStatus)) {
+      vendorStatus = 'verified';
+    }
+
+    String category = '${data['category'] ?? 'General'}';
+    final categoryOptions = [
+      'General',
+      'Culture & Heritage',
+      'Food & Beverage',
+      'Retail & Souvenirs',
+      'Handicrafts',
+      'Lodging',
+      'Local Services',
+    ];
+    if (!categoryOptions.contains(category)) {
+      categoryOptions.add(category);
+    }
+
+    bool saving = false;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: [
+                  Icon(
+                    isVendor ? Icons.storefront : Icons.person_outline,
+                    color: ExplorerColors.navy,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    isVendor ? 'Edit Vendor Details' : 'Edit Tourist Details',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: isVendor ? 'Business Name' : 'Full Name',
+                          prefixIcon: Icon(isVendor ? Icons.storefront : Icons.person),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (isVendor) ...[
+                        TextField(
+                          controller: ownerController,
+                          decoration: const InputDecoration(
+                            labelText: 'Owner Name',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      TextField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email Address',
+                          prefixIcon: Icon(Icons.mail_outline),
+                        ),
+                      ),
+                      if (isVendor) ...[
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          initialValue: category,
+                          decoration: const InputDecoration(
+                            labelText: 'Business Category',
+                            prefixIcon: Icon(Icons.category_outlined),
+                          ),
+                          items: categoryOptions
+                              .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                              .toList(),
+                          onChanged: (v) {
+                            if (v != null) setDialogState(() => category = v);
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: contactController,
+                          decoration: const InputDecoration(
+                            labelText: 'Contact Number',
+                            prefixIcon: Icon(Icons.phone_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: locationController,
+                          decoration: const InputDecoration(
+                            labelText: 'Shop Location',
+                            prefixIcon: Icon(Icons.location_on_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: hoursController,
+                          decoration: const InputDecoration(
+                            labelText: 'Business Operating Hours',
+                            prefixIcon: Icon(Icons.access_time_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: descController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Business Description',
+                            prefixIcon: Icon(Icons.description_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          value: vendorStatus,
+                          decoration: const InputDecoration(
+                            labelText: 'Verification Status',
+                            prefixIcon: Icon(Icons.verified_outlined),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'verified', child: Text('Verified')),
+                            DropdownMenuItem(value: 'pending', child: Text('Pending Approval')),
+                            DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) setDialogState(() => vendorStatus = v);
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ExplorerColors.navy,
+                  ),
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final isVendorRole = isVendor;
+                          setDialogState(() => saving = true);
+                          try {
+                            final Map<String, dynamic> updates = {
+                              'updatedAt': FieldValue.serverTimestamp(),
+                            };
+
+                            if (isVendor) {
+                              updates['businessName'] = nameController.text.trim();
+                              updates['ownerName'] = ownerController.text.trim();
+                              updates['email'] = emailController.text.trim();
+                              updates['category'] = category;
+                              updates['contactNumber'] = contactController.text.trim();
+                              updates['shopLocation'] = locationController.text.trim();
+                              updates['businessHours'] = hoursController.text.trim();
+                              updates['businessDescription'] = descController.text.trim();
+                              updates['vendorStatus'] = vendorStatus;
+                            } else {
+                              updates['displayName'] = nameController.text.trim();
+                              updates['email'] = emailController.text.trim();
+                            }
+
+                            await row.reference.update(updates);
+
+                            setState(() {
+                              row.data.addAll(updates);
+                              row.data['updatedAt'] = DateTime.now();
+                            });
+
+                            if (!mounted) return;
+                            Navigator.pop(context);
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              final rootCtx = appNavigatorKey.currentContext;
+                              if (rootCtx != null) {
+                                showMessage(
+                                  rootCtx,
+                                  isVendorRole
+                                      ? 'Vendor business profile updated.'
+                                      : 'Tourist profile updated.',
+                                );
+                              }
+                            });
+                          } catch (e) {
+                            setDialogState(() => saving = false);
+                            if (mounted) {
+                              showMessage(
+                                context,
+                                'Failed to update profile: $e',
+                                error: true,
+                              );
+                            }
+                          }
+                        },
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.check, size: 18),
+                  label: Text(saving ? 'Saving...' : 'Save Changes'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -354,6 +686,14 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                                 Wrap(
                                   spacing: 6,
                                   children: [
+                                    IconButton(
+                                      tooltip: 'Edit details',
+                                      onPressed: () => _showEditDialog(row),
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        color: ExplorerColors.navy,
+                                      ),
+                                    ),
                                     if (isVendor &&
                                         data['vendorStatus'] ==
                                             'pending') ...[
@@ -414,7 +754,7 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                                       onPressed: () async {
                                           final newStatus = data['status'] == 'active' ? 'suspended' : 'active';
                                           setState(() => data['status'] = newStatus);
-                                          
+
                                           await row.reference.update({
                                             'status': newStatus,
                                             'updatedAt': FieldValue.serverTimestamp(),
@@ -425,6 +765,14 @@ class _AdminUsersPageState extends State<AdminUsersPage> {
                                             ? Icons.block
                                             : Icons
                                                   .check_circle_outline,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Delete Account Permanently',
+                                      onPressed: () => _confirmAndDeleteAccount(row),
+                                      icon: const Icon(
+                                        Icons.delete_forever_outlined,
+                                        color: ExplorerColors.danger,
                                       ),
                                     ),
                                   ],
