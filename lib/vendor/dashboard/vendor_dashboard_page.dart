@@ -1,14 +1,45 @@
 part of '../vendor_pages.dart';
 
-class VendorDashboardPage extends StatelessWidget {
+class VendorDashboardPage extends StatefulWidget {
   const VendorDashboardPage({super.key, required this.profile});
 
   final Map<String, dynamic> profile;
 
   @override
-  Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
+  State<VendorDashboardPage> createState() => _VendorDashboardPageState();
+}
 
+class _VendorDashboardPageState extends State<VendorDashboardPage> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _voucherStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _redemptionStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _claimStream;
+
+  Map<String, dynamic> get profile => widget.profile;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = AppServices.auth.currentUser!.uid;
+    _voucherStream = AppServices.db
+        .collection('vouchers')
+        .where('vendorId', isEqualTo: uid)
+        .limit(AppServices.rewardPageReadLimit)
+        .snapshots()
+        .asBroadcastStream(onCancel: (subscription) => subscription.cancel());
+    _redemptionStream = AppServices.db
+        .collection('redemptions')
+        .where('vendorId', isEqualTo: uid)
+        .limit(AppServices.vendorAnalyticsReadLimit)
+        .snapshots();
+    _claimStream = AppServices.db
+        .collection('claimed_vouchers')
+        .where('vendorId', isEqualTo: uid)
+        .limit(AppServices.vendorAnalyticsReadLimit)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
@@ -163,10 +194,7 @@ class VendorDashboardPage extends StatelessWidget {
           const ExplorerSectionTitle('Quick Stats'),
           const SizedBox(height: 10),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db
-                .collection('vouchers')
-                .where('vendorId', isEqualTo: uid)
-                .snapshots(),
+            stream: _voucherStream,
             builder: (context, voucherSnapshot) {
               final vouchers = voucherSnapshot.data?.docs ?? const [];
               final active = vouchers
@@ -178,10 +206,7 @@ class VendorDashboardPage extends StatelessWidget {
               );
 
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db
-                    .collection('redemptions')
-                    .where('vendorId', isEqualTo: uid)
-                    .snapshots(),
+                stream: _redemptionStream,
                 builder: (context, redemptionSnapshot) {
                   final redeemed = redemptionSnapshot.data?.docs.length ?? 0;
                   return Row(
@@ -216,10 +241,7 @@ class VendorDashboardPage extends StatelessWidget {
           const ExplorerSectionTitle('Voucher Claim & Redemption History'),
           const SizedBox(height: 10),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db
-                .collection('vouchers')
-                .where('vendorId', isEqualTo: uid)
-                .snapshots(),
+            stream: _voucherStream,
             builder: (context, voucherSnapshot) {
               if (!voucherSnapshot.hasData) {
                 return const ExplorerCard(
@@ -250,10 +272,7 @@ class VendorDashboardPage extends StatelessWidget {
               }
 
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: AppServices.db
-                    .collection('claimed_vouchers')
-                    .where('vendorId', isEqualTo: uid)
-                    .snapshots(),
+                stream: _claimStream,
                 builder: (context, claimSnapshot) {
                   final claims = claimSnapshot.data?.docs ?? const [];
                   return Column(

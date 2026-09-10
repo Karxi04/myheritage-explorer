@@ -14,9 +14,44 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
   String period = 'All time';
   DateTimeRange? customRange;
   bool exporting = false;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _voucherStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _redemptionStream;
 
   String? get voucherId => widget.voucherId;
   String? get voucherTitle => widget.voucherTitle;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = AppServices.auth.currentUser!.uid;
+    final focusedVoucherId = widget.voucherId?.trim();
+    final Query<Map<String, dynamic>> voucherQuery;
+    if (focusedVoucherId != null && focusedVoucherId.isNotEmpty) {
+      voucherQuery = AppServices.db
+          .collection('vouchers')
+          .where('vendorId', isEqualTo: uid)
+          .where(FieldPath.documentId, isEqualTo: focusedVoucherId)
+          .limit(1);
+    } else {
+      voucherQuery = AppServices.db
+          .collection('vouchers')
+          .where('vendorId', isEqualTo: uid)
+          .limit(AppServices.rewardPageReadLimit);
+    }
+    _voucherStream = voucherQuery.snapshots();
+    var redemptionQuery = AppServices.db
+        .collection('redemptions')
+        .where('vendorId', isEqualTo: uid);
+    if (focusedVoucherId != null && focusedVoucherId.isNotEmpty) {
+      redemptionQuery = redemptionQuery.where(
+        'voucherId',
+        isEqualTo: focusedVoucherId,
+      );
+    }
+    _redemptionStream = redemptionQuery
+        .limit(AppServices.vendorAnalyticsReadLimit)
+        .snapshots();
+  }
 
   bool _matchesPeriod(DateTime? date) {
     if (period == 'All time') return true;
@@ -82,8 +117,48 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
     return 'myheritage_${scope.isEmpty ? 'analytics' : scope}_$date.$extension';
   }
 
+  bool _isMeaningfulVoucherTitle(String value, String voucherId) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return false;
+    final lower = normalized.toLowerCase();
+    final normalizedId = voucherId.trim().toLowerCase();
+    return lower != 'voucher' &&
+        lower != 'untitled voucher' &&
+        (normalizedId.isEmpty ||
+            (lower != normalizedId && lower != 'voucher $normalizedId'));
+  }
+
+  String _resolvedVoucherTitle(
+    Map<String, dynamic> redemption,
+    Map<String, Map<String, dynamic>> voucherDataById,
+  ) {
+    final id = '${redemption['voucherId'] ?? ''}'.trim();
+    final recordedTitle = '${redemption['voucherTitle'] ?? ''}'.trim();
+    if (_isMeaningfulVoucherTitle(recordedTitle, id)) {
+      return recordedTitle;
+    }
+
+    final publishedTitle = '${voucherDataById[id]?['title'] ?? ''}'.trim();
+    if (_isMeaningfulVoucherTitle(publishedTitle, id)) {
+      return publishedTitle;
+    }
+    return 'Archived or unavailable voucher';
+  }
+
+  String _resolvedVoucherGroupTitle(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+    Map<String, Map<String, dynamic>> voucherDataById,
+  ) {
+    for (final redemption in redemptions) {
+      final title = _resolvedVoucherTitle(redemption.data(), voucherDataById);
+      if (title != 'Archived or unavailable voucher') return title;
+    }
+    return 'Archived or unavailable voucher';
+  }
+
   List<List<String>> _redemptionRows(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+    Map<String, Map<String, dynamic>> voucherDataById,
   ) {
     return redemptions.map((doc) {
       final data = doc.data();
@@ -92,7 +167,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
           ? '6-digit PIN'
           : 'QR code';
       return <String>[
-        '${data['voucherTitle'] ?? 'Voucher'}',
+        _resolvedVoucherTitle(data, voucherDataById),
         redeemedAt == null
             ? 'Unknown date'
             : DateFormat.yMMMd().add_jm().format(redeemedAt),
@@ -106,6 +181,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
   Future<void> _exportReport({
     required String format,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
+    required Map<String, Map<String, dynamic>> voucherDataById,
     required num totalIssued,
     required num totalClaimed,
     required double redemptionRate,
@@ -115,7 +191,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
     setState(() => exporting = true);
     try {
       final scope = voucherTitle ?? 'All published vouchers';
-      final rows = _redemptionRows(redemptions);
+      final rows = _redemptionRows(redemptions, voucherDataById);
       late final Uint8List bytes;
       late final String mimeType;
       late final String fileName;
@@ -301,8 +377,6 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
-
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       appBar: AppBar(
@@ -316,16 +390,16 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: AppServices.db
-            .collection('vouchers')
-            .where('vendorId', isEqualTo: uid)
-            .snapshots(),
+        stream: _voucherStream,
         builder: (context, voucherSnapshot) {
           if (!voucherSnapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final allVouchers = voucherSnapshot.data!.docs;
+          final voucherDataById = <String, Map<String, dynamic>>{
+            for (final voucher in allVouchers) voucher.id: voucher.data(),
+          };
           final vouchers = voucherId == null
               ? allVouchers
               : allVouchers.where((doc) => doc.id == voucherId).toList();
@@ -349,10 +423,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
           }
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: AppServices.db
-                .collection('redemptions')
-                .where('vendorId', isEqualTo: uid)
-                .snapshots(),
+            stream: _redemptionStream,
             builder: (context, redemptionSnapshot) {
               if (!redemptionSnapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -375,6 +446,26 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                                     DateTime(2000),
                               ),
                     );
+              final redemptionGroups =
+                  <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+              for (final redemption in redemptions) {
+                final redemptionVoucherId =
+                    '${redemption.data()['voucherId'] ?? ''}'.trim();
+                final groupKey = redemptionVoucherId.isEmpty
+                    ? 'legacy:${redemption.id}'
+                    : redemptionVoucherId;
+                redemptionGroups
+                    .putIfAbsent(groupKey, () => [])
+                    .add(redemption);
+              }
+              final recentVoucherGroups = redemptionGroups.entries.toList()
+                ..sort((a, b) {
+                  final aDate = asDate(a.value.first.data()['redeemedAt']);
+                  final bDate = asDate(b.value.first.data()['redeemedAt']);
+                  return (bDate ?? DateTime(2000)).compareTo(
+                    aDate ?? DateTime(2000),
+                  );
+                });
 
               final rate = totalClaimed == 0
                   ? 0.0
@@ -521,6 +612,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                             _exportReport(
                               format: format,
                               redemptions: redemptions,
+                              voucherDataById: voucherDataById,
                               totalIssued: totalIssued,
                               totalClaimed: totalClaimed,
                               redemptionRate: rate,
@@ -748,7 +840,10 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                       ),
                     ),
                   const SizedBox(height: 20),
-                  const ExplorerSectionTitle('Recent Redemptions'),
+                  const ExplorerSectionTitle(
+                    'Redemption Activity by Voucher',
+                    subtitle: 'Open a voucher to see its claim history.',
+                  ),
                   const SizedBox(height: 10),
                   if (redemptions.isEmpty)
                     const ExplorerEmptyState(
@@ -758,71 +853,103 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                       icon: Icons.analytics_outlined,
                     )
                   else
-                    ...redemptions
-                        .take(8)
-                        .map(
-                          (doc) => Padding(
-                            padding: const EdgeInsets.only(bottom: 9),
-                            child: ExplorerCard(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: const BoxDecoration(
-                                      color: ExplorerColors.successSoft,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.check_circle_outline,
-                                      color: ExplorerColors.success,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 11),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${doc.data()['voucherTitle'] ?? 'Voucher ${doc.data()['voucherId'] ?? ''}'}',
-                                          style: const TextStyle(
-                                            color: ExplorerColors.navy,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          asDate(doc.data()['redeemedAt']) ==
-                                                  null
-                                              ? 'Recently redeemed'
-                                              : DateFormat.yMMMd()
-                                                    .add_jm()
-                                                    .format(
-                                                      asDate(
-                                                        doc.data()['redeemedAt'],
-                                                      )!,
-                                                    ),
-                                          style: const TextStyle(
-                                            color: ExplorerColors.muted,
-                                            fontSize: 9,
-                                          ),
-                                        ),
-                                      ],
+                    ...recentVoucherGroups.take(8).map((group) {
+                      final groupRedemptions = group.value;
+                      final groupVoucherId =
+                          '${groupRedemptions.first.data()['voucherId'] ?? ''}'
+                              .trim();
+                      final groupTitle = _resolvedVoucherGroupTitle(
+                        groupRedemptions,
+                        voucherDataById,
+                      );
+                      final latestRedemption = asDate(
+                        groupRedemptions.first.data()['redeemedAt'],
+                      );
+                      final redemptionCount = groupRedemptions.length;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 9),
+                        child: ExplorerCard(
+                          padding: const EdgeInsets.all(12),
+                          onTap: groupVoucherId.isEmpty
+                              ? null
+                              : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => VendorVoucherHistoryPage(
+                                      voucherId: groupVoucherId,
+                                      voucherTitle: groupTitle,
                                     ),
                                   ),
-                                  const ExplorerStatusBadge(
-                                    label: 'REDEEMED',
-                                    tone: ExplorerStatusTone.success,
-                                  ),
-                                ],
+                                ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: const BoxDecoration(
+                                  color: ExplorerColors.successSoft,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.check_circle_outline,
+                                  color: ExplorerColors.success,
+                                  size: 20,
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 11),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      groupTitle,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      redemptionCount == 1
+                                          ? '1 completed redemption'
+                                          : '$redemptionCount completed redemptions',
+                                      style: const TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 9,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      latestRedemption == null
+                                          ? 'Latest redemption recorded recently'
+                                          : 'Latest: ${DateFormat.yMMMd().add_jm().format(latestRedemption)}',
+                                      style: const TextStyle(
+                                        color: ExplorerColors.muted,
+                                        fontSize: 9,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ExplorerStatusBadge(
+                                label: '$redemptionCount REDEEMED',
+                                tone: ExplorerStatusTone.success,
+                              ),
+                              if (groupVoucherId.isNotEmpty) ...[
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.chevron_right,
+                                  color: ExplorerColors.muted,
+                                  size: 18,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
+                      );
+                    }),
                 ],
               );
             },

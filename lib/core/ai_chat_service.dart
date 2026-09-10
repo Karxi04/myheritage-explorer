@@ -7,7 +7,7 @@ class AiChatService {
   AiChatService._();
 
   static final _model = FirebaseAI.googleAI().generativeModel(
-    model: 'gemini-3.7-flash',
+    model: 'gemini-3.5-flash-lite',
   );
 
   // ============================================================
