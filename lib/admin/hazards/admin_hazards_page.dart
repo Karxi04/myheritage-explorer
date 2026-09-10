@@ -1,28 +1,74 @@
 part of '../admin_pages.dart';
 
 class AdminHazardsPage extends StatefulWidget {
-  const AdminHazardsPage({super.key});
+  const AdminHazardsPage({
+    super.key,
+    this.initialStatusFilter,
+    this.reportService,
+    this.voteService,
+  });
+
+  final String? initialStatusFilter;
+  final HazardReportService? reportService;
+  final HazardVoteService? voteService;
 
   @override
   State<AdminHazardsPage> createState() => _AdminHazardsPageState();
 }
 
+int _statusToHazardTabIndex(String? status) {
+  if (status == null) return 0;
+  final lower =
+      status.trim().toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
+  return switch (lower) {
+    'pending' || 'pending_review' || 'pendingreview' => 0,
+    'verified' => 1,
+    'resolved' => 2,
+    'rejected' => 3,
+    _ => 0,
+  };
+}
+
 class _AdminHazardsPageState extends State<AdminHazardsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  final _reportService = HazardReportService();
+  late final _reportService = widget.reportService ?? HazardReportService();
   late final _reportsStream = _reportService.watchAllReports();
+  int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _selectedIndex = _statusToHazardTabIndex(widget.initialStatusFilter);
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: _selectedIndex,
+    );
+    _tabController.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    if (_selectedIndex != _tabController.index) {
+      setState(() {
+        _selectedIndex = _tabController.index;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _selectTab(int index) {
+    _tabController.animateTo(index);
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   @override
@@ -72,15 +118,21 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
                     verified: verified,
                     resolved: resolved,
                     rejected: rejected,
+                    selectedIndex: _selectedIndex,
+                    onSelectTab: _selectTab,
                   ),
                   const SizedBox(height: 18),
                   TabBar(
                     controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: ExplorerColors.navy,
                     indicatorColor: ExplorerColors.gold,
                     tabs: [
                       Tab(text: 'Pending Reports ($pending)'),
                       Tab(text: 'Verified Hazards ($verified)'),
+                      Tab(text: 'Resolved Reports ($resolved)'),
+                      Tab(text: 'Rejected Reports ($rejected)'),
                     ],
                   ),
                 ],
@@ -89,9 +141,32 @@ class _AdminHazardsPageState extends State<AdminHazardsPage>
             Expanded(
               child: TabBarView(
                 controller: _tabController,
-                children: const [
-                  AdminPendingReportsTab(),
-                  AdminVerifiedReportsTab(),
+                children: [
+                  AdminPendingReportsTab(reportService: _reportService),
+                  AdminVerifiedReportsTab(
+                    reportService: _reportService,
+                    voteService: widget.voteService,
+                  ),
+                  AdminHazardStatusListTab(
+                    status: HazardReportStatus.resolved,
+                    title: 'Resolved Reports',
+                    emptyTitle: 'No resolved hazards',
+                    emptySubtitle:
+                        'Resolved hazard reports will be archived here.',
+                    statusLabel: 'RESOLVED',
+                    statusTone: ExplorerStatusTone.neutral,
+                    reportService: _reportService,
+                  ),
+                  AdminHazardStatusListTab(
+                    status: HazardReportStatus.rejected,
+                    title: 'Rejected Reports',
+                    emptyTitle: 'No rejected reports',
+                    emptySubtitle:
+                        'Rejected hazard reports will appear here for audit purposes.',
+                    statusLabel: 'REJECTED',
+                    statusTone: ExplorerStatusTone.danger,
+                    reportService: _reportService,
+                  ),
                 ],
               ),
             ),
@@ -108,12 +183,16 @@ class _AdminHazardMetricGrid extends StatelessWidget {
     required this.verified,
     required this.resolved,
     required this.rejected,
+    required this.selectedIndex,
+    required this.onSelectTab,
   });
 
   final int pending;
   final int verified;
   final int resolved;
   final int rejected;
+  final int selectedIndex;
+  final ValueChanged<int> onSelectTab;
 
   @override
   Widget build(BuildContext context) {
@@ -130,21 +209,29 @@ class _AdminHazardMetricGrid extends StatelessWidget {
             label: 'Pending Review',
             value: '$pending',
             icon: Icons.pending_actions_outlined,
+            isSelected: selectedIndex == 0,
+            onTap: () => onSelectTab(0),
           ),
           ExplorerMetricCard(
             label: 'Verified Hazards',
             value: '$verified',
             icon: Icons.warning_amber_rounded,
+            isSelected: selectedIndex == 1,
+            onTap: () => onSelectTab(1),
           ),
           ExplorerMetricCard(
             label: 'Resolved Reports',
             value: '$resolved',
             icon: Icons.task_alt_outlined,
+            isSelected: selectedIndex == 2,
+            onTap: () => onSelectTab(2),
           ),
           ExplorerMetricCard(
             label: 'Rejected Reports',
             value: '$rejected',
             icon: Icons.cancel_outlined,
+            isSelected: selectedIndex == 3,
+            onTap: () => onSelectTab(3),
           ),
         ];
         return Wrap(

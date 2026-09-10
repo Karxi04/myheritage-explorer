@@ -102,6 +102,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   late final bool _ownsRerouteCoordinator;
   late final DebugNavigationSimulator _debugSimulator;
   StreamSubscription<List<HazardReport>>? _hazardSubscription;
+  Timer? _rateLimitTimer;
 
   SafeNavigationStatus _status = SafeNavigationStatus.gettingLocation;
   LatLng? _start;
@@ -170,6 +171,13 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     );
     _listenForHazards();
     _getCurrentLocation();
+
+    if (SafeRoutingService.isRateLimited) {
+      _routingError = _rateLimitedMessage(
+        SafeRoutingService.rateLimitRemainingSeconds,
+      );
+      _startRateLimitTimer();
+    }
   }
 
   @visibleForTesting
@@ -475,7 +483,8 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     if (start == null ||
         _stops.isEmpty ||
         !_hazardsLoaded ||
-        _status == SafeNavigationStatus.calculating) {
+        _status == SafeNavigationStatus.calculating ||
+        SafeRoutingService.isRateLimited) {
       return;
     }
 
@@ -524,7 +533,14 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
       );
       setState(() {
         _status = SafeNavigationStatus.error;
-        _routingError = _routingMessage(error.code);
+        if (error.code == SafeRoutingFailureCode.rateLimited) {
+          final remaining = error.retryAfter?.inSeconds ??
+              SafeRoutingService.rateLimitRemainingSeconds;
+          _routingError = _rateLimitedMessage(remaining);
+          _startRateLimitTimer();
+        } else {
+          _routingError = _routingMessage(error.code);
+        }
       });
     } catch (_) {
       if (!mounted) return;
@@ -534,6 +550,35 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
             'The routing service could not be reached. Check your connection and try again.';
       });
     }
+  }
+
+  void _startRateLimitTimer() {
+    _rateLimitTimer?.cancel();
+    _rateLimitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (!SafeRoutingService.isRateLimited) {
+        timer.cancel();
+        setState(() {
+          if (_routingError != null && _routingError!.contains('rate limit')) {
+            _routingError = null;
+            _status = SafeNavigationStatus.waitingForDestination;
+          }
+        });
+      } else {
+        setState(() {
+          final remaining = SafeRoutingService.rateLimitRemainingSeconds;
+          _routingError = _rateLimitedMessage(remaining);
+        });
+      }
+    });
+  }
+
+  String _rateLimitedMessage(int seconds) {
+    final s = seconds > 0 ? seconds : 1;
+    return 'Route provider rate limit reached. Please wait $s second${s == 1 ? '' : 's'} before trying again.';
   }
 
   Future<SafeRoute> _calculateReroute({
@@ -600,7 +645,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     SafeRoutingFailureCode.missingApiKey =>
       'Safe routing is not configured. Launch the app with ORS_API_KEY.',
     SafeRoutingFailureCode.rateLimited =>
-      'Safe routing is busy right now. Wait a moment and try again.',
+      'Route provider rate limit reached. Please wait a moment before trying again.',
     SafeRoutingFailureCode.timeout ||
     SafeRoutingFailureCode.networkFailure ||
     SafeRoutingFailureCode.providerUnavailable =>
@@ -636,6 +681,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
 
   @override
   void dispose() {
+    _rateLimitTimer?.cancel();
     _hazardSubscription?.cancel();
     _rerouteCoordinator.removeListener(_onRerouteChanged);
     if (_ownsRerouteCoordinator) _rerouteCoordinator.dispose();
@@ -1231,11 +1277,13 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
     if (navigation.isNavigating && route != null) {
       return _buildActiveNavigationControls(context, route, navigation);
     }
+    final isRateLimited = SafeRoutingService.isRateLimited;
     final canCalculate =
         _start != null &&
         _stops.isNotEmpty &&
         _hazardsLoaded &&
-        _status != SafeNavigationStatus.calculating;
+        _status != SafeNavigationStatus.calculating &&
+        !isRateLimited;
 
     return ExplorerCard(
       padding: const EdgeInsets.all(16),
@@ -1442,7 +1490,9 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
                     label: Text(
                       _status == SafeNavigationStatus.calculating
                           ? 'Calculating Safe Route…'
-                          : 'Find Safe Route',
+                          : isRateLimited
+                              ? 'Rate Limited (wait ${SafeRoutingService.rateLimitRemainingSeconds}s)'
+                              : 'Find Safe Route',
                     ),
                   )
                 : Column(
