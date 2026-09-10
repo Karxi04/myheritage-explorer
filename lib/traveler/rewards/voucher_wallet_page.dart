@@ -165,7 +165,6 @@ final Set<String> loadingDirections = <String>{};
         body: Column(
           children: [
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _travelerStream,
               stream: travelerStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -267,7 +266,6 @@ final Set<String> loadingDirections = <String>{};
 
   Widget _buildClaimedVouchers() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _claimedVouchersStream,
       stream: claimedVouchersStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {

@@ -30,28 +30,6 @@ class _RewardsPageState extends State<RewardsPage> {
   bool loadingLocation = false;
   Position? cataloguePosition;
 
-  Stream<DocumentSnapshot<Map<String, dynamic>>>? _travelerStream;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _vouchersStream;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _claimedVouchersStream;
-
-  @override
-  void initState() {
-    super.initState();
-    final uid = AppServices.auth.currentUser?.uid;
-    if (uid != null) {
-      _travelerStream = AppServices.travelerRef(uid).snapshots();
-      _claimedVouchersStream = AppServices.db
-          .collection('claimed_vouchers')
-          .where('userId', isEqualTo: uid)
-          .snapshots();
-    }
-    _vouchersStream = AppServices.db
-        .collection('vouchers')
-        .where('status', isEqualTo: 'active')
-        .limit(100)
-        .snapshots();
-  }
-
   @override
   void initState() {
     super.initState();
@@ -280,7 +258,6 @@ class _RewardsPageState extends State<RewardsPage> {
             : <String>{};
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _vouchersStream,
           stream: _voucherStream,
           builder: (context, voucherSnapshot) {
             if (voucherSnapshot.hasError) {
@@ -291,7 +268,6 @@ class _RewardsPageState extends State<RewardsPage> {
             }
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _claimedVouchersStream,
               stream: _claimStream,
               builder: (context, claimSnapshot) {
                 final claimedCounts = <String, int>{};
