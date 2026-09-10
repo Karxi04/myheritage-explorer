@@ -669,14 +669,34 @@ final Set<String> loadingDirections = <String>{};
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 5),
-                                  SelectableText(
-                                    sessionPin,
-                                    style: const TextStyle(
-                                      color: ExplorerColors.navy,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 6,
-                                    ),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        sessionPin,
+                                        style: const TextStyle(
+                                          color: ExplorerColors.navy,
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 6,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Copy 6-digit PIN',
+                                        onPressed: () async {
+                                          await Clipboard.setData(
+                                            ClipboardData(text: sessionPin),
+                                          );
+                                          if (context.mounted) {
+                                            showMessage(
+                                              context,
+                                              'The 6-digit PIN was copied.',
+                                            );
+                                          }
+                                        },
+                                        icon: const Icon(Icons.copy_rounded),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 6),
                                   TextButton.icon(

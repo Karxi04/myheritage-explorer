@@ -21,6 +21,8 @@ class _TravelerShellState extends State<TravelerShell>
     with WidgetsBindingObserver {
   int index = 0;
   StreamSubscription<Position>? _rewardLocationSubscription;
+  Timer? _nearbyRewardTimer;
+  bool? _nearbyRewardTimerEnabled;
   bool _backgroundRewardsActive = false;
   bool _backgroundRewardsStarting = false;
   DateTime? _lastBackgroundRewardCheck;
@@ -38,6 +40,7 @@ class _TravelerShellState extends State<TravelerShell>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _nearbyRewardTimer?.cancel();
     unawaited(_rewardLocationSubscription?.cancel());
     super.dispose();
   }
@@ -79,6 +82,25 @@ class _TravelerShellState extends State<TravelerShell>
         unawaited(_stopBackgroundRewardMonitoring());
       }
     });
+  }
+
+  void _syncNearbyRewardTimer(Map<String, dynamic> profile) {
+    final enabled = AppServices.notificationPreference(
+      profile,
+      'nearbyRewards',
+      defaultValue: true,
+    );
+    if (_nearbyRewardTimerEnabled == enabled) return;
+    _nearbyRewardTimerEnabled = enabled;
+    _nearbyRewardTimer?.cancel();
+    _nearbyRewardTimer = null;
+    if (!enabled) return;
+
+    _nearbyRewardTimer = Timer.periodic(
+      AppServices.nearbyRewardCheckCooldown,
+      (_) => unawaited(_checkNearbyRewards()),
+    );
+    unawaited(_checkNearbyRewards());
   }
 
   Future<void> _startBackgroundRewardMonitoring() async {
@@ -168,6 +190,7 @@ class _TravelerShellState extends State<TravelerShell>
         final profile = liveProfile == null
             ? widget.profile
             : <String, dynamic>{...widget.profile, ...liveProfile};
+        _syncNearbyRewardTimer(profile);
         _syncBackgroundRewardMonitoring(profile);
         return _buildShell(profile);
       },
