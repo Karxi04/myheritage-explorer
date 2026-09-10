@@ -66,7 +66,6 @@ Future<void> main() async {
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
   await SystemNotificationService.instance.init();
-  MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
 
   runApp(const MyHeritageApp());
 

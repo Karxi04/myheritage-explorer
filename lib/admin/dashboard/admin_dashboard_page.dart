@@ -126,7 +126,7 @@ class AdminDashboardPage extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
-          childAspectRatio: 2.3,
+childAspectRatio: 2.3,
           children: [
             _dashboardMetricCard(
               label: 'Vendor Verification Approvals',
@@ -198,7 +198,7 @@ class AdminDashboardPage extends StatelessWidget {
             letterSpacing: .8,
           ),
         ),
-        const SizedBox(height: 12),
+const SizedBox(height: 12),
 
         GridView.count(
           crossAxisCount: MediaQuery.sizeOf(context).width > 1200 ? 3 : 2,

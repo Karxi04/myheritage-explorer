@@ -12,12 +12,27 @@ class TravelerHomePage extends StatefulWidget {
 class _TravelerHomePageState extends State<TravelerHomePage> {
   late Future<List<Map<String, dynamic>>> recommendationsFuture;
   late String recommendationProfileKey;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _itinerariesStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _taskSubmissionsStream;
 
   Map<String, dynamic> get profile => widget.profile;
 
   @override
   void initState() {
     super.initState();
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid != null) {
+      _itinerariesStream = AppServices.db
+          .collection('itineraries')
+          .where('userId', isEqualTo: uid)
+          .limit(10)
+          .snapshots();
+      _taskSubmissionsStream = AppServices.db
+          .collection('task_submissions')
+          .where('userId', isEqualTo: uid)
+          .limit(10)
+          .snapshots();
+    }
     _reloadRecommendations();
   }
 
@@ -43,7 +58,6 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.auth.currentUser!.uid;
     final displayName =
         '${profile['displayName'] ?? AppServices.auth.currentUser?.displayName ?? 'Traveler'}';
     final firstName = displayName.trim().split(RegExp(r'\s+')).first;
@@ -98,10 +112,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
             ),
             const SizedBox(height: 10),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: AppServices.db
-                  .collection('itineraries')
-                  .where('userId', isEqualTo: uid)
-                  .snapshots(),
+              stream: _itinerariesStream,
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const ExplorerCard(
@@ -170,10 +181,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
             const ExplorerSectionTitle('Active Task'),
             const SizedBox(height: 10),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: AppServices.db
-                  .collection('task_submissions')
-                  .where('userId', isEqualTo: uid)
-                  .snapshots(),
+              stream: _taskSubmissionsStream,
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const ExplorerCard(
@@ -627,7 +635,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
               'plannerCategories',
               arrayContainsAny: preferred.take(10).toList(),
             )
-            .limit(60)
+            .limit(20)
             .get();
         for (final doc in targeted.docs) {
           docs[doc.id] = doc;
@@ -642,7 +650,7 @@ class _TravelerHomePageState extends State<TravelerHomePage> {
         .collection('vendors')
         .where('status', isEqualTo: 'active')
         .where('vendorStatus', isEqualTo: 'verified')
-        .limit(320)
+        .limit(25)
         .get();
     for (final doc in fallback.docs) {
       docs[doc.id] = doc;

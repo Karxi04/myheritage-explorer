@@ -12,6 +12,34 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   final search = TextEditingController();
   bool seeding = false;
   int pageLimit = 50;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _reviewsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _reviewsStream = _buildReviewsStream();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _buildReviewsStream() {
+    Query<Map<String, dynamic>> query = AppServices.db.collection('reviews');
+    if (filter == 'flagged') {
+      query = query.where('status', isEqualTo: 'flagged');
+    } else if (filter == 'valid') {
+      query = query.where('status', isEqualTo: 'valid');
+    } else if (filter == 'hidden') {
+      query = query.where('status', isEqualTo: 'hidden');
+    }
+    return query.limit(pageLimit).snapshots();
+  }
+
+  void _updateFilter(String newFilter) {
+    if (filter == newFilter) return;
+    setState(() {
+      filter = newFilter;
+      pageLimit = 50;
+      _reviewsStream = _buildReviewsStream();
+    });
+  }
 
   @override
   void dispose() {
@@ -22,11 +50,13 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   Future<void> _seedReviews() async {
     setState(() => seeding = true);
     try {
-      final count = await AppServices.seedVendorReviews(force: true);
+      final count = await AppServices.seedVendorReviews(force: false);
       if (mounted) {
         showMessage(
           context,
-          'Successfully synced $count reviews for all vendors and places.',
+          count > 0
+              ? 'Successfully synced $count new reviews for unpopulated places.'
+              : 'All vendors and places already have reviews populated.',
         );
       }
     } catch (e) {
@@ -42,6 +72,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
     final all = await AppServices.db
         .collection('reviews')
         .where('placeId', isEqualTo: placeId)
+        .limit(100)
         .get();
     final valid = all.docs
         .where((doc) => doc.data()['status'] == 'valid')
@@ -85,7 +116,7 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: AppServices.db.collection('reviews').snapshots(),
+      stream: _reviewsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return ExplorerEmptyState(
@@ -212,10 +243,9 @@ class _AdminReviewsPageState extends State<AdminReviewsPage> {
                                 ),
                               )
                               .toList(),
-                      onChanged: (value) => setState(() {
-                        filter = value!;
-                        pageLimit = 50;
-                      }),
+                      onChanged: (value) {
+                        if (value != null) _updateFilter(value);
+                      },
                     ),
                   );
 

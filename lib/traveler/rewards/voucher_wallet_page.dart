@@ -12,7 +12,7 @@ class VoucherWalletPage extends StatefulWidget {
 class _VoucherWalletPageState extends State<VoucherWalletPage> {
   String filter = 'All';
   final Set<String> startingSessions = <String>{};
-  final Set<String> loadingDirections = <String>{};
+final Set<String> loadingDirections = <String>{};
   final Map<String, GeoPoint> resolvedVoucherLocations = <String, GeoPoint>{};
   late final String uid;
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> travelerStream;
@@ -165,6 +165,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
         body: Column(
           children: [
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _travelerStream,
               stream: travelerStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -266,6 +267,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
 
   Widget _buildClaimedVouchers() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _claimedVouchersStream,
       stream: claimedVouchersStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
