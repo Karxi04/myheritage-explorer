@@ -6,6 +6,8 @@ void main() {
   test('nearby rewards use one fair range and bounded reads', () {
     expect(AppServices.nearbyRewardRadiusMeters, 750);
     expect(AppServices.rewardPageReadLimit, 25);
+    expect(AppServices.notificationReadLimit, 25);
+    expect(AppServices.redemptionPinMatchReadLimit, 2);
     expect(AppServices.nearbyRewardCandidateReadLimit, 25);
     expect(AppServices.nearbyRewardCheckCooldown, const Duration(minutes: 10));
     expect(AppServices.nearbyRewardAlertCooldown, const Duration(hours: 6));

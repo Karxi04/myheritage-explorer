@@ -66,7 +66,9 @@ Future<void> main() async {
   SystemNotificationService.instance.onNotificationPayload =
       _handleNotificationPayload;
   await SystemNotificationService.instance.init();
-  MalaysianPlannerSync.syncAllCuratedPlacesToFirestore();
+
+  // Curated Firestore data is seeded by an explicit admin/development action.
+  // Re-syncing it on every app launch exhausts shared read and write quota.
 
   runApp(const MyHeritageApp());
 

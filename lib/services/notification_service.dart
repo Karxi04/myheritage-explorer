@@ -9,7 +9,8 @@ class NotificationService {
   Query<Map<String, dynamic>> _queryForUser(String userId) {
     return AppServices.db
         .collection('notifications')
-        .where('userId', isEqualTo: userId);
+        .where('userId', isEqualTo: userId)
+        .limit(AppServices.notificationReadLimit);
   }
 
   Stream<List<AppNotification>> watchForUser(String userId) {
