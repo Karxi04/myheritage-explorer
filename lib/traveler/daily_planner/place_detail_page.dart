@@ -18,13 +18,33 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
   final comment = TextEditingController();
   int rating = 5;
   bool submitting = false;
+  bool isUpdatingReview = false;
   bool loadingDetails = false;
   bool showAllReviews = false;
+  int? starFilter;
+  String sortOption = 'helpful';
+  final Set<String> _pendingHelpfulReviewIds = <String>{};
+  final Set<String> _selectedAspectTags = <String>{};
+  bool _isEditingReview = false;
+  String? _editingReviewId;
+  int _editingReviewOriginalEditCount = 0;
   double? liveReviewAverage;
   int? liveReviewCount;
   String? detailsError;
   late Map<String, dynamic> place;
   final GlobalKey reviewFormKey = GlobalKey();
+
+  static const List<String> availableAspectTags = [
+    'Authentic Taste',
+    'Must Try',
+    'Friendly Service',
+    'Scenic View',
+    'Photogenic',
+    'Heritage Atmosphere',
+    'Value for Money',
+    'Clean & Cozy',
+    'Family Friendly',
+  ];
 
   @override
   void initState() {
@@ -217,6 +237,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     required String placeNameKey,
     required String uid,
     required ReviewMlPrediction prediction,
+    String? excludeReviewId,
   }) async {
     final flags = <String>[];
     final normalised = _normaliseReview(reviewText);
@@ -249,6 +270,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     if (normalised.isNotEmpty) {
       final relatedReviews = await query.get();
       final duplicate = relatedReviews.docs.any((doc) {
+        if (doc.id == excludeReviewId) return false;
         final data = doc.data();
         if ('${data['userId'] ?? ''}' == uid) return false;
         return _normaliseReview('${data['comment'] ?? ''}') == normalised;
@@ -261,50 +283,66 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     return flags.toSet().toList();
   }
 
-  Future<void> submitReview() async {
+  void _startEditReview(Map<String, dynamic> existingReview) {
+    final editCount = (existingReview['editCount'] as num? ?? 0).toInt();
+    if (editCount >= 2) {
+      showMessage(
+        context,
+        'You have reached the maximum of 2 review edits.',
+        error: true,
+      );
+      return;
+    }
+
+    setState(() {
+      _isEditingReview = true;
+      _editingReviewId = '${existingReview['id'] ?? existingReview['reviewId'] ?? ''}';
+      _editingReviewOriginalEditCount = editCount;
+      rating = (existingReview['rating'] as num? ?? 5).round();
+      comment.text = '${existingReview['comment'] ?? ''}';
+      _selectedAspectTags.clear();
+      _selectedAspectTags.addAll(
+        List<String>.from(existingReview['aspectTags'] ?? const <String>[]),
+      );
+    });
+    _scrollToReviewForm();
+  }
+
+  void _cancelEditReview() {
+    setState(() {
+      _isEditingReview = false;
+      _editingReviewId = null;
+      _editingReviewOriginalEditCount = 0;
+      comment.clear();
+      _selectedAspectTags.clear();
+      rating = 5;
+    });
+  }
+
+  Future<void> _saveReviewEdit() async {
+    if (isUpdatingReview) return;
+    if (_editingReviewId == null || _editingReviewId!.isEmpty) {
+      showMessage(context, 'Unable to locate review to update.', error: true);
+      return;
+    }
+
     final reviewText = comment.text.trim();
     if (reviewText.isEmpty) {
       showMessage(context, 'Please provide a review comment.', error: true);
       return;
     }
 
-    setState(() => submitting = true);
+    setState(() => isUpdatingReview = true);
     try {
       final currentUser = AppServices.auth.currentUser;
       if (currentUser == null) {
-        throw Exception('Please sign in before submitting a review.');
+        throw Exception('Please sign in before updating your review.');
       }
 
       final uid = currentUser.uid;
-      final reviewVendorId = _vendorReviewId();
-      var existingQuery = AppServices.db
-          .collection('reviews')
-          .where('userId', isEqualTo: uid);
-      if (reviewVendorId.isNotEmpty) {
-        existingQuery = existingQuery.where(
-          'vendorId',
-          isEqualTo: reviewVendorId,
-        );
-      } else {
-        existingQuery = existingQuery.where(
-          'placeId',
-          isEqualTo: widget.placeId,
-        );
-      }
-      final existing = await existingQuery.limit(1).get();
-
-      if (existing.docs.isNotEmpty) {
-        if (mounted) {
-          showMessage(
-            context,
-            'You already reviewed this location.',
-            error: true,
-          );
-        }
-        return;
-      }
-
       final placeNameKey = GeoapifyPlanner.reviewKeyFor(place);
+
+      // Re-run NLP & ML analysis dynamically on the updated text & star rating
       final mlPrediction = ReviewMlModel.analyze(
         reviewText: reviewText,
         rating: rating,
@@ -314,6 +352,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         placeNameKey: placeNameKey,
         uid: uid,
         prediction: mlPrediction,
+        excludeReviewId: _editingReviewId,
       );
       final moderation = ReviewModerationPolicy.decide(
         prediction: mlPrediction,
@@ -322,21 +361,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         rating: rating,
       );
       final flagged = moderation.isFlagged;
-      final reviewerName = await _loadReviewerName(uid);
 
-      await AppServices.db.collection('reviews').add({
-        'userId': uid,
-        'reviewerName': reviewerName,
-        'placeId': widget.placeId,
-        'vendorId': reviewVendorId.isNotEmpty
-            ? reviewVendorId
-            : place['vendorId'],
-        'geoapifyPlaceId': place['geoapifyPlaceId'],
-        'placeName': place['name'],
-        'placeNameKey': placeNameKey,
-        'source': place['source'] ?? 'registered_vendor',
-        'rating': rating,
-        'comment': reviewText,
+      final mlMap = {
         'status': moderation.reviewStatus,
         'flagReason': moderation.reasons.isEmpty
             ? null
@@ -364,11 +390,143 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         'mlRiskLevel': moderation.riskLevel,
         'mlNeedsReview': moderation.needsReview,
         'mlDecision': moderation.decision,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+
+      await ReviewService.editReview(
+        reviewId: _editingReviewId!,
+        userId: uid,
+        newRating: rating,
+        newComment: reviewText,
+        newAspectTags: _selectedAspectTags.toList(),
+        mlData: mlMap,
+      );
+
+      _cancelEditReview();
+      if (mounted) {
+        showMessage(
+          context,
+          flagged
+              ? 'Review updated and queued for administrator checking.'
+              : 'Review updated successfully. (Edit ${_editingReviewOriginalEditCount + 1} of 2 used)',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isUpdatingReview = false);
+    }
+  }
+
+  Future<void> submitReview() async {
+    if (submitting) return;
+    final reviewText = comment.text.trim();
+    if (reviewText.isEmpty) {
+      showMessage(context, 'Please provide a review comment.', error: true);
+      return;
+    }
+
+    setState(() => submitting = true);
+    try {
+      final currentUser = AppServices.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('Please sign in before submitting a review.');
+      }
+
+      final uid = currentUser.uid;
+      final reviewVendorId = _vendorReviewId();
+      
+      final alreadyReviewed = await ReviewService.hasUserReviewedPlace(
+        userId: uid,
+        placeId: widget.placeId,
+        vendorId: reviewVendorId,
+      );
+      if (alreadyReviewed) {
+        if (mounted) {
+          showMessage(
+            context,
+            'You have already reviewed this place. You can edit your existing review.',
+            error: true,
+          );
+        }
+        return;
+      }
+
+      final placeNameKey = GeoapifyPlanner.reviewKeyFor(place);
+      final mlPrediction = ReviewMlModel.analyze(
+        reviewText: reviewText,
+        rating: rating,
+      );
+      final flags = await _detectReviewFlags(
+        reviewText: reviewText,
+        placeNameKey: placeNameKey,
+        uid: uid,
+        prediction: mlPrediction,
+      );
+      final moderation = ReviewModerationPolicy.decide(
+        prediction: mlPrediction,
+        ruleFlags: flags,
+        reviewText: reviewText,
+        rating: rating,
+      );
+      final flagged = moderation.isFlagged;
+      final reviewerName = await _loadReviewerName(uid);
+
+      final mlMap = {
+        'status': moderation.reviewStatus,
+        'flagReason': moderation.reasons.isEmpty
+            ? null
+            : moderation.reasons.join(' - '),
+        'flagReasons': moderation.reasons,
+        'mlModelVersion': ReviewMlModel.modelVersion,
+        'mlSentiment': mlPrediction.sentiment,
+        'mlSentimentConfidence': double.parse(
+          mlPrediction.sentimentConfidence.toStringAsFixed(4),
+        ),
+        'mlNegativeProbability': double.parse(
+          mlPrediction.negativeProbability.toStringAsFixed(4),
+        ),
+        'mlNeutralProbability': double.parse(
+          mlPrediction.neutralProbability.toStringAsFixed(4),
+        ),
+        'mlPositiveProbability': double.parse(
+          mlPrediction.positiveProbability.toStringAsFixed(4),
+        ),
+        'mlRatingMismatch': mlPrediction.ratingMismatch,
+        'mlSuspiciousProbability': double.parse(
+          mlPrediction.suspiciousProbability.toStringAsFixed(4),
+        ),
+        'mlRiskScore': double.parse(moderation.riskScore.toStringAsFixed(4)),
+        'mlRiskLevel': moderation.riskLevel,
+        'mlNeedsReview': moderation.needsReview,
+        'mlDecision': moderation.decision,
+      };
+
+      await ReviewService.submitReview(
+        userId: uid,
+        userName: reviewerName,
+        placeId: widget.placeId,
+        vendorId: reviewVendorId.isNotEmpty
+            ? reviewVendorId
+            : (place['vendorId'] ?? ''),
+        placeName: '${place['name'] ?? ''}',
+        placeNameKey: placeNameKey,
+        source: '${place['source'] ?? 'registered_vendor'}',
+        geoapifyPlaceId: '${place['geoapifyPlaceId'] ?? ''}',
+        rating: rating,
+        comment: reviewText,
+        aspectTags: _selectedAspectTags.toList(),
+        isVerified: true,
+        mlData: mlMap,
+      );
 
       comment.clear();
+      _selectedAspectTags.clear();
       if (mounted) {
         showMessage(
           context,
@@ -1096,11 +1254,34 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                         ? 1
                         : allReviews.length;
 
+                    // Filter by selected star rating
+                    final filteredReviews = allReviews.where((r) {
+                      if (starFilter == null) return true;
+                      return ((r['rating'] as num?)?.round() ?? 5) == starFilter;
+                    }).toList();
+
+                    // Sort reviews
+                    filteredReviews.sort((a, b) {
+                      if (sortOption == 'helpful') {
+                        final hA = (a['helpfulCount'] as num? ?? 0).toInt();
+                        final hB = (b['helpfulCount'] as num? ?? 0).toInt();
+                        if (hB != hA) return hB.compareTo(hA);
+                      } else if (sortOption == 'rating') {
+                        final rA = (a['rating'] as num? ?? 5).toDouble();
+                        final rB = (b['rating'] as num? ?? 5).toDouble();
+                        if (rB != rA) return rB.compareTo(rA);
+                      }
+                      // fallback: newest date
+                      final dateA = asDate(a['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      final dateB = asDate(b['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      return dateB.compareTo(dateA);
+                    });
+
                     const previewCount = 4;
                     final visibleDocs = showAllReviews
-                        ? allReviews
-                        : allReviews.take(previewCount).toList();
-                    final hiddenCount = allReviews.length - visibleDocs.length;
+                        ? filteredReviews
+                        : filteredReviews.take(previewCount).toList();
+                    final hiddenCount = filteredReviews.length - visibleDocs.length;
 
                     return Column(
                       children: [
@@ -1168,16 +1349,88 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        // Star Filter and Sort Controls Card
+                        ExplorerCard(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Filter & Sort',
+                                    style: TextStyle(
+                                      color: ExplorerColors.navy,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: sortOption,
+                                      isDense: true,
+                                      style: const TextStyle(
+                                        color: ExplorerColors.navy,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: 'helpful',
+                                          child: Text('👍 Most Helpful'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'newest',
+                                          child: Text('🕒 Newest First'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'rating',
+                                          child: Text('★ Highest Rating'),
+                                        ),
+                                      ],
+                                      onChanged: (val) {
+                                        if (val != null) setState(() => sortOption = val);
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    _buildStarFilterChip(label: 'All ($totalReviews)', value: null),
+                                    const SizedBox(width: 6),
+                                    _buildStarFilterChip(label: '5★ ($count5)', value: 5),
+                                    const SizedBox(width: 6),
+                                    _buildStarFilterChip(label: '4★ ($count4)', value: 4),
+                                    const SizedBox(width: 6),
+                                    _buildStarFilterChip(label: '3★ ($count3)', value: 3),
+                                    const SizedBox(width: 6),
+                                    _buildStarFilterChip(label: '2★ ($count2)', value: 2),
+                                    const SizedBox(width: 6),
+                                    _buildStarFilterChip(label: '1★ ($count1)', value: 1),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         ExplorerCard(
                           padding: EdgeInsets.zero,
                           child: Column(
                             children: [
                               if (visibleDocs.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.all(16),
+                                Padding(
+                                  padding: const EdgeInsets.all(20),
                                   child: Text(
-                                    'No traveler reviews yet.',
-                                    style: TextStyle(
+                                    starFilter != null
+                                        ? 'No $starFilter★ reviews found. Try selecting "All".'
+                                        : 'No traveler reviews yet.',
+                                    style: const TextStyle(
                                       color: ExplorerColors.muted,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -1187,6 +1440,15 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                               else
                                 ...visibleDocs.asMap().entries.map((entry) {
                                   final review = entry.value;
+                                  final reviewId = '${review['id'] ?? review['reviewId'] ?? 'rev_${entry.key}'}';
+                                  final currentUid = AppServices.auth.currentUser?.uid;
+                                  final reviewUserId = '${review['userId'] ?? ''}';
+                                  final isOwnReview = currentUid != null && reviewUserId.isNotEmpty && reviewUserId == currentUid;
+                                  final helpfulUserIds = List<String>.from(review['helpfulUserIds'] ?? const <String>[]);
+                                  final isMarkedHelpful = currentUid != null && helpfulUserIds.contains(currentUid);
+                                  final int displayHelpfulCount = (review['helpfulCount'] as num?)?.toInt() ?? helpfulUserIds.length;
+                                  final int editCount = (review['editCount'] as num? ?? 0).toInt();
+                                  final aspectTags = List<String>.from(review['aspectTags'] ?? const <String>[]);
                                   final dateStr =
                                       review['date'] ??
                                       (asDate(review['createdAt']) != null
@@ -1198,127 +1460,333 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                                       entry.key == visibleDocs.length - 1;
                                   final isVerified =
                                       review['isVerified'] == true ||
-                                      review['userId'] != null;
+                                      reviewUserId.isNotEmpty;
 
                                   return Column(
                                     children: [
-                                      ListTile(
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 16,
-                                              vertical: 10,
-                                            ),
-                                        leading: const CircleAvatar(
-                                          backgroundColor:
-                                              ExplorerColors.navySoft,
-                                          foregroundColor: ExplorerColors.navy,
-                                          child: Icon(Icons.person_outline),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
                                         ),
-                                        title: Row(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Flexible(
-                                              child: Text(
-                                                '${review['reviewerName'] ?? 'Traveler'}',
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: ExplorerColors.navy,
-                                                  fontWeight: FontWeight.w800,
-                                                  fontSize: 13,
+                                            Row(
+                                              crossAxisAlignment: CrossAxisAlignment.center,
+                                              children: [
+                                                const CircleAvatar(
+                                                  radius: 18,
+                                                  backgroundColor: ExplorerColors.navySoft,
+                                                  foregroundColor: ExplorerColors.navy,
+                                                  child: Icon(Icons.person_outline, size: 18),
                                                 ),
-                                              ),
-                                            ),
-                                            if (isVerified) ...[
-                                              const SizedBox(width: 5),
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 5,
-                                                      vertical: 1,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFFE8F5E9,
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          Flexible(
+                                                            child: Text(
+                                                              '${review['reviewerName'] ?? review['travelerName'] ?? 'Traveler'}',
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: const TextStyle(
+                                                                color: ExplorerColors.navy,
+                                                                fontWeight: FontWeight.w800,
+                                                                fontSize: 13,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          if (isOwnReview) ...[
+                                                            const SizedBox(width: 6),
+                                                            Container(
+                                                              padding: const EdgeInsets.symmetric(
+                                                                horizontal: 6,
+                                                                vertical: 2,
+                                                              ),
+                                                              decoration: BoxDecoration(
+                                                                color: ExplorerColors.navy,
+                                                                borderRadius: BorderRadius.circular(4),
+                                                              ),
+                                                              child: const Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  Icon(
+                                                                    Icons.person_outline,
+                                                                    size: 10,
+                                                                    color: Colors.white,
+                                                                  ),
+                                                                  SizedBox(width: 3),
+                                                                  Text(
+                                                                    'Your Review',
+                                                                    style: TextStyle(
+                                                                      fontSize: 9,
+                                                                      fontWeight: FontWeight.w800,
+                                                                      color: Colors.white,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ],
+                                                          if (isVerified) ...[
+                                                            const SizedBox(width: 6),
+                                                            Container(
+                                                              padding: const EdgeInsets.symmetric(
+                                                                horizontal: 6,
+                                                                vertical: 1.5,
+                                                              ),
+                                                              decoration: BoxDecoration(
+                                                                color: const Color(0xFFE8F5E9),
+                                                                borderRadius: BorderRadius.circular(4),
+                                                              ),
+                                                              child: const Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  Icon(
+                                                                    Icons.verified,
+                                                                    size: 10,
+                                                                    color: Color(0xFF2E7D32),
+                                                                  ),
+                                                                  SizedBox(width: 3),
+                                                                  Text(
+                                                                    'Verified Visit',
+                                                                    style: TextStyle(
+                                                                      fontSize: 9,
+                                                                      fontWeight: FontWeight.w700,
+                                                                      color: Color(0xFF2E7D32),
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ],
+                                                      ),
+                                                      const SizedBox(height: 3),
+                                                      Row(
+                                                        children: [
+                                                          Row(
+                                                            children: List.generate(5, (index) {
+                                                              final reviewRating =
+                                                                  (review['rating'] as num?)?.round() ?? 5;
+                                                              return Icon(
+                                                                index < reviewRating
+                                                                    ? Icons.star_rounded
+                                                                    : Icons.star_border_rounded,
+                                                                color: ExplorerColors.goldDark,
+                                                                size: 15,
+                                                              );
+                                                            }),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Text(
+                                                            dateStr,
+                                                            style: const TextStyle(
+                                                              color: ExplorerColors.muted,
+                                                              fontSize: 10,
+                                                            ),
+                                                          ),
+                                                          if (editCount > 0) ...[
+                                                            const SizedBox(width: 6),
+                                                            Text(
+                                                              '• ($editCount/2 edits used)',
+                                                              style: const TextStyle(
+                                                                color: ExplorerColors.muted,
+                                                                fontSize: 10,
+                                                                fontStyle: FontStyle.italic,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ],
+                                                      ),
+                                                    ],
                                                   ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(4),
                                                 ),
-                                                child: const Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Icon(
-                                                      Icons.verified,
-                                                      size: 10,
-                                                      color: Color(0xFF2E7D32),
+                                              ],
+                                            ),
+                                            if (aspectTags.isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              Wrap(
+                                                spacing: 6,
+                                                runSpacing: 4,
+                                                children: aspectTags.map((tag) {
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
                                                     ),
-                                                    SizedBox(width: 2),
-                                                    Text(
-                                                      'Verified',
-                                                      style: TextStyle(
-                                                        fontSize: 9,
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        color: Color(
-                                                          0xFF2E7D32,
-                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: ExplorerColors.navySoft,
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      border: Border.all(
+                                                        color: ExplorerColors.navy.withValues(alpha: 0.15),
                                                       ),
                                                     ),
-                                                  ],
-                                                ),
+                                                    child: Text(
+                                                      '🏷️ $tag',
+                                                      style: const TextStyle(
+                                                        color: ExplorerColors.navy,
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }).toList(),
                                               ),
                                             ],
-                                          ],
-                                        ),
-                                        subtitle: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const SizedBox(height: 5),
-                                            Row(
-                                              children: List.generate(5, (
-                                                index,
-                                              ) {
-                                                final reviewRating =
-                                                    (review['rating'] as num?)
-                                                        ?.round() ??
-                                                    5;
-                                                return Icon(
-                                                  index < reviewRating
-                                                      ? Icons.star_rounded
-                                                      : Icons
-                                                            .star_border_rounded,
-                                                  color:
-                                                      ExplorerColors.goldDark,
-                                                  size: 16,
-                                                );
-                                              }),
-                                            ),
-                                            const SizedBox(height: 6),
+                                            const SizedBox(height: 8),
                                             Text(
                                               '${review['comment'] ?? ''}',
                                               style: const TextStyle(
                                                 color: ExplorerColors.text,
-                                                fontSize: 12,
-                                                height: 1.4,
+                                                fontSize: 12.5,
+                                                height: 1.45,
                                               ),
                                             ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              dateStr,
-                                              style: const TextStyle(
-                                                color: ExplorerColors.muted,
-                                                fontSize: 10,
-                                              ),
+                                            const SizedBox(height: 10),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                if (isOwnReview) ...[
+                                                  if (editCount < 2)
+                                                    OutlinedButton.icon(
+                                                      onPressed: () => _startEditReview(review),
+                                                      style: OutlinedButton.styleFrom(
+                                                        visualDensity: VisualDensity.compact,
+                                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                        side: const BorderSide(color: ExplorerColors.navy),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(16),
+                                                        ),
+                                                      ),
+                                                      icon: const Icon(Icons.edit_outlined, size: 12, color: ExplorerColors.navy),
+                                                      label: Text(
+                                                        'Edit Review ($editCount/2 edits used)',
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight: FontWeight.w700,
+                                                          color: ExplorerColors.navy,
+                                                        ),
+                                                      ),
+                                                    )
+                                                  else
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFFF5F5F5),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: const Text(
+                                                        '2/2 edits used • Maximum edits reached',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          color: ExplorerColors.muted,
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ] else ...[
+                                                  InkWell(
+                                                    borderRadius: BorderRadius.circular(16),
+                                                    onTap: _pendingHelpfulReviewIds.contains(reviewId)
+                                                        ? null
+                                                        : () async {
+                                                            if (currentUid == null) {
+                                                              showMessage(context, 'Please sign in to vote.');
+                                                              return;
+                                                            }
+                                                            if (review['id'] == null) {
+                                                              showMessage(context, 'Sample preview review cannot be voted on.');
+                                                              return;
+                                                            }
+                                                            setState(() => _pendingHelpfulReviewIds.add(reviewId));
+                                                            try {
+                                                              final isNowHelpful = await ReviewService.toggleHelpfulVote(
+                                                                reviewId: '${review['id']}',
+                                                                userId: currentUid,
+                                                              );
+                                                              if (!mounted) return;
+                                                              showMessage(
+                                                                context,
+                                                                isNowHelpful
+                                                                    ? 'Thank you! Marked as helpful.'
+                                                                    : 'Helpful vote removed.',
+                                                              );
+                                                            } catch (e) {
+                                                              if (!mounted) return;
+                                                              showMessage(
+                                                                context,
+                                                                e.toString().replaceFirst('Exception: ', ''),
+                                                                error: true,
+                                                              );
+                                                            } finally {
+                                                              if (mounted) {
+                                                                setState(() => _pendingHelpfulReviewIds.remove(reviewId));
+                                                              }
+                                                            }
+                                                          },
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 5,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: isMarkedHelpful
+                                                            ? ExplorerColors.navy
+                                                            : ExplorerColors.navySoft,
+                                                        borderRadius: BorderRadius.circular(16),
+                                                        border: isMarkedHelpful
+                                                            ? null
+                                                            : Border.all(color: ExplorerColors.navy.withValues(alpha: 0.1)),
+                                                      ),
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          if (_pendingHelpfulReviewIds.contains(reviewId))
+                                                            const SizedBox(
+                                                              width: 12,
+                                                              height: 12,
+                                                              child: CircularProgressIndicator(
+                                                                strokeWidth: 2,
+                                                                valueColor: AlwaysStoppedAnimation<Color>(ExplorerColors.navy),
+                                                              ),
+                                                            )
+                                                          else
+                                                            Icon(
+                                                              isMarkedHelpful
+                                                                  ? Icons.thumb_up_rounded
+                                                                  : Icons.thumb_up_alt_outlined,
+                                                              size: 13,
+                                                              color: isMarkedHelpful ? Colors.white : ExplorerColors.navy,
+                                                            ),
+                                                          const SizedBox(width: 4),
+                                                          Text(
+                                                            'Helpful ($displayHelpfulCount)',
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight: FontWeight.w700,
+                                                              color: isMarkedHelpful ? Colors.white : ExplorerColors.navy,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           ],
                                         ),
                                       ),
                                       if (!isLastVisible)
-                                        const Divider(height: 1, indent: 70),
+                                        const Divider(height: 1),
                                     ],
                                   );
                                 }),
-                              if (allReviews.length > previewCount) ...[
+                              if (filteredReviews.length > previewCount) ...[
                                 const Divider(height: 1),
                                 Padding(
                                   padding: const EdgeInsets.symmetric(
@@ -1353,68 +1821,448 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _WriteReviewPrompt(onPressed: _scrollToReviewForm),
+                        Builder(
+                          builder: (context) {
+                            final currentUid = AppServices.auth.currentUser?.uid;
+                            final userExistingReview = allReviews.cast<Map<String, dynamic>?>().firstWhere(
+                              (r) => r != null && currentUid != null && '${r['userId'] ?? ''}' == currentUid,
+                              orElse: () => null,
+                            );
+                            final hasUserReviewed = userExistingReview != null;
+
+                            return _WriteReviewPrompt(
+                              onPressed: _scrollToReviewForm,
+                              isAlreadyReviewed: hasUserReviewed,
+                            );
+                          },
+                        ),
                       ],
                     );
                   },
                 ),
                 const SizedBox(height: 18),
-                ExplorerCard(
-                  key: reviewFormKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const ExplorerSectionTitle(
-                        'Write Your Review',
-                        subtitle:
-                            'Visited this place? Select a star rating and describe your experience clearly and accurately.',
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(
-                          5,
-                          (index) => IconButton(
-                            onPressed: () => setState(() => rating = index + 1),
-                            icon: Icon(
-                              index < rating
-                                  ? Icons.star_rounded
-                                  : Icons.star_border_rounded,
-                              color: ExplorerColors.goldDark,
-                              size: 32,
+                // Review Form Card (Already Reviewed / Edit Mode / Write Mode)
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _placeReviewsStream(),
+                  builder: (context, snapshot) {
+                    final currentUid = AppServices.auth.currentUser?.uid;
+                    final liveReviews = (snapshot.data?.docs ?? [])
+                        .map((doc) => {'id': doc.id, ...doc.data()})
+                        .toList();
+                    final userExistingReview = liveReviews.cast<Map<String, dynamic>?>().firstWhere(
+                      (r) => r != null && currentUid != null && '${r['userId'] ?? ''}' == currentUid,
+                      orElse: () => null,
+                    );
+                    final hasUserReviewed = userExistingReview != null;
+
+                    if (hasUserReviewed && !_isEditingReview) {
+                      final editCount = (userExistingReview['editCount'] as num? ?? 0).toInt();
+                      final aspectTags = List<String>.from(userExistingReview['aspectTags'] ?? const <String>[]);
+                      final ratingVal = (userExistingReview['rating'] as num?)?.round() ?? 5;
+
+                      return ExplorerCard(
+                        key: reviewFormKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE8F5E9),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: Color(0xFF2E7D32),
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'You have already reviewed this place.',
+                                        style: TextStyle(
+                                          color: ExplorerColors.navy,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        editCount < 2
+                                            ? 'You can edit your review up to 2 times (${2 - editCount} remaining).'
+                                            : 'You have reached the maximum of 2 review edits for this place.',
+                                        style: const TextStyle(
+                                          color: ExplorerColors.muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: ExplorerColors.background,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: ExplorerColors.navy.withValues(alpha: 0.08),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Row(
+                                        children: List.generate(5, (index) {
+                                          return Icon(
+                                            index < ratingVal
+                                                ? Icons.star_rounded
+                                                : Icons.star_border_rounded,
+                                            color: ExplorerColors.goldDark,
+                                            size: 16,
+                                          );
+                                        }),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        editCount > 0
+                                            ? '$editCount/2 edits used'
+                                            : '0/2 edits used (Original submission)',
+                                        style: const TextStyle(
+                                          color: ExplorerColors.muted,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (aspectTags.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      children: aspectTags.map((t) {
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: ExplorerColors.navySoft,
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            '🏷️ $t',
+                                            style: const TextStyle(
+                                              color: ExplorerColors.navy,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${userExistingReview['comment'] ?? ''}',
+                                    style: const TextStyle(
+                                      color: ExplorerColors.text,
+                                      fontSize: 12,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (editCount < 2)
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () => _startEditReview(userExistingReview),
+                                  icon: const Icon(Icons.edit, size: 16),
+                                  label: Text(
+                                    'Edit Review ($editCount/2 edits used)',
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF3E0),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFFB74D)),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.info_outline, size: 16, color: Color(0xFFE65100)),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '2/2 edits used • Maximum edits reached.',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFE65100),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    if (_isEditingReview) {
+                      return ExplorerCard(
+                        key: reviewFormKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ExplorerSectionTitle(
+                              'Edit Your Review',
+                              subtitle:
+                                  'Editing review (${_editingReviewOriginalEditCount}/2 edits used). ML sentiment & suspiciousness analysis will be automatically re-evaluated.',
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(
+                                5,
+                                (index) => IconButton(
+                                  onPressed: () => setState(() => rating = index + 1),
+                                  icon: Icon(
+                                    index < rating
+                                        ? Icons.star_rounded
+                                        : Icons.star_border_rounded,
+                                    color: ExplorerColors.goldDark,
+                                    size: 32,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Update highlights (optional):',
+                              style: TextStyle(
+                                color: ExplorerColors.navy,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: availableAspectTags.map((tag) {
+                                final isSelected = _selectedAspectTags.contains(tag);
+                                return FilterChip(
+                                  label: Text(tag),
+                                  selected: isSelected,
+                                  onSelected: (selected) {
+                                    setState(() {
+                                      if (selected) {
+                                        _selectedAspectTags.add(tag);
+                                      } else {
+                                        _selectedAspectTags.remove(tag);
+                                      }
+                                    });
+                                  },
+                                  selectedColor: ExplorerColors.goldSoft,
+                                  checkmarkColor: ExplorerColors.goldDark,
+                                  labelStyle: TextStyle(
+                                    color: isSelected ? ExplorerColors.goldDark : ExplorerColors.navy,
+                                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                                    fontSize: 11,
+                                  ),
+                                  backgroundColor: ExplorerColors.navySoft,
+                                  side: BorderSide(
+                                    color: isSelected
+                                        ? ExplorerColors.goldDark
+                                        : ExplorerColors.navy.withValues(alpha: 0.1),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: comment,
+                              maxLines: 4,
+                              maxLength: 500,
+                              decoration: const InputDecoration(
+                                labelText: 'Review comment',
+                                hintText: 'Update your review comment...',
+                                alignLabelWithHint: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: isUpdatingReview ? null : _saveReviewEdit,
+                                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                                    icon: isUpdatingReview
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            ),
+                                          )
+                                        : const Icon(Icons.check, size: 18),
+                                    label: Text(isUpdatingReview ? 'Saving...' : 'Update Review'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                OutlinedButton(
+                                  onPressed: isUpdatingReview ? null : _cancelEditReview,
+                                  style: OutlinedButton.styleFrom(minimumSize: const Size(80, 48)),
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // Standard Write Review Card
+                    return ExplorerCard(
+                      key: reviewFormKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const ExplorerSectionTitle(
+                            'Write Your Review',
+                            subtitle:
+                                'Visited this place? Select a star rating, choose aspect tags, and describe your experience.',
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(
+                              5,
+                              (index) => IconButton(
+                                onPressed: () => setState(() => rating = index + 1),
+                                icon: Icon(
+                                  index < rating
+                                      ? Icons.star_rounded
+                                      : Icons.star_border_rounded,
+                                  color: ExplorerColors.goldDark,
+                                  size: 32,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Add highlights to your review (optional):',
+                            style: TextStyle(
+                              color: ExplorerColors.navy,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: availableAspectTags.map((tag) {
+                              final isSelected = _selectedAspectTags.contains(tag);
+                              return FilterChip(
+                                label: Text(tag),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  setState(() {
+                                    if (selected) {
+                                      _selectedAspectTags.add(tag);
+                                    } else {
+                                      _selectedAspectTags.remove(tag);
+                                    }
+                                  });
+                                },
+                                selectedColor: ExplorerColors.goldSoft,
+                                checkmarkColor: ExplorerColors.goldDark,
+                                labelStyle: TextStyle(
+                                  color: isSelected ? ExplorerColors.goldDark : ExplorerColors.navy,
+                                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                                backgroundColor: ExplorerColors.navySoft,
+                                side: BorderSide(
+                                  color: isSelected
+                                      ? ExplorerColors.goldDark
+                                      : ExplorerColors.navy.withValues(alpha: 0.1),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: comment,
+                            maxLines: 4,
+                            maxLength: 500,
+                            decoration: const InputDecoration(
+                              labelText: 'Review comment',
+                              hintText:
+                                  'What did you enjoy? Was the information accurate?',
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: submitting ? null : submitReview,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(50),
+                            ),
+                            icon: const Icon(Icons.send_outlined),
+                            label: Text(
+                              submitting ? 'Submitting...' : 'Submit Review',
+                            ),
+                          ),
+                        ],
                       ),
-                      TextField(
-                        controller: comment,
-                        maxLines: 4,
-                        maxLength: 500,
-                        decoration: const InputDecoration(
-                          labelText: 'Review comment',
-                          hintText:
-                              'What did you enjoy? Was the information accurate?',
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: submitting ? null : submitReview,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(50),
-                        ),
-                        icon: const Icon(Icons.send_outlined),
-                        label: Text(
-                          submitting ? 'Submitting...' : 'Submit Review',
-                        ),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ]),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStarFilterChip({required String label, required int? value}) {
+    final isSelected = starFilter == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => setState(() => starFilter = value),
+      selectedColor: ExplorerColors.navy,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : ExplorerColors.navy,
+        fontSize: 10.5,
+        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+      ),
+      backgroundColor: ExplorerColors.navySoft,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      side: BorderSide(
+        color: isSelected ? ExplorerColors.navy : ExplorerColors.navy.withValues(alpha: 0.1),
       ),
     );
   }
@@ -1552,9 +2400,13 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
 }
 
 class _WriteReviewPrompt extends StatelessWidget {
-  const _WriteReviewPrompt({required this.onPressed});
+  const _WriteReviewPrompt({
+    required this.onPressed,
+    this.isAlreadyReviewed = false,
+  });
 
   final VoidCallback onPressed;
+  final bool isAlreadyReviewed;
 
   @override
   Widget build(BuildContext context) {
@@ -1566,36 +2418,49 @@ class _WriteReviewPrompt extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: ExplorerColors.goldSoft,
+              color: isAlreadyReviewed
+                  ? const Color(0xFFE8F5E9)
+                  : ExplorerColors.goldSoft,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.rate_review_outlined,
-              color: ExplorerColors.goldDark,
+            child: Icon(
+              isAlreadyReviewed
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.rate_review_outlined,
+              color: isAlreadyReviewed
+                  ? const Color(0xFF2E7D32)
+                  : ExplorerColors.goldDark,
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Already visited this place?',
-                  style: TextStyle(
+                  isAlreadyReviewed
+                      ? 'You reviewed this place'
+                      : 'Already visited this place?',
+                  style: const TextStyle(
                     color: ExplorerColors.navy,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text(
-                  'Write your own rating and review below.',
-                  style: TextStyle(color: ExplorerColors.muted, fontSize: 11),
+                  isAlreadyReviewed
+                      ? 'Tap to view or edit your review.'
+                      : 'Write your own rating and review below.',
+                  style: const TextStyle(color: ExplorerColors.muted, fontSize: 11),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          TextButton(onPressed: onPressed, child: const Text('Write Review')),
+          TextButton(
+            onPressed: onPressed,
+            child: Text(isAlreadyReviewed ? 'View / Edit' : 'Write Review'),
+          ),
         ],
       ),
     );

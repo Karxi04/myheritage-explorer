@@ -4013,6 +4013,8 @@ class PlaceReviewsData {
           'comment':
               'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
           'date': '3 days ago',
+          'aspectTags': ['Authentic Taste', 'Must Try', 'Value for Money'],
+          'helpfulCount': 14,
           'isVerified': true,
         },
         {
@@ -4021,6 +4023,8 @@ class PlaceReviewsData {
           'comment':
               'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal soup, and fast service even during lunch peak.',
           'date': '1 week ago',
+          'aspectTags': ['Authentic Taste', 'Friendly Service'],
+          'helpfulCount': 9,
           'isVerified': true,
         },
         {
@@ -4029,6 +4033,8 @@ class PlaceReviewsData {
           'comment':
               'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
           'date': '2 weeks ago',
+          'aspectTags': ['Must Try', 'Clean & Cozy'],
+          'helpfulCount': 6,
           'isVerified': true,
         },
       ];
@@ -4042,6 +4048,8 @@ class PlaceReviewsData {
           'comment':
               'Classic BM comfort meal! Steamed cup rice drenched in savory minced meat and roasted pork gravy. Nostalgic taste of Seberang Perai.',
           'date': '4 days ago',
+          'aspectTags': ['Authentic Taste', 'Must Try'],
+          'helpfulCount': 11,
           'isVerified': true,
         },
         {
@@ -4050,6 +4058,8 @@ class PlaceReviewsData {
           'comment':
               'Super satisfying breakfast near the old BM market. The pork belly is tender and the chili packs a nice kick.',
           'date': '1 week ago',
+          'aspectTags': ['Authentic Taste', 'Value for Money'],
+          'helpfulCount': 7,
           'isVerified': true,
         },
       ];
@@ -4064,6 +4074,8 @@ class PlaceReviewsData {
           'comment':
               'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow.',
           'date': '2 days ago',
+          'aspectTags': ['Authentic Taste', 'Must Try'],
+          'helpfulCount': 18,
           'isVerified': true,
         },
         {
@@ -4072,6 +4084,8 @@ class PlaceReviewsData {
           'comment':
               'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
           'date': '6 days ago',
+          'aspectTags': ['Authentic Taste', 'Value for Money'],
+          'helpfulCount': 11,
           'isVerified': true,
         },
       ];
@@ -4087,6 +4101,8 @@ class PlaceReviewsData {
           'comment':
               'Serene and magnificent Minor Basilica. Walking up the old hill shrine surrounded by lush trees was peaceful and spiritually uplifting.',
           'date': '5 days ago',
+          'aspectTags': ['Heritage Atmosphere', 'Scenic View', 'Photogenic'],
+          'helpfulCount': 15,
           'isVerified': true,
         },
         {
@@ -4095,6 +4111,8 @@ class PlaceReviewsData {
           'comment':
               'A heritage treasure in Bukit Mertajam with over 175 years of history. Beautiful stained glass and gothic architecture.',
           'date': '1 week ago',
+          'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
+          'helpfulCount': 10,
           'isVerified': true,
         },
       ];
@@ -4109,6 +4127,8 @@ class PlaceReviewsData {
           'comment':
               'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
           'date': '2 days ago',
+          'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Scenic View'],
+          'helpfulCount': 16,
           'isVerified': true,
         },
         {
@@ -4117,6 +4137,8 @@ class PlaceReviewsData {
           'comment':
               'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
           'date': '5 days ago',
+          'aspectTags': ['Heritage Atmosphere', 'Photogenic'],
+          'helpfulCount': 12,
           'isVerified': true,
         },
       ];
@@ -4130,6 +4152,8 @@ class PlaceReviewsData {
           'comment':
               'Overwhelmingly beautiful collection of Baba Nyonya jewelry, custom tiles, and gold-leaf wood carvings. Must visit in Penang!',
           'date': '1 day ago',
+          'aspectTags': ['Heritage Atmosphere', 'Must Try'],
+          'helpfulCount': 14,
           'isVerified': true,
         },
         {
@@ -4138,6 +4162,8 @@ class PlaceReviewsData {
           'comment':
               'Incredible preservation of Straits Chinese heritage. The museum docents are very knowledgeable.',
           'date': '4 days ago',
+          'aspectTags': ['Heritage Atmosphere', 'Friendly Service'],
+          'helpfulCount': 9,
           'isVerified': true,
         },
       ];
@@ -4151,6 +4177,8 @@ class PlaceReviewsData {
           'comment':
               'The octagonal central market is full of life! Friendly makcik traders, fresh kuih akok, and stunning hand-printed batiks.',
           'date': '3 days ago',
+          'aspectTags': ['Authentic Taste', 'Photogenic', 'Must Try'],
+          'helpfulCount': 13,
           'isVerified': true,
         },
         {
@@ -4159,6 +4187,8 @@ class PlaceReviewsData {
           'comment':
               'A sensory wonderland for travelers. The upper floor offers great photo angles of the colourful produce stalls below.',
           'date': '1 week ago',
+          'aspectTags': ['Photogenic', 'Heritage Atmosphere'],
+          'helpfulCount': 8,
           'isVerified': true,
         },
       ];
@@ -4172,6 +4202,8 @@ class PlaceReviewsData {
           'comment':
               'Gleaming steel and crystal domes reflecting over the Terengganu river at sunset. Breathtaking view!',
           'date': '2 days ago',
+          'aspectTags': ['Scenic View', 'Photogenic', 'Heritage Atmosphere'],
+          'helpfulCount': 16,
           'isVerified': true,
         },
         {
@@ -4180,6 +4212,8 @@ class PlaceReviewsData {
           'comment':
               'Unique modern Islamic architecture on Pulau Wan Man. Very tranquil and great breeze along the river promenade.',
           'date': '5 days ago',
+          'aspectTags': ['Scenic View', 'Photogenic'],
+          'helpfulCount': 10,
           'isVerified': true,
         },
       ];
@@ -4193,6 +4227,8 @@ class PlaceReviewsData {
           'comment':
               'Southeast Asia\'s finest museum experience! Five massive floors covering indigenous crafts, archaeology, and living traditions.',
           'date': '1 day ago',
+          'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Family Friendly'],
+          'helpfulCount': 17,
           'isVerified': true,
         },
         {
@@ -4201,6 +4237,8 @@ class PlaceReviewsData {
           'comment':
               'Immersive interactive exhibits that showcase Borneo\'s diverse ethnic heritage. Plan at least 2 hours here.',
           'date': '4 days ago',
+          'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
+          'helpfulCount': 11,
           'isVerified': true,
         },
       ];
@@ -4214,6 +4252,8 @@ class PlaceReviewsData {
           'comment':
               'Climbing the 272 colourful rainbow steps up to the colossal limestone cathedral cave is an iconic Malaysian experience.',
           'date': '2 days ago',
+          'aspectTags': ['Scenic View', 'Photogenic', 'Must Try'],
+          'helpfulCount': 19,
           'isVerified': true,
         },
         {
@@ -4222,6 +4262,8 @@ class PlaceReviewsData {
           'comment':
               'The Lord Murugan golden statue is majestic. Watch out for the cheeky monkeys along the stairway!',
           'date': '6 days ago',
+          'aspectTags': ['Scenic View', 'Photogenic'],
+          'helpfulCount': 12,
           'isVerified': true,
         },
       ];
@@ -4235,6 +4277,8 @@ class PlaceReviewsData {
           'comment':
               'Unbeatable red-grain coconut steamed rice with tender tuna (ikan tongkol) gulai. Truly the gold standard of East Coast cuisine.',
           'date': '3 days ago',
+          'aspectTags': ['Authentic Taste', 'Must Try'],
+          'helpfulCount': 14,
           'isVerified': true,
         },
       ];
@@ -4251,6 +4295,8 @@ class PlaceReviewsData {
           'comment':
               'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their signature specialty dishes!',
           'date': '3 days ago',
+          'aspectTags': ['Authentic Taste', 'Value for Money', 'Must Try'],
+          'helpfulCount': 12,
           'isVerified': true,
         },
         {
@@ -4259,6 +4305,8 @@ class PlaceReviewsData {
           'comment':
               'Loved the traditional atmosphere and friendly hospitality. A genuine taste of $area culinary culture.',
           'date': '1 week ago',
+          'aspectTags': ['Authentic Taste', 'Friendly Service'],
+          'helpfulCount': 9,
           'isVerified': true,
         },
         {
@@ -4267,6 +4315,8 @@ class PlaceReviewsData {
           'comment':
               'Great stop on our itinerary. Clean venue, authentic spices, and very welcoming staff.',
           'date': '2 weeks ago',
+          'aspectTags': ['Friendly Service', 'Clean & Cozy'],
+          'helpfulCount': 6,
           'isVerified': true,
         },
       ];
@@ -4282,6 +4332,8 @@ class PlaceReviewsData {
           'comment':
               'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing morning walks.',
           'date': '4 days ago',
+          'aspectTags': ['Scenic View', 'Photogenic', 'Family Friendly'],
+          'helpfulCount': 14,
           'isVerified': true,
         },
         {
@@ -4290,6 +4342,8 @@ class PlaceReviewsData {
           'comment':
               'Serene green atmosphere with great photo spots. Peaceful escape from the city bustle.',
           'date': '1 week ago',
+          'aspectTags': ['Scenic View', 'Photogenic'],
+          'helpfulCount': 10,
           'isVerified': true,
         },
       ];
@@ -4302,6 +4356,8 @@ class PlaceReviewsData {
         'comment':
             'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
         'date': '2 days ago',
+        'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Must Try'],
+        'helpfulCount': 13,
         'isVerified': true,
       },
       {
@@ -4310,6 +4366,8 @@ class PlaceReviewsData {
         'comment':
             'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
         'date': '5 days ago',
+        'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
+        'helpfulCount': 8,
         'isVerified': true,
       },
       {
@@ -4318,6 +4376,8 @@ class PlaceReviewsData {
         'comment':
             'Engaging visit and great cultural insights into Malaysian traditions. Don\'t forget to snap photos of the exterior details.',
         'date': '2 weeks ago',
+        'aspectTags': ['Friendly Service', 'Must Try'],
+        'helpfulCount': 5,
         'isVerified': true,
       },
     ];
