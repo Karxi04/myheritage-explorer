@@ -2053,29 +2053,200 @@ class AppServices {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
 
-      final validSamples = [
-        {
-          'reviewerName': 'Tan Mei Ling',
-          'rating': 5,
-          'comment':
-              'Exceptional experience! Authentic $category with top-quality service. Highly recommend visiting when in $area.',
-          'daysAgo': 2,
-        },
-        {
-          'reviewerName': 'Hafiz Ridzuan',
-          'rating': 5,
-          'comment':
-              'One of the best $category spots in $area. Generous portions and very welcoming staff.',
-          'daysAgo': 5,
-        },
-        {
-          'reviewerName': 'Sarah Jenkins',
-          'rating': 4,
-          'comment':
-              'Lovely cultural vibe and great attention to detail. Will definitely bring my friends here again.',
-          'daysAgo': 12,
-        },
-      ];
+      List<Map<String, dynamic>> validSamples;
+      final nameLower = placeName.toLowerCase();
+      final catLower = category.toLowerCase();
+
+      if (nameLower.contains('yam rice') || nameLower.contains('bm yam')) {
+        validSamples = [
+          {
+            'reviewerName': 'Tan Mei Ling',
+            'rating': 5,
+            'comment': 'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
+            'daysAgo': 2,
+            'aspectTags': ['Authentic Taste', 'Must Try', 'Value for Money'],
+            'helpfulCount': 14,
+          },
+          {
+            'reviewerName': 'Hafiz Ridzuan',
+            'rating': 5,
+            'comment': 'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal broth, and fast service even during lunch peak.',
+            'daysAgo': 5,
+            'aspectTags': ['Authentic Taste', 'Friendly Service'],
+            'helpfulCount': 9,
+          },
+          {
+            'reviewerName': 'Bernard Lim',
+            'rating': 4,
+            'comment': 'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
+            'daysAgo': 12,
+            'aspectTags': ['Must Try', 'Clean & Cozy'],
+            'helpfulCount': 6,
+          },
+        ];
+      } else if (nameLower.contains('duck egg') || nameLower.contains('char koay teow') || nameLower.contains('siam road')) {
+        validSamples = [
+          {
+            'reviewerName': 'Marcus Goh',
+            'rating': 5,
+            'comment': 'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow in Penang.',
+            'daysAgo': 1,
+            'aspectTags': ['Authentic Taste', 'Must Try'],
+            'helpfulCount': 18,
+          },
+          {
+            'reviewerName': 'Nurul Huda',
+            'rating': 5,
+            'comment': 'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
+            'daysAgo': 4,
+            'aspectTags': ['Authentic Taste', 'Value for Money'],
+            'helpfulCount': 11,
+          },
+          {
+            'reviewerName': 'Jason Tan',
+            'rating': 4,
+            'comment': 'Generous portions and wonderful smoky flavor. Definitely worth waiting a few minutes in line.',
+            'daysAgo': 10,
+            'aspectTags': ['Must Try'],
+            'helpfulCount': 5,
+          },
+        ];
+      } else if (nameLower.contains('cheong fatt tze') || nameLower.contains('blue mansion') || nameLower.contains('peranakan')) {
+        validSamples = [
+          {
+            'reviewerName': 'Sarah Jenkins',
+            'rating': 5,
+            'comment': 'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
+            'daysAgo': 2,
+            'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Scenic View'],
+            'helpfulCount': 16,
+          },
+          {
+            'reviewerName': 'Lim Wei Sheng',
+            'rating': 5,
+            'comment': 'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
+            'daysAgo': 6,
+            'aspectTags': ['Heritage Atmosphere', 'Photogenic'],
+            'helpfulCount': 12,
+          },
+          {
+            'reviewerName': 'Chloe Dupont',
+            'rating': 5,
+            'comment': 'Overwhelmingly beautiful collection of Baba Nyonya antiques, custom tiles, and gold-leaf wood carvings.',
+            'daysAgo': 14,
+            'aspectTags': ['Heritage Atmosphere', 'Must Try'],
+            'helpfulCount': 8,
+          },
+        ];
+      } else if (nameLower.contains('batu caves') || nameLower.contains('temple') || nameLower.contains('mosque') || nameLower.contains('basilica')) {
+        validSamples = [
+          {
+            'reviewerName': 'Ravi Kumar',
+            'rating': 5,
+            'comment': 'Serene and magnificent cultural landmark. The ornate carvings and peaceful atmosphere make it a must-visit.',
+            'daysAgo': 3,
+            'aspectTags': ['Heritage Atmosphere', 'Scenic View', 'Photogenic'],
+            'helpfulCount': 15,
+          },
+          {
+            'reviewerName': 'David Chong',
+            'rating': 5,
+            'comment': 'Remarkable historical craftsmanship and peaceful surroundings. Great educational experience for visitors.',
+            'daysAgo': 7,
+            'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
+            'helpfulCount': 10,
+          },
+          {
+            'reviewerName': 'Elena Volkova',
+            'rating': 4,
+            'comment': 'Majestic architecture and very welcoming caretakers. Don\'t forget to take photos of the exterior details.',
+            'daysAgo': 15,
+            'aspectTags': ['Photogenic', 'Scenic View'],
+            'helpfulCount': 7,
+          },
+        ];
+      } else if (catLower.contains('food') || catLower.contains('restaurant') || catLower.contains('cafe') || catLower.contains('kopitiam')) {
+        validSamples = [
+          {
+            'reviewerName': 'Kelvin Lee',
+            'rating': 5,
+            'comment': 'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their specialty dishes in $area!',
+            'daysAgo': 2,
+            'aspectTags': ['Authentic Taste', 'Value for Money', 'Must Try'],
+            'helpfulCount': 12,
+          },
+          {
+            'reviewerName': 'Aishah Rahman',
+            'rating': 5,
+            'comment': 'Loved the traditional atmosphere and warm hospitality. A genuine taste of $area culinary culture.',
+            'daysAgo': 5,
+            'aspectTags': ['Authentic Taste', 'Friendly Service'],
+            'helpfulCount': 9,
+          },
+          {
+            'reviewerName': 'Jason Miller',
+            'rating': 4,
+            'comment': 'Great stop on our itinerary. Clean venue, authentic spices, and very friendly staff.',
+            'daysAgo': 11,
+            'aspectTags': ['Friendly Service', 'Clean & Cozy'],
+            'helpfulCount': 6,
+          },
+        ];
+      } else if (catLower.contains('nature') || catLower.contains('park') || catLower.contains('beach')) {
+        validSamples = [
+          {
+            'reviewerName': 'Daniel Lim',
+            'rating': 5,
+            'comment': 'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing walks in $area.',
+            'daysAgo': 3,
+            'aspectTags': ['Scenic View', 'Photogenic', 'Family Friendly'],
+            'helpfulCount': 14,
+          },
+          {
+            'reviewerName': 'Grace Tan',
+            'rating': 5,
+            'comment': 'Serene green atmosphere with great photo spots. Peaceful escape with stunning panoramic views.',
+            'daysAgo': 7,
+            'aspectTags': ['Scenic View', 'Photogenic'],
+            'helpfulCount': 10,
+          },
+          {
+            'reviewerName': 'Amirul Hakim',
+            'rating': 4,
+            'comment': 'Clean environment and gentle ocean/mountain breeze. A very relaxing stop for travelers.',
+            'daysAgo': 13,
+            'aspectTags': ['Scenic View', 'Family Friendly'],
+            'helpfulCount': 5,
+          },
+        ];
+      } else {
+        validSamples = [
+          {
+            'reviewerName': 'Wong Chee Keong',
+            'rating': 5,
+            'comment': 'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
+            'daysAgo': 2,
+            'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Must Try'],
+            'helpfulCount': 13,
+          },
+          {
+            'reviewerName': 'Nur Syafiqah',
+            'rating': 5,
+            'comment': 'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
+            'daysAgo': 6,
+            'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
+            'helpfulCount': 8,
+          },
+          {
+            'reviewerName': 'Tom Harrison',
+            'rating': 4,
+            'comment': 'Engaging visit and great cultural insights into Malaysian traditions. Friendly staff and well curated.',
+            'daysAgo': 14,
+            'aspectTags': ['Friendly Service', 'Must Try'],
+            'helpfulCount': 5,
+          },
+        ];
+      }
 
       for (final sample in validSamples) {
         final date = DateTime.now().subtract(
@@ -2092,6 +2263,11 @@ class AppServices {
           'source': 'traveler_app',
           'rating': sample['rating'],
           'comment': sample['comment'],
+          'aspectTags': sample['aspectTags'] ?? const <String>[],
+          'helpfulCount': sample['helpfulCount'] ?? 0,
+          'helpfulUserIds': const <String>[],
+          'editCount': 0,
+          'isVerified': true,
           'status': 'valid',
           'flagReason': null,
           'flagReasons': const <String>[],
@@ -2106,7 +2282,7 @@ class AppServices {
           'mlRiskLevel': 'low',
           'mlNeedsReview': false,
           'mlDecision': 'normal',
-          'mlModelVersion': 'tfidf_sentiment_suspicious_v2',
+          'mlModelVersion': 'tfidf_multilingual_negation_sarcasm_v3',
           'createdAt': Timestamp.fromDate(date),
           'updatedAt': Timestamp.fromDate(date),
         });

@@ -3754,21 +3754,159 @@ async function seed() {
     }, { merge: true });
     placeCount++;
 
-    // 3. Seed 3-4 Valid Reviews
-    const validReviews = [
-      {
-        rating: 5,
-        comment: `Outstanding experience visiting ${name}! The authentic atmosphere, friendly hospitality, and deep cultural heritage make it a top must-visit spot in ${place.area}.`,
-      },
-      {
-        rating: 5,
-        comment: `Highly recommended! Excellent quality, vibrant local atmosphere, and thoroughly enjoyable visit. Don't forget to take photos.`,
-      },
-      {
-        rating: 4,
-        comment: `Great stop during our tour of ${place.area}. Clean surroundings, authentic offerings, and very informative.`,
-      },
-    ];
+    // 3. Seed 3-4 Authentic Place-Specific Malaysian Reviews
+    let validReviews = [];
+    const nameLower = name.toLowerCase();
+    const catLower = (place.category || '').toLowerCase();
+
+    if (nameLower.includes('yam rice') || nameLower.includes('bm yam')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!`,
+          aspectTags: ['Authentic Taste', 'Must Try', 'Value for Money'],
+          helpfulCount: 14,
+        },
+        {
+          rating: 5,
+          comment: `A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal broth, and fast service even during lunch peak.`,
+          aspectTags: ['Authentic Taste', 'Friendly Service'],
+          helpfulCount: 9,
+        },
+        {
+          rating: 4,
+          comment: `Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.`,
+          aspectTags: ['Must Try', 'Clean & Cozy'],
+          helpfulCount: 6,
+        },
+      ];
+    } else if (nameLower.includes('duck egg') || nameLower.includes('char koay teow') || nameLower.includes('siam road')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow in Penang.`,
+          aspectTags: ['Authentic Taste', 'Must Try'],
+          helpfulCount: 18,
+        },
+        {
+          rating: 5,
+          comment: `Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.`,
+          aspectTags: ['Authentic Taste', 'Value for Money'],
+          helpfulCount: 11,
+        },
+        {
+          rating: 4,
+          comment: `Generous portions and wonderful smoky flavor. Definitely worth waiting a few minutes in line.`,
+          aspectTags: ['Must Try'],
+          helpfulCount: 5,
+        },
+      ];
+    } else if (nameLower.includes('cheong fatt tze') || nameLower.includes('blue mansion') || nameLower.includes('peranakan')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.`,
+          aspectTags: ['Heritage Atmosphere', 'Photogenic', 'Scenic View'],
+          helpfulCount: 16,
+        },
+        {
+          rating: 5,
+          comment: `Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.`,
+          aspectTags: ['Heritage Atmosphere', 'Photogenic'],
+          helpfulCount: 12,
+        },
+        {
+          rating: 5,
+          comment: `Overwhelmingly beautiful collection of Baba Nyonya antiques, custom tiles, and gold-leaf wood carvings.`,
+          aspectTags: ['Heritage Atmosphere', 'Must Try'],
+          helpfulCount: 8,
+        },
+      ];
+    } else if (nameLower.includes('batu caves') || nameLower.includes('temple') || nameLower.includes('mosque') || nameLower.includes('basilica')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `Serene and magnificent cultural landmark. The ornate carvings and peaceful atmosphere make it a must-visit.`,
+          aspectTags: ['Heritage Atmosphere', 'Scenic View', 'Photogenic'],
+          helpfulCount: 15,
+        },
+        {
+          rating: 5,
+          comment: `Remarkable historical craftsmanship and peaceful surroundings. Great educational experience for visitors.`,
+          aspectTags: ['Heritage Atmosphere', 'Family Friendly'],
+          helpfulCount: 10,
+        },
+        {
+          rating: 4,
+          comment: `Majestic architecture and very welcoming caretakers. Don't forget to take photos of the exterior details.`,
+          aspectTags: ['Photogenic', 'Scenic View'],
+          helpfulCount: 7,
+        },
+      ];
+    } else if (catLower.includes('food') || catLower.includes('restaurant') || catLower.includes('cafe') || catLower.includes('kopitiam')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their signature specialty dishes in ${place.area}!`,
+          aspectTags: ['Authentic Taste', 'Value for Money', 'Must Try'],
+          helpfulCount: 12,
+        },
+        {
+          rating: 5,
+          comment: `Loved the traditional atmosphere and warm hospitality. A genuine taste of ${place.area} culinary culture.`,
+          aspectTags: ['Authentic Taste', 'Friendly Service'],
+          helpfulCount: 9,
+        },
+        {
+          rating: 4,
+          comment: `Great stop on our itinerary. Clean venue, authentic spices, and very friendly staff.`,
+          aspectTags: ['Friendly Service', 'Clean & Cozy'],
+          helpfulCount: 6,
+        },
+      ];
+    } else if (catLower.includes('nature') || catLower.includes('park') || catLower.includes('beach')) {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing walks in ${place.area}.`,
+          aspectTags: ['Scenic View', 'Photogenic', 'Family Friendly'],
+          helpfulCount: 14,
+        },
+        {
+          rating: 5,
+          comment: `Serene green atmosphere with great photo spots. Peaceful escape with stunning panoramic views.`,
+          aspectTags: ['Scenic View', 'Photogenic'],
+          helpfulCount: 10,
+        },
+        {
+          rating: 4,
+          comment: `Clean environment and gentle ocean/mountain breeze. A very relaxing stop for travelers.`,
+          aspectTags: ['Scenic View', 'Family Friendly'],
+          helpfulCount: 5,
+        },
+      ];
+    } else {
+      validReviews = [
+        {
+          rating: 5,
+          comment: `A must-visit cultural landmark in ${place.area}. Well preserved with rich historical background and engaging exhibits.`,
+          aspectTags: ['Heritage Atmosphere', 'Photogenic', 'Must Try'],
+          helpfulCount: 13,
+        },
+        {
+          rating: 5,
+          comment: `Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.`,
+          aspectTags: ['Heritage Atmosphere', 'Family Friendly'],
+          helpfulCount: 8,
+        },
+        {
+          rating: 4,
+          comment: `Engaging visit and great cultural insights into Malaysian traditions. Friendly staff and well curated.`,
+          aspectTags: ['Friendly Service', 'Must Try'],
+          helpfulCount: 5,
+        },
+      ];
+    }
 
     for (let i = 0; i < validReviews.length; i++) {
       const reviewDocId = `rev_${slug}_valid_${i + 1}`;
@@ -3779,14 +3917,20 @@ async function seed() {
         vendorId: vendorId,
         placeName: name,
         travelerName: reviewer,
+        reviewerName: reviewer,
         rating: validReviews[i].rating,
         comment: validReviews[i].comment,
+        aspectTags: validReviews[i].aspectTags || [],
+        helpfulCount: validReviews[i].helpfulCount || 0,
+        isVerified: true,
         status: 'valid',
-        mlDecision: 'valid',
+        mlDecision: 'normal',
+        mlRiskLevel: 'low',
         mlSuspiciousProbability: 0.04,
         mlRatingMismatch: false,
         flagReasons: [],
         createdAt: Timestamp.fromDate(new Date(Date.now() - (i + 1) * 86400000 * 3)),
+        updatedAt: Timestamp.fromDate(new Date(Date.now() - (i + 1) * 86400000 * 3)),
       }, { merge: true });
       reviewCount++;
     }

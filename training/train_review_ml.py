@@ -95,355 +95,413 @@ def prepare_suspicious_document(text: str, rating: int) -> str:
 
 
 # ---------------------------------------------------------
-# CORPUS DATA GENERATION (Multilingual, Negation, Sarcasm)
+# COMPREHENSIVE MALAYSIAN DATASET GENERATORS (8,500+ SAMPLES)
 # ---------------------------------------------------------
 
 places = [
-    'restaurant', 'cafe', 'heritage shop', 'craft studio', 'cultural centre',
-    'local market', 'nature experience', 'workshop', 'museum shop', 'food stall',
+    'kopitiam', 'heritage restaurant', 'craft studio', 'clan jetty',
+    'baba nyonya mansion', 'nasi kandar stall', 'night market bazaar',
+    'temple garden', 'coastal cafe', 'colonial fort', 'nature trail',
+    'cultural gallery', 'bakery', 'satay stall', 'curated museum',
+    'rooftop lounge', 'spice garden', 'street mural spot', 'tea house',
 ]
+
 areas = [
     'George Town', 'Air Itam', 'Batu Ferringhi', 'Balik Pulau', 'Bayan Lepas',
     'Tanjung Bungah', 'Butterworth', 'Bukit Mertajam', 'Teluk Bahang', 'Jelutong',
+    'Chinatown', 'Little India', 'Gurney', 'Campbell Street', 'Armenian Street',
 ]
+
+dishes_and_features = [
+    'Char Kway Teow with duck egg and wok hei',
+    'authentic Peranakan Nyonya Laksa',
+    'fragrant BM Yam Rice with salted vegetable duck soup',
+    'creamy Cendol with fresh coconut milk and Gula Melaka',
+    'piping hot Kuih Akok and traditional keropok lekor',
+    'crispy Roti Canai with aromatic dhal and mutton curry',
+    'freshly steamed Hainanese Kaya butter toast and kampung eggs',
+    'spiced Nasi Kandar with dark squid curry and fried chicken',
+    'succulent satay skewers with thick peanut gravy',
+    'steamed Nasi Dagang with tender tuna gulai',
+    'intricate Chinese dragon wood carvings and granite courtyards',
+    'majestic 272 steps and cathedral limestone caves',
+    'UNESCO heritage indigo courtyards and feng shui architecture',
+    'serene coastal breeze and golden sunset views',
+    'engaging docents explaining Baba Nyonya family customs',
+    'hand-drawn street art murals and vibrant artisan crafts',
+]
+
 positive_aspects = [
-    'friendly service', 'clear explanations', 'fresh food', 'clean environment',
-    'helpful staff', 'reasonable prices', 'authentic local products',
-    'interesting cultural details', 'well organised activities', 'comfortable space',
-    'beautiful presentation', 'memorable experience', 'good accessibility',
+    'friendly and attentive service', 'clear and engaging historical explanations',
+    'freshly prepared hot food', 'clean and well-maintained environment',
+    'very helpful and accommodating staff', 'reasonable and transparent prices',
+    'authentic traditional recipes', 'fascinating cultural details and architecture',
+    'well organised tour activities', 'comfortable air-conditioned seating',
+    'beautiful aesthetic presentation', 'truly memorable and enriching experience',
+    'convenient location and easy accessibility', 'rich authentic flavors',
+    'generous portion sizes', 'fast and efficient table turnover',
 ]
+
 negative_aspects = [
-    'slow service', 'unclear information', 'cold food', 'dirty tables',
-    'rude staff', 'overpriced items', 'poor organisation', 'crowded space',
-    'limited choices', 'confusing instructions', 'long waiting time',
-    'uncomfortable seating', 'disappointing quality',
+    'extremely slow and chaotic service', 'unclear information and lack of signages',
+    'cold, greasy and bland food', 'dirty sticky tables and unwashed utensils',
+    'rude and arrogant staff attitudes', 'grossly overpriced tourist trap pricing',
+    'poor crowd management and disorganised queues', 'cramped and poorly ventilated space',
+    'limited food options with many items out of stock', 'confusing ordering process',
+    'over an hour waiting time for simple orders', 'uncomfortable broken seating',
+    'stale ingredients lacking freshness', 'noisy and stressful environment',
 ]
+
 neutral_aspects = [
-    'average waiting time', 'standard facilities', 'a moderate selection',
-    'a simple layout', 'a short activity', 'basic information',
-    'an ordinary experience', 'limited but acceptable choices',
+    'average waiting times during rush hour', 'standard basic facilities',
+    'a moderate selection of local dishes', 'a simple and functional seating layout',
+    'a relatively brief walking tour', 'basic informative signage',
+    'an ordinary tourist stop without surprises', 'acceptable food quality for the price',
+    'decent place for a quick photo stop', 'standard kopitiam ambiance',
 ]
 
-positive_templates = [
-    'The {place} in {area} had {a1} and {a2}. I enjoyed the visit and would return.',
-    'I had a very good experience at this {place}. The {a1} made the visit worthwhile.',
-    'This was one of the better stops in {area}. I appreciated the {a1} and {a2}.',
-    'The visit was enjoyable from start to finish, especially because of the {a1}.',
-    'A strong local business with {a1}. The overall experience felt welcoming and reliable.',
-    'The {place} offered {a1} and {a2}, which matched what I expected from the description.',
-]
-negative_templates = [
-    'The {place} in {area} had {a1} and {a2}. I would not recommend this visit.',
-    'My experience was disappointing because of the {a1}. The situation did not improve.',
-    'I expected a better visit, but the {a1} and {a2} made it frustrating.',
-    'The overall experience was poor. The main problem was the {a1}.',
-    'This stop did not meet expectations because of the {a1} and {a2}.',
-    'I left dissatisfied after encountering {a1}. The visit was not worth the time.',
-]
-neutral_templates = [
-    'The {place} in {area} provided {a1}. The visit was acceptable but not especially memorable.',
-    'The experience was mixed. There was {a1}, although the overall visit was manageable.',
-    'This was an average stop with {a1}. It may suit some travelers more than others.',
-    'The {place} offered {a1} and the visit was generally as expected.',
-    'There were both strengths and weaknesses, so my experience was neutral overall.',
+food_positive_templates = [
+    'The {dish} at this {place} in {area} was absolutely outstanding! Loved the {a1} and {a2}.',
+    'Incredible food experience in {area}! The {dish} had unmatched authentic flavors and {a1}.',
+    'Best stop for local food lovers. The {dish} exceeded expectations with {a1}. Will come back!',
+    'A must-try culinary gem in {area}. The {dish} was fresh and delicious, accompanied by {a1}.',
+    'Loved every bite of the {dish}. The {a1} and {a2} made our visit thoroughly enjoyable.',
+    'Authentic Malaysian taste at its best! The {dish} in {area} was top tier, plus {a1}.',
 ]
 
-# Specific Negation Dataset
-negation_positive_examples = [
-    ("not bad at all, really enjoyed the heritage atmosphere", 4),
+food_negative_templates = [
+    'Very disappointed with the {dish} at this {place} in {area}. We encountered {a1} and {a2}.',
+    'The {dish} was tasteless and overpriced. The {a1} made the dining experience unbearable.',
+    'Overhyped tourist stop in {area}. The {dish} was cold, and we had to endure {a1}.',
+    'Terrible meal. The {dish} lacked flavor and freshness, coupled with {a1} and {a2}.',
+    'Would not return to this {place}. The {dish} was disappointing and the {a1} ruined our mood.',
+]
+
+heritage_positive_templates = [
+    'A breathtaking cultural stop in {area}! The {dish} and {a1} made it deeply memorable.',
+    'Incredible historical landmark in {area}. We appreciated the {a1} and {a2}. Highly recommended!',
+    'Rich in tradition and heritage. Exploring the {place} with {a1} was the highlight of our trip.',
+    'Wonderful preservation of Malaysian culture in {area}. Noticed the {a1} and {a2}.',
+    'Such a serene and educational experience at the {place}. Impressed by {a1} and {a2}.',
+]
+
+heritage_negative_templates = [
+    'Poorly maintained heritage {place} in {area}. Encountered {a1} and {a2}.',
+    'Not worth the entrance fee or trip to {area}. The main issue was {a1} with {a2}.',
+    'Disappointing visit to this {place}. Felt neglected with {a1} and very poor visitor guidance.',
+    'Expected rich cultural insights but was met with {a1} and {a2}. Would not recommend.',
+]
+
+neutral_general_templates = [
+    'Visited this {place} in {area}. It offered {a1}. An okay stop overall if you are nearby.',
+    'An average stop in {area} featuring {a1}. Nothing particularly extraordinary but acceptable.',
+    'The {place} was decent. There was {a1}, although {a2} could be improved.',
+    'Standard experience in {area}. Food and service had {a1}. Convenient for a short rest.',
+    'Fair experience overall with {a1}. Suits travelers who just want a brief stop.',
+]
+
+negation_positive_pool = [
+    ("not bad at all, really enjoyed the heritage atmosphere and friendly guide", 4),
     ("not bad, quite liked the food and friendly service", 4),
-    ("it wasn't terrible, actually quite decent and pleasant", 4),
-    ("was not terrible at all, worth a visit", 4),
-    ("I don't hate it, in fact the experience was quite good", 4),
+    ("it wasn't terrible, actually quite decent and pleasant for lunch", 4),
+    ("was not terrible at all, worth a visit when in Penang", 4),
+    ("I don't hate it, in fact the experience was quite good and authentic", 4),
     ("do not hate it, pretty good food and nice staff", 4),
-    ("not disappointed with the visit, everything was great", 5),
-    ("definitely not disappointed, fantastic experience", 5),
-    ("went without any problems, staff was super helpful", 5),
-    ("tak mengecewakan, makanan sedap dan servis bagus", 5),
-    ("tak menghampakan, memang berbaloi singgah sini", 5),
-    ("tidak mengecewakan langsung, suasana sangat cantik", 5),
-    ("tidak menghampakan, layanan staf sangat mesra", 5),
-    ("tak menyesal datang sini, semuanya terbaik", 5),
-    ("tidak menyesal melawat tempat ini, pengalaman menarik", 5),
+    ("not disappointed with the visit, everything was great and tasty", 5),
+    ("definitely not disappointed, fantastic experience with family", 5),
+    ("went without any problems, staff was super helpful and caring", 5),
+    ("tak mengecewakan, makanan sedap dan servis bagus sangat", 5),
+    ("tak menghampakan, memang berbaloi singgah sini makan malam", 5),
+    ("tidak mengecewakan langsung, suasana sangat cantik dan tenang", 5),
+    ("tidak menghampakan, layanan staf sangat mesra dan prihatin", 5),
+    ("tak menyesal datang sini, semuanya terbaik dan memuaskan", 5),
+    ("tidak menyesal melawat tempat ini, pengalaman menarik dan berilmu", 5),
     ("tidak ada masalah, urusan sangat lancar dan puas hati", 5),
-    ("tidak rugi datang sini, sangat berbaloi", 5),
-    ("tidak mengecewakan, tempat bersejarah yang menarik", 4),
-    ("not bad la, food sedap and price okay", 4),
-    ("was not bad, pretty nice spot for tea", 4),
+    ("tidak rugi datang sini, sangat berbaloi dengan harganya", 5),
+    ("tak rugi langsung cuba laksa nyonya kat sini, sedap terangkat", 5),
+    ("tidak mengecewakan, tempat bersejarah yang menarik dan bersih", 4),
+    ("not bad la, food sedap and price okay for family", 4),
+    ("was not bad, pretty nice spot for afternoon tea and dessert", 4),
+    ("never had any issue here, consistently delicious and fresh", 5),
+    ("not overhyped at all, the char kway teow really delivers top wok hei", 5),
+    ("tak pernah rasa cendol sesedap ini, santan pekat manis sedang elok", 5),
+    ("not an ordinary meal, truly sensational flavors and great hospitality", 5),
 ]
 
-negation_negative_examples = [
-    ("not good, very rude staff and dirty tables", 1),
-    ("not great at all, waited one hour for cold food", 1),
-    ("definitely not recommended, horrible service", 1),
-    ("not worth the price or the long queue", 1),
-    ("was not impressed, disappointing quality", 2),
-    ("did not like it, very confusing and disorganized", 1),
-    ("never coming back here again, awful experience", 1),
-    ("not worth visiting, totally overrated", 1),
-    ("tak sedap langsung, makanan sejuk dan masin", 1),
-    ("tidak sedap dan staf sangat biadab", 1),
-    ("tak bagus, servis lambat gila dan kotor", 1),
-    ("tidak bagus langsung, pengalaman sangat mengecewakan", 1),
-    ("kurang memuaskan, tempat sesak dan tiada layanan", 2),
-    ("tak mesra langsung, staf buat muka masam", 1),
-    ("tidak bersih dan meja melekit, loya", 1),
-    ("bukan sedap sangat pun, harga cekik darah", 1),
-    ("tak berbaloi dengan harga yang mahal", 1),
-    ("tak best langsung, rugi masa dan duit", 1),
-    ("tidak selesa dan sangat bising", 2),
-    ("tak puas hati dengan layanan pekerja", 1),
+negation_negative_pool = [
+    ("not good, very rude staff and dirty tables everywhere", 1),
+    ("not great at all, waited one hour for cold and soggy food", 1),
+    ("definitely not recommended, horrible service and bad attitude", 1),
+    ("not worth the price or the long queue under the hot sun", 1),
+    ("was not impressed, disappointing quality and stale meat", 2),
+    ("did not like it, very confusing and disorganized place", 1),
+    ("never coming back here again, awful experience from start to end", 1),
+    ("not worth visiting, totally overrated and overpriced tourist trap", 1),
+    ("tak sedap langsung, makanan sejuk dan masin melampau", 1),
+    ("tidak sedap dan staf sangat biadab bila pelanggan tanya", 1),
+    ("tak bagus, servis lambat gila dan tempat berbau hapak", 1),
+    ("tidak bagus langsung, pengalaman sangat mengecewakan kami", 1),
+    ("kurang memuaskan, tempat sesak dan tiada layanan langsung", 2),
+    ("tak mesra langsung, staf buat muka masam dan campak menu", 1),
+    ("tidak bersih dan meja melekit, rasa loya nak makan", 1),
+    ("bukan sedap sangat pun, harga cekik darah untuk pelancong", 1),
+    ("tak berbaloi dengan harga yang mahal dan porsi sedikit", 1),
+    ("tak best langsung, rugi masa dan duit datang jauh-jauh", 1),
+    ("tidak selesa dan sangat bising, pengurusan teruk", 2),
+    ("tak puas hati dengan layanan pekerja yang pemalas", 1),
+    ("not acceptable hygiene, found flies in the dining area", 1),
+    ("no customer care at all, ignored by waiters for 40 minutes", 1),
+    ("tak segar langsung lauk pauk, rasa macam makanan semalam", 1),
 ]
 
-# Multilingual Pure Malay Dataset
-malay_positive_examples = [
-    ("Makanan sangat sedap dan staf peramah, layanan terbaik!", 5),
+malay_positive_pool = [
+    ("Makanan sangat sedap dan staf peramah, layanan terbaik tiada tandingan!", 5),
     ("Tempat yang cantik dan sangat berbaloi untuk dikunjungi bersama keluarga.", 5),
-    ("Servis sangat pantas dan mesra, makanan panas dan segar.", 5),
-    ("Pengalaman yang sangat memuaskan, tempat warisan terpelihara.", 5),
-    ("Suasana bersih, tenang dan selesa. Pasti akan datang lagi.", 5),
-    ("Makanan enak dan harga sangat berpatutan, porsi banyak.", 4),
-    ("Pemandangan indah dan staf banyak membantu memberi penerangan.", 5),
-    ("Lokasi strategik dan tempat menarik untuk pelancong.", 4),
-    ("Layanan cemerlang, sangat mengagumkan!", 5),
-    ("Tempat warisan bersejarah yang sangat bermakna dan dijaga rapi.", 5),
+    ("Servis sangat pantas dan mesra, makanan panas dan segar dari dapur.", 5),
+    ("Pengalaman yang sangat memuaskan, tempat warisan terpelihara dengan indah.", 5),
+    ("Suasana bersih, tenang dan selesa. Pasti akan datang lagi bila ke sini.", 5),
+    ("Makanan enak dan harga sangat berpatutan, porsi banyak dan mengenyangkan.", 5),
+    ("Pemandangan indah dan staf banyak membantu memberi penerangan sejarah.", 5),
+    ("Lokasi strategik dan tempat menarik untuk pelancong yang sukakan seni warisan.", 4),
+    ("Layanan cemerlang, rasa masakan asli turun-temurun sangat mengagumkan!", 5),
+    ("Tempat warisan bersejarah yang sangat bermakna dan dijaga dengan rapi.", 5),
+    ("Nasi kandar padu, kuah campur pekat dan ayam goreng berempah rangup!", 5),
+    ("Cendol pulut terbaik di George Town, manis berlemak santan segar.", 5),
+    ("Keropok lekor panas gebu, sos pencicah manis pedas memang ngam.", 5),
+    ("Senibina klasik Baba Nyonya yang memukau, banyak sudut bergambar menarik.", 5),
+    ("Sangat berpuas hati dengan kebersihan dan keramahan pekerja di sini.", 5),
 ]
 
-malay_negative_examples = [
-    ("Makanan tak sedap dan servis sangat lambat, tunggu sejam.", 1),
-    ("Staf sangat biadab dan tempat kotor berdebu.", 1),
-    ("Sangat mengecewakan dan tidak berbaloi dengan harga tiket.", 1),
-    ("Harga mahal melampau tapi kualiti teruk dan mengecewakan.", 1),
-    ("Layanan buruk, pekerja malas dan tempat tidak terurus.", 1),
-    ("Tandas kotor dan bau busuk, makanan basi.", 1),
-    ("Rugi masa datang sini, langsung tiada apa yang menarik.", 1),
-    ("Pengurusan sangat lemah, beratur panjang tanpa penerangan.", 1),
-    ("Tempat panas dan tidak selesa, staf tidak mesra pelanggan.", 1),
-    ("Sangat teruk, tak akan syorkan kepada sesiapa.", 1),
+malay_negative_pool = [
+    ("Makanan tak sedap dan servis sangat lambat, kami tunggu hampir sejam.", 1),
+    ("Staf sangat biadab dan tempat kotor berdebu, tandas tidak dibersihkan.", 1),
+    ("Sangat mengecewakan dan tidak berbaloi dengan harga tiket yang mahal.", 1),
+    ("Harga mahal melampau tapi kualiti teruk dan mengecewakan selera.", 1),
+    ("Layanan buruk, pekerja malas dan tempat tidak terurus langsung.", 1),
+    ("Tandas kotor dan bau busuk menyengat, makanan pun rasa basi.", 1),
+    ("Rugi masa datang sini, langsung tiada apa yang menarik seperti diiklan.", 1),
+    ("Pengurusan sangat lemah, beratur panjang tanpa penerangan jelas.", 1),
+    ("Tempat panas dan tidak selesa, kipas rosak dan staf buat endah tak endah.", 1),
+    ("Sangat teruk, tak akan syorkan kepada sesiapa pun untuk datang.", 1),
+    ("Kuah kari cair dan tawar, nasi keras macam tak masak elok.", 1),
+    ("Harga cekik darah! Kena caj tersembunyi yang langsung tak masuk akal.", 1),
+    ("Pekerja bermasam muka dan berkira bila minta sudu tambahan.", 1),
 ]
 
-malay_neutral_examples = [
-    ("Biasa sahaja, makanan boleh tahan tapi tiada yang istimewa.", 3),
-    ("Tempat okay tapi agak sesak dengan pelancong.", 3),
-    ("Pengalaman standard, harga sederhana.", 3),
-    ("Boleh diterima tetapi perlukan penambahbaikan dari segi kemudahan.", 3),
-    ("Sederhana sahaja, sesuai untuk singgah sebentar.", 3),
+malay_neutral_pool = [
+    ("Biasa sahaja, makanan boleh tahan tapi tiada yang begitu istimewa.", 3),
+    ("Tempat okay tapi agak sesak dengan pelancong pada hujung minggu.", 3),
+    ("Pengalaman standard, harga sederhana dan servis bersahaja.", 3),
+    ("Boleh diterima tetapi perlukan penambahbaikan dari segi kemudahan awam.", 3),
+    ("Sederhana sahaja, sesuai untuk singgah sebentar jika lalu di kawasan ini.", 3),
+    ("Rasa makanan biasa, harga berpatutan dengan saiz hidangan.", 3),
+    ("Pilihan kuih agak terhad waktu petang, tetapi rasanya boleh dimakan.", 3),
 ]
 
-# Multilingual Manglish / Mixed Language Dataset
-manglish_positive_examples = [
+manglish_positive_pool = [
     ("Food sedap gila and the ambience was top notch, totally recommended!", 5),
-    ("Place nice gila, staff very friendly and polite.", 5),
-    ("Cendol memang mantap, authentic Penang taste so syok!", 5),
-    ("Roti canai crispy gila, kuah kari pekat sedap!", 5),
-    ("Lekor panas-panas, best gila wei! Must try!", 5),
-    ("Super nice heritage vibes, staff helpful gila.", 5),
-    ("Murah and sedap, really worth the visit for foodies.", 5),
-    ("Mantap gila place, very instagrammable and peaceful.", 4),
+    ("Place nice gila, staff very friendly and polite throughout our visit.", 5),
+    ("Cendol memang mantap, authentic Penang taste so syok and refreshing!", 5),
+    ("Roti canai crispy gila, kuah kari pekat sedap terangkat!", 5),
+    ("Lekor panas-panas, best gila wei! Must try if you come here!", 5),
+    ("Super nice heritage vibes, staff helpful gila and knowledgeable.", 5),
+    ("Murah and sedap, really worth the visit for genuine foodies.", 5),
+    ("Mantap gila place, very instagrammable and peaceful to chill out.", 4),
+    ("Char kway teow padu gila, duck egg yolk so creamy and lots of cockles!", 5),
+    ("Service tip top and food comes super fast. Truly steady la!", 5),
+    ("Nasi lemak bungkus sambal padu, aroma daun pisang wangian asli.", 5),
+    ("Yam rice soup damn solid bro, salted vege duck soup so comforting!", 5),
 ]
 
-manglish_negative_examples = [
-    ("Service damn slow, food pun biasa je and overpriced.", 1),
-    ("Makan not nice, price mahal gila and staff sombong.", 1),
-    ("Staff very rude, tempat kotor gila potong stim.", 1),
-    ("Wait so long for cold food, totally tak worth it.", 1),
-    ("Overrated gila, queue one hour for tasteless cendol.", 1),
-    ("Hancur mood, cashier buat muka masam and rude.", 1),
-    ("Dirty tables everywhere, damn disgusting experience.", 1),
-    ("Very bad experience la, rugi duit and time.", 1),
+manglish_negative_pool = [
+    ("Service damn slow, food pun biasa je and overpriced for tourists.", 1),
+    ("Makan not nice, price mahal gila and staff sombong nak mampus.", 1),
+    ("Staff very rude, tempat kotor gila potong stim bila nak makan.", 1),
+    ("Wait so long for cold food, totally tak worth it and bad mood.", 1),
+    ("Overrated gila, queue one hour for tasteless cendol and rude cashier.", 1),
+    ("Hancur mood, cashier buat muka masam and rude when taking orders.", 1),
+    ("Dirty tables everywhere, damn disgusting experience and smelly toilet.", 1),
+    ("Very bad experience la, rugi duit and time wasted sitting there.", 1),
+    ("Food cold and tasteless, price like 5 star hotel but hawker standard.", 1),
+    ("Waited 45 mins just for one plate of fried noodles, never again!", 1),
 ]
 
-manglish_neutral_examples = [
-    ("Okay la, not bad and not super good either.", 3),
-    ("Food boleh la, but service a bit slow.", 3),
-    ("Cendol okay je, nothing much to shout about.", 3),
-    ("Place quite nice but parking susah gila.", 3),
-    ("Average taste la, standard price for tourists.", 3),
+manglish_neutral_pool = [
+    ("Okay la, not bad and not super good either. Standard standard.", 3),
+    ("Food boleh la, but service a bit slow during weekend rush.", 3),
+    ("Cendol okay je, nothing much to shout about but cools you down.", 3),
+    ("Place quite nice for photos but parking susah gila around here.", 3),
+    ("Average taste la, standard tourist price and normal portion size.", 3),
+    ("Nothing special la, can try once if you are walking nearby.", 3),
 ]
 
-# Multilingual Chinese (Mandarin) Dataset
-chinese_positive_examples = [
-    ("食物非常好吃，服务态度很亲切，非常推荐！", 5),
-    ("环境优美，员工很有礼貌，值得再来。", 5),
-    ("非常棒的体验，东西很好吃，性价比很高。", 5),
-    ("风景很美，拍照很好看，全家人都很喜欢这个地方。", 5),
+chinese_positive_pool = [
+    ("食物非常好吃，服务态度很亲切，非常推荐大家来尝试！", 5),
+    ("环境优美古色古香，员工很有礼貌，值得带家人再来。", 5),
+    ("非常棒的体验，东西很好吃，分量足且性价比很高。", 5),
+    ("风景很美，拍照很好看，全家人都很喜欢这个历史古迹。", 5),
     ("食物新鲜美味，老板很热情好客，五星好评！", 5),
-    ("文化底蕴深厚，讲解很清楚，很有收获的旅行。", 5),
-    ("煎蕊很好吃，红豆很绵密，正宗槟城风味！", 5),
-    ("干净卫生，上菜速度快，体验非常满意。", 4),
-    ("物超所值，值得推荐给所有来槟城的朋友。", 5),
-    ("非常棒的古迹景点，保存得很好。", 5),
+    ("文化底蕴深厚，讲解员解说很清楚，很有收获的文化之旅。", 5),
+    ("煎蕊红豆绵密，椰糖香浓正宗，正宗槟城老字号风味！", 5),
+    ("干净卫生，上菜速度快，整体用餐体验非常满意。", 4),
+    ("物超所值，值得推荐给所有来马来西亚旅游的朋友。", 5),
+    ("非常棒的古迹景点，建筑与壁画保存得非常完善。", 5),
+    ("炒粿条镬气十足，鸭蛋香味浓郁，虾肉新鲜弹牙！", 5),
+    ("娘惹糕点色彩缤纷口感细腻，椰香十足，必吃推荐！", 5),
 ]
 
-chinese_negative_examples = [
-    ("食物很难吃，服务员态度极差，完全不推荐！", 1),
-    ("非常失望，排队一个小时结果食物是冷的。", 1),
-    ("价格昂贵但质量很差，千万不要来这里踩雷。", 1),
-    ("卫生条件很差，桌子油腻腻的，服务态度恶劣。", 1),
-    ("体验非常糟糕，完全是宰客的黑店。", 1),
-    ("服务非常慢，等了很久都没人理，态度太傲慢了。", 1),
-    ("又贵又难吃，环境脏乱差，差评！", 1),
-    ("极其恶劣的体验，千万别来浪费时间和金钱。", 1),
-    ("食物不新鲜，吃了肚子不舒服，太恶心了。", 1),
-    ("管理混乱，排队毫无秩序，非常差劲。", 1),
+chinese_negative_pool = [
+    ("食物很难吃，服务员态度极差，完全不推荐大家来踩雷！", 1),
+    ("非常失望，排队一个多小时结果食物是冷的而且很难吃。", 1),
+    ("价格昂贵但质量很差，完全是坑游客的黑店，千万别来。", 1),
+    ("卫生条件很差，桌子油腻腻的，服务态度傲慢无礼。", 1),
+    ("体验非常糟糕，管理混乱，完全不值得花费时间和金钱。", 1),
+    ("服务非常慢，等了快一个小时都没人理，催单还给脸色看。", 1),
+    ("又贵又难吃，环境脏乱差，给一颗星都嫌多！", 1),
+    ("极其恶劣的体验，千万别来浪费宝贵的旅游假期。", 1),
+    ("食物不新鲜，吃完回去肚子不舒服，卫生令人担忧。", 1),
+    ("管理混乱，排队毫无秩序，态度极其恶劣差劲。", 1),
 ]
 
-chinese_neutral_examples = [
-    ("食物普通，环境还可以，价格中规中矩。", 3),
-    ("味道一般般，没有特别惊艳的地方。", 3),
-    ("马马虎虎，算是一个普通的打卡景点吧。", 3),
-    ("整体还行，人有点多，可以去看看。", 3),
-    ("中规中矩，无功无过，适合顺路逛逛。", 3),
+chinese_neutral_pool = [
+    ("食物普通，环境还可以，价格算中规中矩。", 3),
+    ("味道一般般，没有网络上吹捧得那么惊艳。", 3),
+    ("马马虎虎，算是一个普通的打卡景点吧，顺路可以看看。", 3),
+    ("整体还行，周末游客比较多，稍微有点拥挤。", 3),
+    ("中规中矩，无功无过，适合路过时简单吃个便饭。", 3),
 ]
 
-# Legitimate Short Reviews (To prevent False Positive Spam flagging)
 legit_short_positive = [
-    ("Good food", 4),
-    ("Nice place", 4),
-    ("Friendly staff", 5),
-    ("Great experience", 5),
-    ("Clean and tidy", 4),
-    ("Excellent service", 5),
-    ("Loved the view", 5),
-    ("Worth visiting", 5),
-    ("Delicious food", 5),
-    ("Very good place", 5),
-    ("Sedap gila", 5),
-    ("Servis mantap", 5),
-    ("Tempat cantik", 5),
-    ("Terbaik", 5),
-    ("Puas hati", 5),
-    ("好吃", 5),
-    ("很棒", 5),
-    ("很喜欢", 5),
-    ("赞", 5),
-    ("推荐", 5),
+    ("Good food", 4), ("Nice place", 4), ("Friendly staff", 5),
+    ("Great experience", 5), ("Clean and tidy", 4), ("Excellent service", 5),
+    ("Loved the view", 5), ("Worth visiting", 5), ("Delicious food", 5),
+    ("Very good place", 5), ("Sedap gila", 5), ("Servis mantap", 5),
+    ("Tempat cantik", 5), ("Terbaik", 5), ("Puas hati", 5),
+    ("好吃", 5), ("很棒", 5), ("很喜欢", 5), ("赞", 5), ("推荐", 5),
+    ("Must visit", 5), ("Very tasty", 5), ("Super nice", 5), ("Mantap", 5),
 ]
 
 legit_short_negative = [
-    ("Bad food", 1),
-    ("Dirty place", 1),
-    ("Rude staff", 1),
-    ("Terrible service", 1),
-    ("Overpriced and slow", 1),
-    ("Very disappointing", 1),
-    ("Not recommended", 1),
-    ("Tak sedap", 1),
-    ("Servis teruk", 1),
-    ("Tempat kotor", 1),
-    ("Mengecewakan", 1),
-    ("Rugi duit", 1),
-    ("难吃", 1),
-    ("态度差", 1),
-    ("太脏了", 1),
-    ("差评", 1),
-    ("不推荐", 1),
+    ("Bad food", 1), ("Dirty place", 1), ("Rude staff", 1),
+    ("Terrible service", 1), ("Overpriced and slow", 1), ("Very disappointing", 1),
+    ("Not recommended", 1), ("Tak sedap", 1), ("Servis teruk", 1),
+    ("Tempat kotor", 1), ("Mengecewakan", 1), ("Rugi duit", 1),
+    ("难吃", 1), ("态度差", 1), ("太脏了", 1), ("差评", 1), ("不推荐", 1),
+    ("Worst meal", 1), ("Terrible", 1), ("Avoid this", 1), ("Hancur", 1),
 ]
 
 spam_templates = [
     'Buy now limited offer discount discount discount contact me for free vouchers',
-    'Follow my page and message me for the best promotion code today on whatsapp',
-    'Amazing amazing amazing amazing amazing amazing amazing',
-    'Bad bad bad bad bad bad bad bad bad',
-    'asdf qwer zxcv lorem ipsum random review text asdf',
-    'Visit my website https://example.com for cheap packages and free gifts',
-    'Contact +60123456789 for instant cashback and crypto promo discount',
-    'Claim your free hotel voucher at http://scam-promo.com now!',
+    'Follow my telegram channel and message me for the best promotion code today on whatsapp',
+    'Amazing amazing amazing amazing amazing amazing amazing amazing',
+    'Bad bad bad bad bad bad bad bad bad bad bad',
+    'asdf qwer zxcv lorem ipsum random review text asdf zxcv',
+    'Visit my website https://example-deals.com for cheap packages and free gifts',
+    'Contact +60123456789 for instant cashback and crypto promo discount vouchers',
+    'Claim your free 500 dollar hotel voucher at http://scam-promo.com right now!',
+    'Get unlimited followers and likes fast dm on instagram @promo_bot_now',
+    '11111111111 222222222 33333333333 discount call now',
+    'Free bitcoin giveaway click http://crypto-win.xyz fast before ended',
 ]
 
-def make_text(template: str, sentiment: str) -> str:
+def make_english_text(template: str, sentiment: str) -> str:
+    dish = RNG.choice(dishes_and_features)
+    place = RNG.choice(places)
+    area = RNG.choice(areas)
     if sentiment == 'positive':
         a1, a2 = RNG.sample(positive_aspects, 2)
     elif sentiment == 'negative':
         a1, a2 = RNG.sample(negative_aspects, 2)
     else:
         a1, a2 = RNG.choice(neutral_aspects), RNG.choice(neutral_aspects)
-    return template.format(place=RNG.choice(places), area=RNG.choice(areas), a1=a1, a2=a2)
+    return template.format(dish=dish, place=place, area=area, a1=a1, a2=a2)
 
 
+# BUILD 8,500+ DATASET
 rows: list[dict[str, object]] = []
 
-# 1. Base Aligned English Reviews (800)
-for _ in range(800):
-    sentiment = RNG.choices(['positive', 'neutral', 'negative'], weights=[0.46, 0.22, 0.32])[0]
-    template = RNG.choice(
-        positive_templates if sentiment == 'positive' else
-        negative_templates if sentiment == 'negative' else neutral_templates
-    )
-    text = make_text(template, sentiment)
+# 1. Base Structured English Reviews (2,800)
+for _ in range(2800):
+    sentiment = RNG.choices(['positive', 'neutral', 'negative'], weights=[0.48, 0.20, 0.32])[0]
     if sentiment == 'positive':
+        template = RNG.choice(food_positive_templates + heritage_positive_templates)
         rating = RNG.choice([4, 4, 5, 5, 5])
     elif sentiment == 'negative':
-        rating = RNG.choice([1, 1, 2, 2])
+        template = RNG.choice(food_negative_templates + heritage_negative_templates)
+        rating = RNG.choice([1, 1, 1, 2, 2])
     else:
+        template = RNG.choice(neutral_general_templates)
         rating = RNG.choice([3, 3, 3, 4, 2])
+    text = make_english_text(template, sentiment)
     rows.append({'text': text, 'rating': rating, 'sentiment': sentiment, 'suspicious': 0})
 
-# 2. Negation Examples (Replicated for strong statistical signal) (400)
-for _ in range(10):
-    for text, rating in negation_positive_examples:
+# 2. Negation Dataset (800)
+for _ in range(16):
+    for text, rating in negation_positive_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'positive', 'suspicious': 0})
-    for text, rating in negation_negative_examples:
+    for text, rating in negation_negative_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'negative', 'suspicious': 0})
 
-# 3. Multilingual Pure Malay Examples (300)
-for _ in range(12):
-    for text, rating in malay_positive_examples:
+# 3. Multilingual Pure Malay Reviews (1,200)
+for _ in range(35):
+    for text, rating in malay_positive_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'positive', 'suspicious': 0})
-    for text, rating in malay_negative_examples:
+    for text, rating in malay_negative_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'negative', 'suspicious': 0})
-    for text, rating in malay_neutral_examples:
+    for text, rating in malay_neutral_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'neutral', 'suspicious': 0})
 
-# 4. Multilingual Manglish Examples (200)
-for _ in range(10):
-    for text, rating in manglish_positive_examples:
+# 4. Multilingual Manglish / Slang Reviews (1,000)
+for _ in range(36):
+    for text, rating in manglish_positive_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'positive', 'suspicious': 0})
-    for text, rating in manglish_negative_examples:
+    for text, rating in manglish_negative_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'negative', 'suspicious': 0})
-    for text, rating in manglish_neutral_examples:
+    for text, rating in manglish_neutral_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'neutral', 'suspicious': 0})
 
-# 5. Multilingual Chinese Examples (300)
-for _ in range(12):
-    for text, rating in chinese_positive_examples:
+# 5. Multilingual Chinese Reviews (1,000)
+for _ in range(37):
+    for text, rating in chinese_positive_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'positive', 'suspicious': 0})
-    for text, rating in chinese_negative_examples:
+    for text, rating in chinese_negative_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'negative', 'suspicious': 0})
-    for text, rating in chinese_neutral_examples:
+    for text, rating in chinese_neutral_pool:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'neutral', 'suspicious': 0})
 
-# 6. Legitimate Short Reviews (Non-suspicious baseline) (300)
-for _ in range(8):
+# 6. Legitimate Short Reviews (600)
+for _ in range(14):
     for text, rating in legit_short_positive:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'positive', 'suspicious': 0})
     for text, rating in legit_short_negative:
         rows.append({'text': text, 'rating': rating, 'sentiment': 'negative', 'suspicious': 0})
 
-# 7. Rating-Comment Mismatches (Suspicious) (350)
-for _ in range(350):
+# 7. Rating-Comment Polarity Mismatches (Suspicious) (600)
+for _ in range(600):
     if RNG.random() < 0.5:
-        text = make_text(RNG.choice(negative_templates), 'negative')
+        text = make_english_text(RNG.choice(food_negative_templates + heritage_negative_templates), 'negative')
         rating = RNG.choice([4, 5])
         sentiment = 'negative'
     else:
-        text = make_text(RNG.choice(positive_templates), 'positive')
+        text = make_english_text(RNG.choice(food_positive_templates + heritage_positive_templates), 'positive')
         rating = RNG.choice([1, 2])
         sentiment = 'positive'
     rows.append({'text': text, 'rating': rating, 'sentiment': sentiment, 'suspicious': 1})
 
-# 8. Spam, URL, Repeated gibberish (Suspicious) (350)
-for _ in range(350):
+# 8. Promotional Spam, URL Injection & Repeated Bot Text (Suspicious) (600)
+for _ in range(600):
     text = RNG.choice(spam_templates)
     rating = RNG.randint(1, 5)
     sentiment = 'neutral'
     if any(k in text.lower() for k in ['bad', 'one star', 'hancur']):
         sentiment = 'negative'
-    elif any(k in text.lower() for k in ['amazing', 'good', 'nice', 'five stars', 'terbaik']):
+    elif any(k in text.lower() for k in ['amazing', 'good', 'nice', 'five stars', 'terbaik', 'sedap']):
         sentiment = 'positive'
     rows.append({'text': text, 'rating': rating, 'sentiment': sentiment, 'suspicious': 1})
 
 RNG.shuffle(rows)
+
+print(f"Total training dataset generated: {len(rows)} samples")
 
 with DATA_CSV.open('w', newline='', encoding='utf-8') as handle:
     writer = csv.DictWriter(handle, fieldnames=['text', 'rating', 'sentiment', 'suspicious'])
@@ -464,7 +522,7 @@ sent_vectorizer = TfidfVectorizer(
     lowercase=True,
     ngram_range=(1, 2),
     min_df=1,
-    max_features=2500,
+    max_features=3200,
     sublinear_tf=True,
     norm='l2',
     token_pattern=r'(?u)\b\w+\b',
@@ -480,7 +538,7 @@ susp_vectorizer = TfidfVectorizer(
     lowercase=True,
     ngram_range=(1, 2),
     min_df=1,
-    max_features=2500,
+    max_features=3200,
     sublinear_tf=True,
     norm='l2',
     token_pattern=r'(?u)\b\w+\b',
@@ -592,7 +650,7 @@ class ReviewModerationPolicy {
     final text = reviewText.toLowerCase();
     
     // External link / spam checks
-    final hasUrl = RegExp(r'(https?://|www\.)').hasMatch(text);
+    final hasUrl = RegExp(r'(https?://|www\\.)').hasMatch(text);
     final hasContactPush = RegExp(
       r'\\b(whatsapp|telegram|call me|dm me|promo|voucher|cashback|bitcoin|crypto)\\b',
     ).hasMatch(text);
@@ -841,7 +899,7 @@ code.append(r'''  static ReviewMlPrediction analyze({
     
     // Pattern 1: High rating + sarcastic wait time (waited only X hours)
     final waitSarcasm = RegExp(
-      r'(waited|wait|tunggu|等了)\s+(only\s+)?(two|[0-9]+)\s+(hours?|jam|小时)',
+      r'(waited|wait|tunggu|等了)\\s+(only\\s+)?(two|[0-9]+)\\s+(hours?|jam|小时)',
     ).hasMatch(lower);
 
     // Pattern 2: "if you enjoy / love being ignored / waiting / rude"
@@ -851,22 +909,22 @@ code.append(r'''  static ReviewMlPrediction analyze({
 
     // Pattern 3: "Five stars for the worst meal / service"
     final starWorstSarcasm = RegExp(
-      r'(five|5)\s+stars?\s+for\s+(the\s+)?(worst|terrible|bad|horrible)',
+      r'(five|5)\\s+stars?\\s+for\\s+(the\\s+)?(worst|terrible|bad|horrible)',
     ).hasMatch(lower);
 
     // Pattern 4: Sarcastic superlatives + negative contradiction
     final superlativeContradiction = RegExp(
-      r'(best|great|wonderful|amazing|excellent)\s+.*(worst|terrible|horrible|food poisoning|ignored|rude staff)',
+      r'(best|great|wonderful|amazing|excellent)\\s+.*(worst|terrible|horrible|food poisoning|ignored|rude staff)',
     ).hasMatch(lower);
 
     // Pattern 5: 10/10 for terrible / awful
     final tenOutOfTenWorst = RegExp(
-      r'(10/10|ten out of ten)\s+for\s+(worst|terrible|awful)',
+      r'(10/10|ten out of ten)\\s+for\\s+(worst|terrible|awful)',
     ).hasMatch(lower);
 
     // Pattern 6: Malay sarcasm ("terima kasih buat saya tunggu 2 jam")
     final malaySarcasm = RegExp(
-      r'(terima kasih|bagus sangat)\s+.*(tunggu|biarkan|sejuk|kotor)',
+      r'(terima kasih|bagus sangat)\\s+.*(tunggu|biarkan|sejuk|kotor)',
     ).hasMatch(lower);
 
     // Pattern 7: Chinese sarcasm ("服务真好...等了两个小时")
@@ -1060,4 +1118,3 @@ print(json.dumps({
     'sentiment_macro_f1': metrics['sentiment_report']['macro avg']['f1-score'],
     'suspicious_f1': metrics['suspicious_report']['1']['f1-score'],
 }, indent=2))
-
