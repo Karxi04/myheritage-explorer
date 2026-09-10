@@ -25,6 +25,14 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   }
 
   Future<void> changePassword() async {
+    if (currentPassword.text.isEmpty) {
+      showMessage(
+        context,
+        'Please enter your current password.',
+        error: true,
+      );
+      return;
+    }
     final passwordError = validatePassword(newPassword.text);
     if (passwordError != null) {
       showMessage(
@@ -42,17 +50,38 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     try {
       await AppServices.reauthenticate(currentPassword.text);
       await AppServices.auth.currentUser!.updatePassword(newPassword.text);
-      
-      showGlobalNotice(
-        title: 'Password Changed',
-        message: 'Your password has been updated. For security, please sign in again with your new password.',
-        buttonText: 'Login Now',
-        onConfirm: () async {
-          await AppServices.signOut();
-        },
-      );
+
+      if (mounted) {
+        showGlobalNotice(
+          title: 'Password Changed',
+          message:
+              'Your password has been updated. For security, please sign in again with your new password.',
+          buttonText: 'Login Now',
+          onConfirm: () async {
+            await AppServices.signOut();
+          },
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        String msg = e.message ?? 'Failed to update password.';
+        if (e.code == 'invalid-credential' || e.code == 'wrong-password') {
+          msg =
+              'The current password you entered is incorrect. Please try again.';
+        } else if (e.code == 'weak-password') {
+          msg =
+              'The new password is too weak. Please choose a stronger password.';
+        } else if (e.code == 'requires-recent-login') {
+          msg =
+              'For security, please log out and log back in before changing your password.';
+        }
+        showMessage(context, msg, error: true);
+      }
     } catch (e) {
-      if (mounted) showMessage(context, e.toString(), error: true);
+      if (mounted) {
+        final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        showMessage(context, msg, error: true);
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -60,6 +89,12 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
 
   @override
   Widget build(BuildContext context) {
+    final user = AppServices.auth.currentUser;
+    final isGoogle = user?.providerData.any(
+          (p) => p.providerId == 'google.com',
+        ) ??
+        false;
+
     return Scaffold(
       backgroundColor: ExplorerColors.background,
       body: SafeArea(
@@ -81,98 +116,149 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                     constraints: const BoxConstraints(maxWidth: 520),
                     child: ExplorerCard(
                       padding: const EdgeInsets.all(22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const CircleAvatar(
-                            radius: 26,
-                            backgroundColor: ExplorerColors.navySoft,
-                            foregroundColor: ExplorerColors.navy,
-                            child: Icon(Icons.lock_reset_outlined),
-                          ),
-                          const SizedBox(height: 14),
-                          const Text(
-                            'Update your password',
-                            style: TextStyle(
-                              color: ExplorerColors.navy,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          const Text(
-                            'Use at least 8 characters and avoid reusing an old password.',
-                            style: TextStyle(
-                              color: ExplorerColors.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          TextField(
-                            controller: currentPassword,
-                            obscureText: hideCurrent,
-                            decoration: InputDecoration(
-                              labelText: 'Current password',
-                              prefixIcon: const Icon(Icons.lock_outline),
-                              suffixIcon: IconButton(
-                                onPressed: () =>
-                                    setState(() => hideCurrent = !hideCurrent),
-                                icon: Icon(
-                                  hideCurrent
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
+                      child: isGoogle
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                const CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: ExplorerColors.navySoft,
+                                  foregroundColor: ExplorerColors.navy,
+                                  child: Icon(
+                                    Icons.g_mobiledata_rounded,
+                                    size: 36,
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: newPassword,
-                            obscureText: hideNew,
-                            decoration: InputDecoration(
-                              labelText: 'New password',
-                              prefixIcon: const Icon(Icons.key_outlined),
-                              suffixIcon: IconButton(
-                                onPressed: () => setState(() => hideNew = !hideNew),
-                                icon: Icon(
-                                  hideNew
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'Signed in with Google',
+                                  style: TextStyle(
+                                    color: ExplorerColors.navy,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: confirmPassword,
-                            obscureText: hideConfirm,
-                            decoration: InputDecoration(
-                              labelText: 'Confirm new password',
-                              prefixIcon: const Icon(Icons.verified_user_outlined),
-                              suffixIcon: IconButton(
-                                onPressed: () =>
-                                    setState(() => hideConfirm = !hideConfirm),
-                                icon: Icon(
-                                  hideConfirm
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Your account (${user?.email ?? ''}) uses Google Sign-In. Password management for this account is handled directly through your Google Account settings.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: ExplorerColors.muted,
+                                    fontSize: 13,
+                                    height: 1.4,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(height: 24),
+                                FilledButton.icon(
+                                  onPressed: () => Navigator.pop(context),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                  ),
+                                  icon: const Icon(Icons.arrow_back),
+                                  label: const Text('Back to Profile'),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor: ExplorerColors.navySoft,
+                                  foregroundColor: ExplorerColors.navy,
+                                  child: Icon(Icons.lock_reset_outlined),
+                                ),
+                                const SizedBox(height: 14),
+                                const Text(
+                                  'Update your password',
+                                  style: TextStyle(
+                                    color: ExplorerColors.navy,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                const Text(
+                                  'Use at least 8 characters and avoid reusing an old password.',
+                                  style: TextStyle(
+                                    color: ExplorerColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                TextField(
+                                  controller: currentPassword,
+                                  obscureText: hideCurrent,
+                                  decoration: InputDecoration(
+                                    labelText: 'Current password',
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    suffixIcon: IconButton(
+                                      onPressed: () => setState(
+                                        () => hideCurrent = !hideCurrent,
+                                      ),
+                                      icon: Icon(
+                                        hideCurrent
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: newPassword,
+                                  obscureText: hideNew,
+                                  decoration: InputDecoration(
+                                    labelText: 'New password',
+                                    prefixIcon: const Icon(Icons.key_outlined),
+                                    suffixIcon: IconButton(
+                                      onPressed: () => setState(
+                                        () => hideNew = !hideNew,
+                                      ),
+                                      icon: Icon(
+                                        hideNew
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: confirmPassword,
+                                  obscureText: hideConfirm,
+                                  decoration: InputDecoration(
+                                    labelText: 'Confirm new password',
+                                    prefixIcon: const Icon(
+                                      Icons.verified_user_outlined,
+                                    ),
+                                    suffixIcon: IconButton(
+                                      onPressed: () => setState(
+                                        () => hideConfirm = !hideConfirm,
+                                      ),
+                                      icon: Icon(
+                                        hideConfirm
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                FilledButton.icon(
+                                  onPressed: busy ? null : changePassword,
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(50),
+                                  ),
+                                  icon: const Icon(Icons.security_outlined),
+                                  label: Text(
+                                    busy
+                                        ? 'Updating Password...'
+                                        : 'Change Password',
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 20),
-                          FilledButton.icon(
-                            onPressed: busy ? null : changePassword,
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(50),
-                            ),
-                            icon: const Icon(Icons.security_outlined),
-                            label: Text(
-                              busy ? 'Updating Password...' : 'Change Password',
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                 ),

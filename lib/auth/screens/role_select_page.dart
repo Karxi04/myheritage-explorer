@@ -6,7 +6,7 @@ class RoleSelectPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (kIsWeb) {
-      return const LoginPage(role: 'admin');
+      return const AdminLoginPage();
     }
     return const LoginPage();
   }

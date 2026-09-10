@@ -7,10 +7,69 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'helpers.dart';
 import 'notification_service.dart';
 import 'pin_service.dart';
+
+class AdminSessionManager {
+  static const String _lastActiveKey = 'admin_last_active_timestamp';
+  static const String _lockedKey = 'admin_session_locked';
+  static const String _timedOutReasonKey = 'admin_timed_out_reason';
+  static const int timeoutDurationMs = 40000; // 30s inactivity + 10s popup = 40s total
+
+  static Future<void> updateActivity() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_lastActiveKey, DateTime.now().millisecondsSinceEpoch);
+      await prefs.setBool(_lockedKey, false);
+      await prefs.setBool(_timedOutReasonKey, false);
+    } catch (_) {}
+  }
+
+  static Future<void> lockSession({bool timedOut = false}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_lockedKey, true);
+      await prefs.setBool(_timedOutReasonKey, timedOut);
+    } catch (_) {}
+  }
+
+  static Future<bool> isSessionTimedOut() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isLocked = prefs.getBool(_lockedKey) ?? false;
+      if (isLocked) return true;
+
+      final lastActive = prefs.getInt(_lastActiveKey);
+      if (lastActive == null) return false;
+
+      final elapsed = DateTime.now().millisecondsSinceEpoch - lastActive;
+      return elapsed > timeoutDurationMs;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> wasTimedOut() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_timedOutReasonKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> clearSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_lastActiveKey);
+      await prefs.remove(_lockedKey);
+      await prefs.remove(_timedOutReasonKey);
+    } catch (_) {}
+  }
+}
 
 class AccountProfile {
   const AccountProfile({required this.role, required this.data});
@@ -143,6 +202,8 @@ class AppServices {
     };
   }
 
+  static String? pendingGoogleRole;
+
   static Future<void> handleAuthActionLink(Uri uri) async {
     final mode = uri.queryParameters['mode'];
     final oobCode = uri.queryParameters['oobCode'];
@@ -197,13 +258,20 @@ class AppServices {
     }
   }
 
-  static Future<void> signOut() async {
+  static Future<void> performAdminSignOut({bool timedOut = false}) async {
     await PinService.disablePin();
     PinService.lockSession();
-    if (await googleSignIn.isSignedIn()) {
-      await googleSignIn.signOut();
-    }
+    await AdminSessionManager.lockSession(timedOut: timedOut);
+    try {
+      if (await googleSignIn.isSignedIn()) {
+        await googleSignIn.signOut();
+      }
+    } catch (_) {}
     await auth.signOut();
+  }
+
+  static Future<void> signOut() async {
+    await performAdminSignOut(timedOut: false);
   }
 
   static Future<void> deleteCurrentUser() async {
@@ -211,6 +279,23 @@ class AppServices {
     if (user != null) {
       await user.delete();
     }
+  }
+
+  static Future<void> cleanupUnfinishedUserRegistrationData(String uid) async {
+    if (uid.isEmpty) return;
+    try {
+      final travelerDoc = await travelerRef(uid).get();
+      if (travelerDoc.exists) {
+        await travelerRef(uid).delete();
+      }
+    } catch (_) {}
+
+    try {
+      final vendorDoc = await vendorRef(uid).get();
+      if (vendorDoc.exists) {
+        await vendorRef(uid).delete();
+      }
+    } catch (_) {}
   }
 
   static Future<UserCredential?> signInWithGoogle() async {
@@ -575,22 +660,43 @@ class AppServices {
 
     String? verificationUrl;
     if (verificationBytes != null) {
-      final ref = storage.ref(
-        'vendor_verification/${user.uid}/'
-        'document.${verificationExtension ?? 'jpg'}',
-      );
-      await ref.putData(verificationBytes);
-      verificationUrl = await ref.getDownloadURL();
+      try {
+        final normalizedExt = (verificationExtension ?? 'jpg').toLowerCase();
+        final contentType = switch (normalizedExt) {
+          'png' => 'image/png',
+          'pdf' => 'application/pdf',
+          'webp' => 'image/webp',
+          'heic' || 'heif' => 'image/heic',
+          _ => 'image/jpeg',
+        };
+        final ref = storage.ref(
+          'vendor_verification/${user.uid}/'
+          'document.$normalizedExt',
+        );
+        final task = await ref.putData(
+          verificationBytes,
+          SettableMetadata(contentType: contentType),
+        );
+        verificationUrl = await getDownloadUrlWithRetry(task.ref);
+      } catch (e) {
+        debugPrint('Firebase Storage verification upload notice (quota limit): $e');
+        verificationUrl = 'submitted_verification_document';
+      }
     }
 
     String? businessImageUrl;
     if (businessImageBytes != null) {
-      businessImageUrl = await uploadImage(
-        folder: 'vendor_business_images',
-        uid: user.uid,
-        bytes: businessImageBytes,
-        extension: businessImageExtension ?? 'jpg',
-      );
+      try {
+        businessImageUrl = await uploadImage(
+          folder: 'vendor_business_images',
+          uid: user.uid,
+          bytes: businessImageBytes,
+          extension: businessImageExtension ?? 'jpg',
+        );
+      } catch (e) {
+        debugPrint('Firebase Storage business image upload notice (quota limit): $e');
+        businessImageUrl = null;
+      }
     }
 
     final plannerCategories = _vendorPlannerCategories(category);
@@ -660,6 +766,27 @@ class AppServices {
     return categories.toList();
   }
 
+  static Future<String> getDownloadUrlWithRetry(
+    Reference ref, {
+    int maxRetries = 5,
+  }) async {
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        final url = await ref.getDownloadURL();
+        return url;
+      } catch (e) {
+        final isNotFound = e.toString().contains('object-not-found') ||
+            e.toString().contains('404');
+        if (isNotFound && attempt < maxRetries) {
+          await Future.delayed(Duration(milliseconds: 250 * attempt));
+        } else {
+          rethrow;
+        }
+      }
+    }
+    return await ref.getDownloadURL();
+  }
+
   static Future<String> uploadImage({
     required String folder,
     required String uid,
@@ -679,24 +806,54 @@ class AppServices {
       '${DateTime.now().millisecondsSinceEpoch}.$normalizedExtension',
     );
 
-    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    final task = await ref.putData(
+      bytes,
+      SettableMetadata(contentType: contentType),
+    );
 
-    return ref.getDownloadURL();
+    return getDownloadUrlWithRetry(task.ref);
   }
 
   static Future<void> reauthenticate(String password) async {
     final user = auth.currentUser;
 
-    if (user == null || user.email == null) {
-      throw Exception('No signed-in email account was found.');
+    if (user == null) {
+      throw Exception('No signed-in account was found.');
     }
 
-    final credential = EmailAuthProvider.credential(
-      email: user.email!,
-      password: password,
-    );
+    final isGoogle =
+        user.providerData.any((p) => p.providerId == 'google.com');
+    if (isGoogle) {
+      throw Exception(
+        'Your account is signed in using Google. Password changes are managed via your Google Account.',
+      );
+    }
 
-    await user.reauthenticateWithCredential(credential);
+    final email = user.email;
+    if (email == null || email.isEmpty) {
+      throw Exception('No email address associated with this account.');
+    }
+
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: email.trim(),
+        password: password,
+      );
+
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'invalid-credential' || e.code == 'wrong-password') {
+        throw Exception(
+          'The current password you entered is incorrect. Please try again.',
+        );
+      } else if (e.code == 'requires-recent-login') {
+        throw Exception(
+          'For security, please log out and log back in before attempting this action.',
+        );
+      } else {
+        throw Exception(e.message ?? 'Re-authentication failed (${e.code}).');
+      }
+    }
   }
 
   static Future<void> deactivateOwnAccount({

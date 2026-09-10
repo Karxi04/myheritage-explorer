@@ -13,6 +13,7 @@ import '../core/services.dart';
 
 part 'screens/role_select_page.dart';
 part 'screens/login_page.dart';
+part 'screens/admin_login_page.dart';
 part 'screens/registration_page.dart';
 part 'screens/forgot_password_page.dart';
 part 'screens/change_password_page.dart';

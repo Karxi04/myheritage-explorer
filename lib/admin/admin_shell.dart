@@ -42,8 +42,18 @@ class _AdminShellState extends State<AdminShell> {
   @override
   void initState() {
     super.initState();
+    _checkInitialSessionTimeout();
     HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
     _startInactivityTimer();
+  }
+
+  Future<void> _checkInitialSessionTimeout() async {
+    final isTimedOut = await AdminSessionManager.isSessionTimedOut();
+    if (isTimedOut) {
+      _kickOutUser();
+    } else {
+      await AdminSessionManager.updateActivity();
+    }
   }
 
   @override
@@ -62,13 +72,9 @@ class _AdminShellState extends State<AdminShell> {
   }
 
   void _handleUserActivity() {
-    if (_isDialogShowing) {
-      if (_countdownNotifier.value > 0) {
-        _dismissTimeoutDialog();
-      }
-    } else {
-      _resetInactivityTimer();
-    }
+    if (_isDialogShowing) return;
+    AdminSessionManager.updateActivity();
+    _resetInactivityTimer();
   }
 
   void _startInactivityTimer() {
@@ -86,6 +92,19 @@ class _AdminShellState extends State<AdminShell> {
     _showTimeoutDialog();
   }
 
+  void _dismissAndKickOut() {
+    if (_isDialogShowing) {
+      _isDialogShowing = false;
+      _popupCountdownTimer?.cancel();
+      try {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      } catch (_) {}
+    }
+    _kickOutUser();
+  }
+
   void _showTimeoutDialog() {
     _isDialogShowing = true;
     _countdownNotifier.value = 10;
@@ -99,6 +118,7 @@ class _AdminShellState extends State<AdminShell> {
       if (_countdownNotifier.value <= 1) {
         _countdownNotifier.value = 0;
         timer.cancel();
+        _dismissAndKickOut();
       } else {
         _countdownNotifier.value--;
       }
@@ -111,51 +131,6 @@ class _AdminShellState extends State<AdminShell> {
         return ValueListenableBuilder<int>(
           valueListenable: _countdownNotifier,
           builder: (context, seconds, child) {
-            if (seconds == 0) {
-              return PopScope(
-                canPop: false,
-                child: AlertDialog(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  title: const Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: Colors.red,
-                        size: 28,
-                      ),
-                      SizedBox(width: 10),
-                      Text(
-                        'Session Timeout',
-                        style: TextStyle(
-                          color: ExplorerColors.navy,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-                  content: const Text(
-                    'Your session has timed out due to inactivity. Please click OK to log in again.',
-                    style: TextStyle(fontSize: 14, color: Colors.black87),
-                  ),
-                  actions: [
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: ExplorerColors.navy,
-                      ),
-                      onPressed: () {
-                        Navigator.of(dialogContext).pop();
-                        _kickOutUser();
-                      },
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-              );
-            }
-
             return PopScope(
               canPop: false,
               child: AlertDialog(
@@ -222,10 +197,7 @@ class _AdminShellState extends State<AdminShell> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                      _kickOutUser();
-                    },
+                    onPressed: _dismissAndKickOut,
                     child: const Text(
                       'Sign Out Now',
                       style: TextStyle(color: Colors.red),
@@ -235,10 +207,7 @@ class _AdminShellState extends State<AdminShell> {
                     style: FilledButton.styleFrom(
                       backgroundColor: ExplorerColors.navy,
                     ),
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                      _dismissTimeoutDialog();
-                    },
+                    onPressed: _dismissTimeoutDialog,
                     child: const Text('Stay Logged In'),
                   ),
                 ],
@@ -261,38 +230,19 @@ class _AdminShellState extends State<AdminShell> {
         Navigator.of(context, rootNavigator: true).pop();
       }
     }
+    AdminSessionManager.updateActivity();
     _startInactivityTimer();
   }
 
-  Future<void> _kickOutUser() async {
+  Future<void> _kickOutUser({bool timedOut = true}) async {
     _inactivityTimer?.cancel();
     _popupCountdownTimer?.cancel();
     _isDialogShowing = false;
 
     try {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
-      } else if (appNavigatorKey.currentState != null) {
-        appNavigatorKey.currentState!.popUntil((route) => route.isFirst);
-      }
-    } catch (e) {
-      debugPrint('Error popping routes: $e');
-    }
-
-    try {
-      await AppServices.signOut();
+      await AppServices.performAdminSignOut(timedOut: timedOut);
     } catch (e) {
       debugPrint('Error signing out: $e');
-    }
-
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(builder: (_) => const LoginPage(role: 'admin')),
-      );
-    } else if (appNavigatorKey.currentState != null) {
-      appNavigatorKey.currentState!.push(
-        MaterialPageRoute(builder: (_) => const LoginPage(role: 'admin')),
-      );
     }
   }
 
@@ -596,8 +546,12 @@ class _AdminTopBar extends StatelessWidget {
           const SizedBox(width: 8),
           PopupMenuButton<String>(
             tooltip: 'Account menu',
-            onSelected: (value) {
-              if (value == 'logout') AppServices.signOut();
+            onSelected: (value) async {
+              if (value == 'logout') {
+                try {
+                  await AppServices.performAdminSignOut(timedOut: false);
+                } catch (_) {}
+              }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(
