@@ -281,6 +281,7 @@ Future<void> showReportDialog(
   required String targetId,
   required String targetName,
   required String targetType,
+  bool popOnSuccess = true,
 }) async {
   String selectedNature = 'Inappropriate Content / Behavior';
   final descriptionController = TextEditingController();
@@ -294,10 +295,12 @@ Future<void> showReportDialog(
     'Other',
   ];
 
+  final parentContext = context;
+
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) {
+      builder: (dialogStateContext, setDialogState) {
         return AlertDialog(
           title: Row(
             children: [
@@ -335,7 +338,7 @@ Future<void> showReportDialog(
                 ),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: selectedNature,
+                  initialValue: selectedNature,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
@@ -386,7 +389,7 @@ Future<void> showReportDialog(
                   : () async {
                       final desc = descriptionController.text.trim();
                       if (desc.isEmpty) {
-                        showMessage(context, 'Please enter a description for the report.', error: true);
+                        showMessage(dialogStateContext, 'Please enter a description for the report.', error: true);
                         return;
                       }
                       setDialogState(() => submitting = true);
@@ -405,14 +408,19 @@ Future<void> showReportDialog(
                         });
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext);
+                        }
+                        if (parentContext.mounted) {
                           showMessage(
-                            context,
+                            parentContext,
                             'Report submitted successfully. Administrators will review this report.',
                           );
+                          if (popOnSuccess && Navigator.canPop(parentContext)) {
+                            Navigator.pop(parentContext);
+                          }
                         }
                       } catch (e) {
-                        if (dialogContext.mounted) {
-                          showMessage(context, 'Failed to submit report: $e', error: true);
+                        if (dialogStateContext.mounted) {
+                          showMessage(dialogStateContext, 'Failed to submit report: $e', error: true);
                           setDialogState(() => submitting = false);
                         }
                       }
