@@ -117,6 +117,7 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
   bool _mapReady = false;
   LatLng? _lastFollowedPosition;
   bool _showingEndConfirmation = false;
+  bool _detectingNearbyHazards = false;
 
   @override
   void initState() {
@@ -633,6 +634,107 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
           ? SafeNavigationStatus.gettingLocation
           : SafeNavigationStatus.waitingForDestination;
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Manual "Detect Nearby Hazards" — lightweight GPS + verified hazard check.
+  // Does NOT call OpenRouteService. Does NOT modify the route.
+  // -------------------------------------------------------------------------
+  static const double _nearbyHazardRadiusMeters = 500.0;
+
+  Future<void> _detectNearbyHazards() async {
+    // Prevent duplicate / spam clicks.
+    if (_detectingNearbyHazards) return;
+
+    setState(() => _detectingNearbyHazards = true);
+
+    try {
+      // 1. Obtain a fresh GPS position.
+      Position position;
+      try {
+        position = await _loadPosition();
+      } catch (error) {
+        if (!mounted) return;
+        _showDetectionError(
+          friendlySafetyActionError(
+            error,
+            fallback:
+                'Current location is unavailable. Check location permissions and try again.',
+          ),
+        );
+        return;
+      }
+
+      // 2. Validate the position is usable.
+      if (!LocationService.isUsablePosition(position)) {
+        if (!mounted) return;
+        _showDetectionError(
+          'Your GPS position is not accurate enough to detect nearby hazards. '
+          'Move to an open area and try again.',
+        );
+        return;
+      }
+
+      final userLocation = LatLng(position.latitude, position.longitude);
+
+      // 3. Filter already-loaded ACTIVE VERIFIED hazards within the radius.
+      //    _activeHazards is already filtered to verified + hasValidLocation
+      //    by HazardMapService.activeReports in _listenForHazards().
+      final List<({HazardReport hazard, double distance})> nearby = [];
+      for (final hazard in _activeHazards) {
+        final hazardPoint = LatLng(hazard.latitude, hazard.longitude);
+        final dist = SafeRoutingService.distanceMeters(userLocation, hazardPoint);
+        if (dist <= _nearbyHazardRadiusMeters) {
+          nearby.add((hazard: hazard, distance: dist));
+        }
+      }
+
+      // Sort nearest first.
+      nearby.sort((a, b) => a.distance.compareTo(b.distance));
+
+      if (!mounted) return;
+      _showNearbyHazardsSheet(nearby);
+    } finally {
+      if (mounted) setState(() => _detectingNearbyHazards = false);
+    }
+  }
+
+  void _showDetectionError(String message) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.location_off_outlined,
+          color: ExplorerColors.warning,
+          size: 36,
+        ),
+        title: const Text('Location Unavailable'),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNearbyHazardsSheet(
+    List<({HazardReport hazard, double distance})> nearby,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _NearbyHazardsSheet(
+        nearby: nearby,
+        onViewHazard: (hazard) {
+          Navigator.pop(sheetContext);
+          _viewHazard(hazard);
+        },
+      ),
+    );
   }
 
   String _routingMessage(SafeRoutingFailureCode code) => switch (code) {
@@ -1472,6 +1574,36 @@ class _SafeNavigationPageState extends State<SafeNavigationPage> {
             ],
           ],
           const SizedBox(height: 14),
+          // Manual Detect Nearby Hazards button — separate from Safe Route.
+          // Only checks verified hazards near GPS. Does NOT call ORS.
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const ValueKey('safe-navigation-detect-nearby-hazards'),
+              onPressed: _detectingNearbyHazards ? null : _detectNearbyHazards,
+              icon: _detectingNearbyHazards
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: ExplorerColors.warning,
+                      ),
+                    )
+                  : const Icon(Icons.warning_amber_rounded),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ExplorerColors.warning,
+                side: const BorderSide(
+                  color: ExplorerColors.warning,
+                ),
+              ),
+              label: Text(
+                _detectingNearbyHazards
+                    ? 'Detecting Nearby Hazards…'
+                    : '⚠ Detect Nearby Hazards',
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: route == null
@@ -2308,4 +2440,237 @@ class _SummaryValue extends StatelessWidget {
       ],
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Nearby Hazards Result Sheet — shown after manual Detect Nearby Hazards.
+// ---------------------------------------------------------------------------
+
+class _NearbyHazardsSheet extends StatelessWidget {
+  const _NearbyHazardsSheet({
+    required this.nearby,
+    required this.onViewHazard,
+  });
+
+  final List<({HazardReport hazard, double distance})> nearby;
+  final void Function(HazardReport) onViewHazard;
+
+  static String _formatDistance(double meters) {
+    if (meters < 1000) return '${meters.round()} m away';
+    return '${(meters / 1000).toStringAsFixed(1)} km away';
+  }
+
+  Color _severityColor(String severity) => switch (severity.toLowerCase()) {
+    'high' => ExplorerColors.danger,
+    'medium' => ExplorerColors.warning,
+    _ => ExplorerColors.navy,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey('nearby-hazards-sheet'),
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 4),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: ExplorerColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.radar_outlined,
+                    color: ExplorerColors.navy,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Nearby Hazards Detected',
+                          style: TextStyle(
+                            color: ExplorerColors.navy,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          nearby.isEmpty
+                              ? 'No nearby verified hazards detected.'
+                              : '${nearby.length} active hazard${nearby.length == 1 ? '' : 's'} found nearby',
+                          style: const TextStyle(
+                            color: ExplorerColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 16),
+            // Result list (scrollable if many hazards)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.55,
+              ),
+              child: nearby.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.check_circle_outline,
+                            size: 44,
+                            color: ExplorerColors.muted,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'No known verified hazard was detected within 500 m of your current position.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: ExplorerColors.text,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'This only reflects currently verified hazard reports in the system.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: ExplorerColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                      itemCount: nearby.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final entry = nearby[index];
+                        final hazard = entry.hazard;
+                        final dist = entry.distance;
+                        final color = _severityColor(hazard.severity);
+                        return Container(
+                          key: ValueKey(
+                            'nearby-hazard-item-${hazard.id}',
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.30),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: color,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${hazard.severity} — ${hazard.category}',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _formatDistance(dist),
+                                      style: const TextStyle(
+                                        color: ExplorerColors.text,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (hazard.description.trim().isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        hazard.description.trim(),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: ExplorerColors.muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              TextButton(
+                                key: ValueKey(
+                                  'nearby-hazard-view-${hazard.id}',
+                                ),
+                                onPressed: () => onViewHazard(hazard),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: ExplorerColors.navy,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'View Details',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -871,7 +871,7 @@ class _CommunityEvidenceCard extends StatelessWidget {
               hazardId: hazardId,
               vote: vote,
               voteService: voteService,
-              width: isNarrow ? double.infinity : 240,
+              width: isNarrow ? double.infinity : 310,
               height: isNarrow ? 200 : 260,
             ),
           );
@@ -1003,9 +1003,10 @@ class _CommunityEvidenceCard extends StatelessWidget {
           }
 
           return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               imageWidget,
+              const SizedBox(width: 20),
               Expanded(child: contentWidget),
             ],
           );
