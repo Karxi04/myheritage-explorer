@@ -15,44 +15,38 @@ class _LoginPageState extends State<LoginPage> {
   bool busy = false;
   bool obscure = true;
 
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
   Future<void> login() async {
-    if (email.text.trim().isEmpty || password.text.isEmpty) {
+    final emailText = email.text.trim();
+    final passText = password.text;
+
+    if (emailText.isEmpty || passText.isEmpty) {
       showMessage(context, 'Enter your email and password.', error: true);
       return;
     }
-    if (!isValidEmail(email.text)) {
+    if (!isValidEmail(emailText)) {
       showMessage(context, 'Enter a valid email address.', error: true);
       return;
     }
     setState(() => busy = true);
     try {
       final credential = await AppServices.auth.signInWithEmailAndPassword(
-        email: email.text.trim(),
-        password: password.text,
+        email: emailText,
+        password: passText,
       );
 
-      // Determine user's role profile automatically
-      final targetRole = widget.role;
-      AccountProfile? account;
-
-      if (targetRole != null) {
-        final profileData = await AppServices.profileForRole(
-          credential.user!.uid,
-          targetRole,
-        );
-        if (profileData != null) {
-          account = AccountProfile(role: targetRole, data: profileData);
-        }
-      }
-
-      account ??= await AppServices.currentAccountProfile();
+      // Determine user's role profile automatically (traveler or vendor)
+      var account = await AppServices.currentAccountProfile();
 
       // If no profile found directly, attempt role profile recovery
       if (account == null) {
-        final rolesToTry = targetRole != null 
-            ? [targetRole, 'traveler', 'vendor', 'admin']
-            : ['traveler', 'vendor', 'admin'];
-        for (final r in rolesToTry) {
+        for (final r in const ['traveler', 'vendor']) {
           if (await AppServices.recoverRoleProfileFromEmail(r)) {
             account = await AppServices.currentAccountProfile();
             if (account != null) break;
@@ -70,6 +64,13 @@ class _LoginPageState extends State<LoginPage> {
 
       final profileRole = account.role;
       var profile = account.data;
+
+      if (profileRole == 'admin') {
+        await AppServices.signOut();
+        throw Exception(
+          'Administrator accounts must sign in using the Administrative Web Portal.',
+        );
+      }
 
       // 1. Check if email changed in background (Verified)
       if (credential.user!.email != null &&
@@ -172,65 +173,26 @@ class _LoginPageState extends State<LoginPage> {
       final userCredential = await AppServices.signInWithGoogle();
       if (!mounted || userCredential == null) return;
 
-      final email = userCredential.user?.email;
-
-      // Check if profile exists for target role or any role
-      AccountProfile? account;
-      if (widget.role != null) {
-        final profileData = await AppServices.profileForRole(
-          userCredential.user!.uid,
-          widget.role!,
-        );
-        if (profileData != null) {
-          account = AccountProfile(role: widget.role!, data: profileData);
-        }
-      }
-      account ??= await AppServices.currentAccountProfile();
-
+      // Check if profile exists
+      var account = await AppServices.currentAccountProfile();
       if (!mounted) return;
 
-      if (!mounted) return;
       if (account == null) {
-        if (email != null) {
-          final existing = await AppServices.findProfileByEmail(email);
-          if (!mounted) return;
-          if (existing != null) {
-            await AppServices.signOut();
-            final roleLabel = AppServices.labelForRole(existing['role'] ?? 'user');
-            throw Exception(
-              'The email $email is registered as a $roleLabel. Please sign in with email/password.',
-            );
-          }
-        }
-
+        await AppServices.signOut();
         if (!mounted) return;
-
-        // New Google user -> Ask whether Tourist or Vendor
-        final selectedRole = widget.role ?? await _promptRoleSelection(
+        showMessage(
           context,
-          title: 'Complete Google Sign In',
-          message: 'Welcome! Please select your account type to finish setting up your account.',
+          'No account found for this Google email. Please register first.',
+          error: true,
         );
-
-        if (!mounted || selectedRole == null) {
-          await AppServices.signOut();
-          return;
-        }
-
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => RegistrationPage(
-                role: selectedRole,
-                initialName: userCredential.user?.displayName,
-                initialEmail: email,
-                isGoogle: true,
-              ),
-            ),
-          );
-        }
         return;
+      }
+
+      if (account.role == 'admin') {
+        await AppServices.signOut();
+        throw Exception(
+          'Administrator accounts must sign in using the Administrative Web Portal.',
+        );
       }
 
       if (mounted) {
@@ -249,19 +211,90 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<String?> _promptRoleSelection(
-    BuildContext context, {
-    String title = 'Choose Account Type',
-    String message = 'Select how you want to use MyHeritage Explorer.',
-  }) {
-    return showModalBottomSheet<String>(
+  Future<void> _registerWithGoogle(String targetRole) async {
+    setState(() => busy = true);
+    AppServices.pendingGoogleRole = targetRole;
+    try {
+      final userCredential = await AppServices.signInWithGoogle();
+      if (!mounted || userCredential == null) {
+        AppServices.pendingGoogleRole = null;
+        return;
+      }
+
+      final email = userCredential.user?.email;
+
+      // 1. Check if a profile already exists for this UID
+      final profile = await AppServices.currentAccountProfile();
+      if (!mounted) return;
+
+      if (profile != null) {
+        AppServices.pendingGoogleRole = null;
+        showMessage(
+          context,
+          'Welcome back! You are already registered as a ${AppServices.labelForRole(profile.role)}.',
+        );
+        Navigator.popUntil(context, (route) => route.isFirst);
+        return;
+      }
+
+      // 2. Double check if this email is already taken by another account
+      if (email != null) {
+        final existingProfile = await AppServices.findProfileByEmail(email);
+        if (!mounted) return;
+
+        if (existingProfile != null) {
+          AppServices.pendingGoogleRole = null;
+          await AppServices.signOut();
+          if (!mounted) return;
+          showMessage(
+            context,
+            'The email $email is already in use by a ${AppServices.labelForRole(existingProfile['role'] ?? 'user')} account. Please sign in with email/password.',
+            error: true,
+          );
+          return;
+        }
+      }
+
+      // 3. New user, proceed to complete registration for targetRole
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RegistrationPage(
+              role: targetRole,
+              initialName: userCredential.user?.displayName,
+              initialEmail: email,
+              isGoogle: true,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        String message = 'Google Registration Failed';
+        if (e.toString().contains('account-exists-with-different-credential')) {
+          message =
+              'This email is already associated with a password account. Please log in with email/password first.';
+        } else {
+          message = '$message: $e';
+        }
+        showMessage(context, message, error: true);
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _handleRegisterTap() async {
+    showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -273,58 +306,74 @@ class _LoginPageState extends State<LoginPage> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 20),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 20,
+              const SizedBox(height: 16),
+              const Text(
+                'Join MyHeritage Explorer',
+                style: TextStyle(
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: ExplorerColors.navy,
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                message,
+              const Text(
+                'Select your account type and preferred registration method.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: ExplorerColors.muted, fontSize: 13),
+                style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
               ),
               const SizedBox(height: 24),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: const BorderSide(color: ExplorerColors.border),
-                ),
-                leading: const CircleAvatar(
-                  backgroundColor: Color(0xFFE0F2FE),
-                  child: Icon(Icons.explore_outlined, color: ExplorerColors.navy),
-                ),
-                title: const Text(
-                  'I am a Tourist',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: const Text('Discover cultural sites, itineraries, and travel safely.'),
-                onTap: () => Navigator.pop(sheetContext, 'traveler'),
+
+              // TOURIST REGISTRATION CARD
+              _buildRoleRegistrationCard(
+                title: 'Tourist',
+                subtitle: 'Discover cultural sites, itineraries, and travel safely.',
+                icon: Icons.explore,
+                iconBg: const Color(0xFFE0F2FE),
+                iconFg: ExplorerColors.navy,
+                accentColor: ExplorerColors.navy,
+                onEmailRegister: () {
+                  Navigator.pop(sheetContext);
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const RegistrationPage(role: 'traveler'),
+                      ),
+                    );
+                  }
+                },
+                onGoogleRegister: () {
+                  Navigator.pop(sheetContext);
+                  _registerWithGoogle('traveler');
+                },
               ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: const BorderSide(color: ExplorerColors.border),
-                ),
-                leading: const CircleAvatar(
-                  backgroundColor: ExplorerColors.goldSoft,
-                  child: Icon(Icons.storefront_outlined, color: ExplorerColors.goldDark),
-                ),
-                title: const Text(
-                  'I am a Vendor',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: const Text('Manage your business, offer vouchers, and scan rewards.'),
-                onTap: () => Navigator.pop(sheetContext, 'vendor'),
+
+              const SizedBox(height: 16),
+
+              // VENDOR REGISTRATION CARD
+              _buildRoleRegistrationCard(
+                title: 'Vendor',
+                subtitle: 'Manage your business profile, offer vouchers, and scan rewards.',
+                icon: Icons.storefront,
+                iconBg: ExplorerColors.goldSoft,
+                iconFg: ExplorerColors.goldDark,
+                accentColor: ExplorerColors.goldDark,
+                onEmailRegister: () {
+                  Navigator.pop(sheetContext);
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const RegistrationPage(role: 'vendor'),
+                      ),
+                    );
+                  }
+                },
+                onGoogleRegister: () {
+                  Navigator.pop(sheetContext);
+                  _registerWithGoogle('vendor');
+                },
               ),
-              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -332,29 +381,117 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Future<void> _handleRegisterTap() async {
-    final selectedRole = await _promptRoleSelection(
-      context,
-      title: 'Join MyHeritage Explorer',
-      message: 'Select whether you want to register as a Tourist or a Vendor.',
+  Widget _buildRoleRegistrationCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color iconBg,
+    required Color iconFg,
+    required Color accentColor,
+    required VoidCallback onEmailRegister,
+    required VoidCallback onGoogleRegister,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ExplorerColors.border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A101828),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: iconBg,
+                foregroundColor: iconFg,
+                child: Icon(icon, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: accentColor,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: ExplorerColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onEmailRegister,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentColor,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.mail_outline, size: 16),
+                  label: const Text(
+                    'Email Register',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onGoogleRegister,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: accentColor,
+                    side: BorderSide(color: accentColor),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: Image.network(
+                    'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                    height: 16,
+                    width: 16,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Icon(Icons.account_circle_outlined, size: 16),
+                  ),
+                  label: const Text(
+                    'Google Register',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
-
-    if (!mounted) return;
-    if (selectedRole != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => RegistrationPage(role: selectedRole),
-        ),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    email.dispose();
-    password.dispose();
-    super.dispose();
   }
 
   String _authMessage(FirebaseAuthException e) {
@@ -374,13 +511,6 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.role == 'admin') {
-      return _buildAdminLogin(context);
-    }
-    return _buildMobileLogin(context);
-  }
-
-  Widget _buildMobileLogin(BuildContext context) {
     const title = 'MyHeritage\nExplorer';
     const subtitle = 'Sign in to continue your journey or manage your business.';
 
@@ -564,138 +694,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ],
                 ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAdminLogin(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ExplorerColors.companionBackground,
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back),
-        ),
-        title: const Text('Admin Portal'),
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 470),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(42, 42, 42, 34),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: ExplorerColors.border),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x16101828),
-                    blurRadius: 30,
-                    offset: Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  const ExplorerBrand(),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Smart Cultural Tourism Platform',
-                    style: TextStyle(color: ExplorerColors.muted, fontSize: 13),
-                  ),
-                  const SizedBox(height: 28),
-                  const Text(
-                    'Administrative Portal',
-                    style: TextStyle(
-                      color: ExplorerColors.navy,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  TextField(
-                    controller: email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Email Address',
-                      hintText: 'admin@myheritage.com',
-                      prefixIcon: Icon(Icons.mail_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: password,
-                    obscureText: obscure,
-                    obscuringCharacter: '*',
-                    onSubmitted: (_) => busy ? null : login(),
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      hintText: '********',
-                      prefixIcon: const Icon(Icons.lock_outline),
-                      suffixIcon: IconButton(
-                        onPressed: () => setState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ForgotPasswordPage(
-                            initialEmail: email.text.trim(),
-                            admin: true,
-                          ),
-                        ),
-                      ),
-                      child: const Text('Forgot password?'),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ElevatedButton(
-                    onPressed: busy ? null : login,
-                    child: Text(busy ? 'Signing in...' : 'Login as Admin'),
-                  ),
-                  const SizedBox(height: 24),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.verified_user_outlined,
-                        size: 16,
-                        color: ExplorerColors.muted,
-                      ),
-                      SizedBox(width: 7),
-                      Text(
-                        'SECURE ACCESS ONLY',
-                        style: TextStyle(
-                          color: ExplorerColors.muted,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: .8,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Powered by Contemporary Stewardship Engine',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xFF98A2B3), fontSize: 10),
-                  ),
-                ],
               ),
             ),
           ),

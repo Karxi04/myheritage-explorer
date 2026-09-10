@@ -14,7 +14,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
   String filter = 'All';
   String sortMode = 'Recently claimed';
   final Set<String> startingSessions = <String>{};
-  final Set<String> loadingDirections = <String>{};
+final Set<String> loadingDirections = <String>{};
   final Map<String, GeoPoint> resolvedVoucherLocations = <String, GeoPoint>{};
   late final String uid;
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> travelerStream;

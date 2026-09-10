@@ -100,7 +100,7 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
     msgController.dispose();
   }
 
-  Future<void> _disableAccount(
+  Future<void> _deleteAccount(
     BuildContext context, {
     required DocumentReference reportRef,
     required String reportedId,
@@ -110,19 +110,26 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Disable / Remove Account?'),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever, color: ExplorerColors.danger, size: 28),
+            SizedBox(width: 8),
+            Text('Delete Account Permanently'),
+          ],
+        ),
         content: Text(
-          'Are you sure you want to disable account "$reportedName"? The account will be rendered inactive and blocked from app access.',
+          'Are you sure you want to permanently delete account "$reportedName" ($reportedType)? This action will permanently remove their record from Cloud Firestore and cannot be undone.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
             style: FilledButton.styleFrom(backgroundColor: ExplorerColors.danger),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Disable Account'),
+            icon: const Icon(Icons.delete_forever, size: 16),
+            label: const Text('Delete Account'),
           ),
         ],
       ),
@@ -132,23 +139,20 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
 
     try {
       final targetRef = AppServices.profileRefForRole(reportedId, reportedType);
-      await targetRef.update({
-        'status': 'disabled',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await targetRef.delete();
 
       await reportRef.update({
         'status': 'resolved',
-        'actionTaken': 'Disabled target account',
+        'actionTaken': 'Deleted target account permanently',
         'resolvedAt': FieldValue.serverTimestamp(),
       });
 
       if (mounted) {
-        showMessage(context, 'Account $reportedName has been disabled.');
+        showMessage(context, 'Account $reportedName has been permanently deleted.');
       }
     } catch (e) {
       if (mounted) {
-        showMessage(context, 'Failed to disable account: $e', error: true);
+        showMessage(context, 'Failed to delete account: $e', error: true);
       }
     }
   }
@@ -285,7 +289,7 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
               const ExplorerAdminPageTitle(
                 title: 'User & Vendor Moderation Reports',
                 subtitle:
-                    'Review submitted user and vendor reports, send warnings, or disable accounts.',
+                    'Review submitted user and vendor reports, send warnings, or delete accounts.',
               ),
               const SizedBox(height: 20),
 
@@ -456,9 +460,9 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
                                 style: FilledButton.styleFrom(
                                   backgroundColor: ExplorerColors.danger,
                                 ),
-                                icon: const Icon(Icons.block_outlined, size: 16),
-                                label: const Text('Disable Account'),
-                                onPressed: () => _disableAccount(
+                                icon: const Icon(Icons.delete_forever_outlined, size: 16),
+                                label: const Text('Delete Account'),
+                                onPressed: () => _deleteAccount(
                                   context,
                                   reportRef: doc.reference,
                                   reportedId: reportedId,

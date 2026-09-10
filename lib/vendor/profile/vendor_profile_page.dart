@@ -105,14 +105,36 @@ class _VendorProfilePageState extends State<VendorProfilePage> {
       );
       if (confirmed != true || !mounted) return;
     }
-    final password = await requestPassword(context);
-    if (password == null || password.isEmpty) return;
+
+    final user = AppServices.auth.currentUser;
+    final isGoogle = user?.providerData.any(
+          (p) => p.providerId == 'google.com',
+        ) ??
+        false;
+
+    if (!isGoogle) {
+      final password = await requestPassword(context);
+      if (password == null || password.isEmpty) return;
+
+      try {
+        await AppServices.reauthenticate(password);
+      } catch (e) {
+        if (mounted) {
+          final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+          showMessage(context, msg, error: true);
+        }
+        return;
+      }
+    }
+
     try {
-      await AppServices.reauthenticate(password);
       await AppServices.deactivateOwnAccount(
           deletionRequested: deletionRequested);
     } catch (e) {
-      if (mounted) showMessage(context, e.toString(), error: true);
+      if (mounted) {
+        final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        showMessage(context, msg, error: true);
+      }
     }
   }
 

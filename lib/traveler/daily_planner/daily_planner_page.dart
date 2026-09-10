@@ -120,9 +120,11 @@ class GeoapifyPlanner {
   static final Map<String, _GeoapifyCachedPlaceDetails> _detailsCache = {};
   static final Map<String, _TimedCache<List<Map<String, dynamic>>>>
   _verifiedVendorCache = {};
+  static _TimedCache<List<Map<String, dynamic>>>? _firestorePlacesCache;
   static _TimedCache<List<Map<String, dynamic>>>? _culturalTasksCache;
   static _TimedCache<Map<String, List<Map<String, dynamic>>>>?
   _activeVoucherCache;
+  static _TimedCache<Map<String, Map<String, dynamic>>>? _placeContentCache;
   static _TimedCache<Map<String, Map<String, dynamic>>>? _reviewStatsCache;
 
   static const Map<String, List<String>> _interestCategories = {
@@ -1589,67 +1591,80 @@ final weatherCopy = _weatherCopy(
     required String area,
     required List<String> interests,
   }) async {
-    final snapshot = await AppServices.db
-        .collection('places')
-        .where('status', isEqualTo: 'active')
-        .get();
+    List<Map<String, dynamic>> allPlaces;
+    final cached = _firestorePlacesCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      allPlaces = cached.value;
+    } else {
+      final snapshot = await AppServices.db
+          .collection('places')
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      allPlaces = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final category = '${data['category'] ?? 'Heritage'}';
+        final tags = List<String>.from(data['tags'] ?? const []);
+        final rawLocation = data['location'];
+        Map<String, dynamic>? location;
+        if (rawLocation is GeoPoint) {
+          location = {
+            'latitude': rawLocation.latitude,
+            'longitude': rawLocation.longitude,
+          };
+        } else if (rawLocation is Map) {
+          location = Map<String, dynamic>.from(rawLocation);
+        }
+        return {
+          'placeId': doc.id,
+          'geoapifyPlaceId': data['geoapifyPlaceId'],
+          'source': 'firestore',
+          'name': '${data['name'] ?? 'Unnamed place'}',
+          'description': '${data['description'] ?? ''}',
+          'formattedAddress':
+              '${data['formattedAddress'] ?? data['area'] ?? ''}',
+          'area': '${data['area'] ?? area}',
+          'category': category,
+          'tags': tags,
+          'durationMinutes':
+              (data['durationMinutes'] as num?)?.round() ??
+              _defaultDuration(category),
+          'budgetLevel': '${data['budgetLevel'] ?? 'Low'}',
+          'score': (data['score'] as num?)?.toDouble() ?? 0,
+          'imageUrl': '${data['imageUrl'] ?? ''}',
+          'imageType': '${data['imageUrl'] ?? ''}'.trim().isEmpty
+              ? 'none'
+              : 'place_photo',
+          'dataCompletenessScore': _dataCompletenessScore(
+            address: '${data['formattedAddress'] ?? data['area'] ?? ''}',
+            website: '${data['website'] ?? ''}',
+            phone: '${data['phone'] ?? ''}',
+            openingHours: '${data['openingHours'] ?? ''}',
+            imageType: '${data['imageUrl'] ?? ''}'.trim().isEmpty
+                ? 'none'
+                : 'place_photo',
+          ),
+          'matchedInterest': category,
+          'location': location,
+          'mapUrl': '${data['mapUrl'] ?? ''}',
+          'website': '${data['website'] ?? ''}',
+          'phone': '${data['phone'] ?? ''}',
+          'openingHours': '${data['openingHours'] ?? ''}',
+          'activeCulturalTaskId': data['activeCulturalTaskId'],
+          'trustLabel': '${data['trustLabel'] ?? 'Insufficient Data'}',
+        };
+      }).toList();
+
+      _firestorePlacesCache = _TimedCache(
+        createdAt: DateTime.now(),
+        value: allPlaces,
+      );
+    }
+
     final areaKey = _normalize(area);
     final interestKeys = interests.map(_normalize).toSet();
 
-    return snapshot.docs
-        .map((doc) {
-          final data = doc.data();
-          final category = '${data['category'] ?? 'Heritage'}';
-          final tags = List<String>.from(data['tags'] ?? const []);
-          final rawLocation = data['location'];
-          Map<String, dynamic>? location;
-          if (rawLocation is GeoPoint) {
-            location = {
-              'latitude': rawLocation.latitude,
-              'longitude': rawLocation.longitude,
-            };
-          } else if (rawLocation is Map) {
-            location = Map<String, dynamic>.from(rawLocation);
-          }
-          return {
-            'placeId': doc.id,
-            'geoapifyPlaceId': data['geoapifyPlaceId'],
-            'source': 'firestore',
-            'name': '${data['name'] ?? 'Unnamed place'}',
-            'description': '${data['description'] ?? ''}',
-            'formattedAddress':
-                '${data['formattedAddress'] ?? data['area'] ?? ''}',
-            'area': '${data['area'] ?? area}',
-            'category': category,
-            'tags': tags,
-            'durationMinutes':
-                (data['durationMinutes'] as num?)?.round() ??
-                _defaultDuration(category),
-            'budgetLevel': '${data['budgetLevel'] ?? 'Low'}',
-            'score': (data['score'] as num?)?.toDouble() ?? 0,
-            'imageUrl': '${data['imageUrl'] ?? ''}',
-            'imageType': '${data['imageUrl'] ?? ''}'.trim().isEmpty
-                ? 'none'
-                : 'place_photo',
-            'dataCompletenessScore': _dataCompletenessScore(
-              address: '${data['formattedAddress'] ?? data['area'] ?? ''}',
-              website: '${data['website'] ?? ''}',
-              phone: '${data['phone'] ?? ''}',
-              openingHours: '${data['openingHours'] ?? ''}',
-              imageType: '${data['imageUrl'] ?? ''}'.trim().isEmpty
-                  ? 'none'
-                  : 'place_photo',
-            ),
-            'matchedInterest': category,
-            'location': location,
-            'mapUrl': '${data['mapUrl'] ?? ''}',
-            'website': '${data['website'] ?? ''}',
-            'phone': '${data['phone'] ?? ''}',
-            'openingHours': '${data['openingHours'] ?? ''}',
-            'activeCulturalTaskId': data['activeCulturalTaskId'],
-            'trustLabel': '${data['trustLabel'] ?? 'Insufficient Data'}',
-          };
-        })
+    return allPlaces
         .where((place) {
           final placeArea = _normalize('${place['area'] ?? ''}');
           final matchesArea =
@@ -2060,6 +2075,13 @@ final weatherCopy = _weatherCopy(
   }
 
   static Future<Map<String, Map<String, dynamic>>> _loadPlaceContent() async {
+    final cached = _placeContentCache;
+    if (cached != null && cached.isFresh(_firestoreCacheTtl)) {
+      return cached.value.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      );
+    }
+
     final snapshot = await AppServices.db
         .collection('place_content')
         .where('status', isEqualTo: 'active')
@@ -2084,6 +2106,12 @@ final weatherCopy = _weatherCopy(
         }
       }
     }
+    _placeContentCache = _TimedCache(
+      createdAt: DateTime.now(),
+      value: result.map(
+        (key, value) => MapEntry(key, Map<String, dynamic>.from(value)),
+      ),
+    );
     return result;
   }
 
@@ -2149,7 +2177,7 @@ final weatherCopy = _weatherCopy(
       );
     }
 
-    final snapshot = await AppServices.db.collection('reviews').get();
+    final snapshot = await AppServices.db.collection('reviews').limit(150).get();
     final grouped = <String, List<Map<String, dynamic>>>{};
 
     for (final doc in snapshot.docs) {

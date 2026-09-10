@@ -21,10 +21,12 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
   List<Map<String, dynamic>> allStops = [];
   bool loading = true;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
+  late Stream<List<HazardReport>> _hazardReportsStream;
 
   @override
   void initState() {
     super.initState();
+    _hazardReportsStream = HazardReportService().watchVerifiedReports();
     if (widget.initialItinerary != null) {
       itinerary = Map<String, dynamic>.from(widget.initialItinerary!);
       _processItineraryData();
@@ -632,7 +634,7 @@ class _ItineraryDetailPageState extends State<ItineraryDetailPage> {
                     )
                   else
                     StreamBuilder<List<HazardReport>>(
-                      stream: HazardReportService().watchVerifiedReports(),
+                      stream: _hazardReportsStream,
                       builder: (context, hazardSnapshot) {
                         final warnings = const ItinerarySafetyService()
                             .checkStops(

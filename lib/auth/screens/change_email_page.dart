@@ -89,13 +89,16 @@ class _ChangeEmailPageState extends State<ChangeEmailPage> {
         String msg = e.message ?? 'Unable to update email.';
         if (e.code == 'email-already-in-use') {
           msg = 'This email is already associated with another account.';
-        } else if (e.code == 'wrong-password') {
+        } else if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
           msg = 'The password you entered is incorrect.';
         }
         showMessage(context, msg, error: true);
       }
     } catch (e) {
-      if (mounted) showMessage(context, e.toString(), error: true);
+      if (mounted) {
+        final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        showMessage(context, msg, error: true);
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
