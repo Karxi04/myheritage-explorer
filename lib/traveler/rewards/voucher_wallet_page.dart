@@ -10,7 +10,9 @@ class VoucherWalletPage extends StatefulWidget {
 }
 
 class _VoucherWalletPageState extends State<VoucherWalletPage> {
+  final TextEditingController voucherSearchController = TextEditingController();
   String filter = 'All';
+  String sortMode = 'Recently claimed';
   final Set<String> startingSessions = <String>{};
   final Set<String> loadingDirections = <String>{};
   final Map<String, GeoPoint> resolvedVoucherLocations = <String, GeoPoint>{};
@@ -28,6 +30,12 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
         .where('userId', isEqualTo: uid)
         .limit(AppServices.rewardPageReadLimit)
         .snapshots();
+  }
+
+  @override
+  void dispose() {
+    voucherSearchController.dispose();
+    super.dispose();
   }
 
   String _redemptionSessionError(Object error) {
@@ -295,16 +303,52 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                 );
           if (legacyMatches.isNotEmpty) focusedClaimId = legacyMatches.first.id;
         }
-        allDocs.sort((a, b) {
+        int compareClaims(
+          QueryDocumentSnapshot<Map<String, dynamic>> a,
+          QueryDocumentSnapshot<Map<String, dynamic>> b,
+        ) {
           final aIsFocused = a.id == focusedClaimId;
           final bIsFocused = b.id == focusedClaimId;
           if (aIsFocused != bIsFocused) return aIsFocused ? -1 : 1;
-          return (asDate(b.data()['claimedAt']) ?? DateTime(2000)).compareTo(
-            asDate(a.data()['claimedAt']) ?? DateTime(2000),
-          );
-        });
+
+          final aData = a.data();
+          final bData = b.data();
+          switch (sortMode) {
+            case 'Oldest claimed':
+              return (asDate(aData['claimedAt']) ?? DateTime(2000)).compareTo(
+                asDate(bData['claimedAt']) ?? DateTime(2000),
+              );
+            case 'Expiring soon':
+              final aExpiry = asDate(aData['expiresAt']);
+              final bExpiry = asDate(bData['expiresAt']);
+              if (aExpiry == null && bExpiry == null) return 0;
+              if (aExpiry == null) return 1;
+              if (bExpiry == null) return -1;
+              return aExpiry.compareTo(bExpiry);
+            case 'Highest points':
+              final aPoints = (aData['pointCost'] as num?)?.toInt() ?? 0;
+              final bPoints = (bData['pointCost'] as num?)?.toInt() ?? 0;
+              return bPoints.compareTo(aPoints);
+            default:
+              return (asDate(bData['claimedAt']) ?? DateTime(2000)).compareTo(
+                asDate(aData['claimedAt']) ?? DateTime(2000),
+              );
+          }
+        }
+
+        allDocs.sort(compareClaims);
+        final searchQuery = voucherSearchController.text.trim().toLowerCase();
         final docs = allDocs.where((doc) {
-          return filter == 'All' || _displayStatus(doc.data()) == filter;
+          final claim = doc.data();
+          final matchesStatus =
+              filter == 'All' || _displayStatus(claim) == filter;
+          final matchesSearch =
+              searchQuery.isEmpty ||
+              '${claim['title'] ?? ''}'.toLowerCase().contains(searchQuery) ||
+              '${claim['vendorName'] ?? ''}'.toLowerCase().contains(
+                searchQuery,
+              );
+          return matchesStatus && matchesSearch;
         }).toList();
         final statusCounts = <String, int>{
           for (final item in ['Active', 'Redeemed', 'Expired'])
@@ -345,6 +389,58 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: voucherSearchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Search claimed vouchers',
+                hintText: 'Voucher or vendor name',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: voucherSearchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          voucherSearchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: sortMode,
+              decoration: const InputDecoration(
+                labelText: 'Sort claimed vouchers',
+                prefixIcon: Icon(Icons.sort_rounded),
+              ),
+              items:
+                  const [
+                        'Recently claimed',
+                        'Oldest claimed',
+                        'Expiring soon',
+                        'Highest points',
+                      ]
+                      .map(
+                        (item) =>
+                            DropdownMenuItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => sortMode = value);
+              },
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Filter by status',
+              style: TextStyle(
+                color: ExplorerColors.navy,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -364,6 +460,17 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                     .toList(),
               ),
             ),
+            if (filter != 'All' || searchQuery.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Showing ${docs.length} of ${allDocs.length} claimed vouchers',
+                style: const TextStyle(
+                  color: ExplorerColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             if (docs.isEmpty)
               Padding(
@@ -371,6 +478,8 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
                 child: emptyState(
                   allDocs.isEmpty
                       ? 'No claimed vouchers'
+                      : searchQuery.isNotEmpty
+                      ? 'No vouchers match your search'
                       : 'No $filter vouchers',
                 ),
               )
