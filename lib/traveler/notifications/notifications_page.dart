@@ -15,6 +15,7 @@ class TravelerNotificationBell extends StatelessWidget {
       stream: AppServices.db
           .collection('notifications')
           .where('userId', isEqualTo: uid)
+          .limit(AppServices.notificationReadLimit)
           .snapshots(),
       builder: (context, snapshot) {
         final unreadCount = (snapshot.data?.docs ?? const [])
@@ -403,6 +404,7 @@ class NotificationsPage extends StatelessWidget {
                 stream: AppServices.db
                     .collection('notifications')
                     .where('userId', isEqualTo: uid)
+                    .limit(AppServices.notificationReadLimit)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {

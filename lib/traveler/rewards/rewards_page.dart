@@ -126,7 +126,11 @@ class _RewardsPageState extends State<RewardsPage> {
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Your location could not be detected. Check location permission and try again.',
+          ),
           error: true,
         );
       }
@@ -189,7 +193,11 @@ class _RewardsPageState extends State<RewardsPage> {
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'This voucher could not be claimed. Check its availability and try again.',
+          ),
           error: true,
         );
       }

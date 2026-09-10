@@ -118,6 +118,8 @@ class AppServices {
   static const redemptionSessionDuration = Duration(minutes: 3);
   static const double nearbyRewardRadiusMeters = 750;
   static const int rewardPageReadLimit = 25;
+  static const int notificationReadLimit = 25;
+  static const int redemptionPinMatchReadLimit = 2;
   static const int nearbyRewardCandidateReadLimit = 25;
   static const int vendorAnalyticsReadLimit = 100;
   static const Duration nearbyRewardCheckCooldown = Duration(minutes: 10);
@@ -1145,6 +1147,8 @@ class AppServices {
     var pointsSpent = 0;
     var pointsRemaining = 0;
     DateTime? claimExpiry;
+    var rewardUpdatesEnabled = true;
+    var expiryRemindersEnabled = true;
 
     await db.runTransaction((transaction) async {
       final travelerSnapshot = await transaction.get(travelerProfileRef);
@@ -1159,6 +1163,16 @@ class AppServices {
 
       final traveler = travelerSnapshot.data()!;
       final currentVoucher = voucherSnapshot.data()!;
+      rewardUpdatesEnabled = notificationPreference(
+        traveler,
+        'rewardUpdates',
+        defaultValue: true,
+      );
+      expiryRemindersEnabled = notificationPreference(
+        traveler,
+        'expiryReminders',
+        defaultValue: true,
+      );
       final vendorId = '${currentVoucher['vendorId'] ?? ''}'.trim();
       if (vendorId.isEmpty) {
         throw Exception('This voucher is not linked to a registered vendor.');
@@ -1299,14 +1313,33 @@ class AppServices {
       });
     });
 
-    await notify(
-      userId: uid,
-      title: 'Voucher added to wallet',
-      message: '$claimedTitle is ready to use. Show its QR code at the vendor.',
-      type: 'voucher_claimed',
-      referenceId: claimRef.id,
-    );
-    await syncVoucherExpiryReminders();
+    // The transaction above is the claim itself. Notifications are optional
+    // follow-up work and must never make a successful claim look like it failed.
+    if (rewardUpdatesEnabled) {
+      try {
+        await notify(
+          userId: uid,
+          title: 'Voucher added to wallet',
+          message:
+              '$claimedTitle is ready to use. Show its QR code at the vendor.',
+          type: 'voucher_claimed',
+          referenceId: claimRef.id,
+          notificationPreferenceChecked: true,
+        );
+      } catch (error) {
+        debugPrint('Voucher claim notification skipped: $error');
+      }
+    }
+    try {
+      await _scheduleVoucherExpiryRemindersForClaim(
+        claimId: claimRef.id,
+        voucherTitle: claimedTitle,
+        expiry: claimExpiry,
+        enabled: expiryRemindersEnabled,
+      );
+    } catch (error) {
+      debugPrint('Voucher expiry reminder scheduling skipped: $error');
+    }
 
     return VoucherClaimReceipt(
       claimId: claimRef.id,
@@ -1328,43 +1361,59 @@ class AppServices {
     }
 
     final claimRef = db.collection('claimed_vouchers').doc(claimId);
-    final token = randomToken();
-    final pin = randomNumericCode();
     final now = DateTime.now();
     var sessionExpiry = now.add(redemptionSessionDuration);
 
-    await db.runTransaction((transaction) async {
-      final claimSnapshot = await transaction.get(claimRef);
-      if (!claimSnapshot.exists) {
-        throw Exception('Voucher claim was not found.');
-      }
+    // A session only needs this single claim document. Reuse an active session
+    // so reopening the QR sheet does not create another Firestore write.
+    final claimSnapshot = await claimRef.get();
+    if (!claimSnapshot.exists) {
+      throw Exception('Voucher claim was not found.');
+    }
 
-      final claim = claimSnapshot.data()!;
-      final ownerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
-      if (ownerId != signedInUser.uid) {
-        throw Exception('This voucher does not belong to your account.');
-      }
-      if (claim['status'] != 'claimed') {
-        throw Exception('Only active vouchers can create a redemption code.');
-      }
+    final claim = claimSnapshot.data()!;
+    final ownerId = '${claim['travelerId'] ?? claim['userId'] ?? ''}';
+    if (ownerId != signedInUser.uid) {
+      throw Exception('This voucher does not belong to your account.');
+    }
+    if (claim['status'] != 'claimed') {
+      throw Exception('Only active vouchers can create a redemption code.');
+    }
 
-      final voucherExpiry = asDate(claim['expiresAt']);
-      if (voucherExpiry != null && !voucherExpiry.isAfter(now)) {
-        throw Exception('This voucher has expired.');
-      }
-      if (voucherExpiry != null && voucherExpiry.isBefore(sessionExpiry)) {
-        sessionExpiry = voucherExpiry;
-      }
-      if (sessionExpiry.difference(now) < const Duration(seconds: 30)) {
-        throw Exception('This voucher expires too soon to start a session.');
-      }
+    final voucherExpiry = asDate(claim['expiresAt']);
+    if (voucherExpiry != null && !voucherExpiry.isAfter(now)) {
+      throw Exception('This voucher has expired.');
+    }
 
-      transaction.update(claimRef, {
-        'redemptionSessionToken': token,
-        'redemptionSessionPin': pin,
-        'redemptionSessionCreatedAt': FieldValue.serverTimestamp(),
-        'redemptionSessionExpiresAt': Timestamp.fromDate(sessionExpiry),
-      });
+    final existingToken = '${claim['redemptionSessionToken'] ?? ''}';
+    final existingPin = '${claim['redemptionSessionPin'] ?? ''}';
+    final existingExpiry = asDate(claim['redemptionSessionExpiresAt']);
+    if (existingToken.isNotEmpty &&
+        RegExp(r'^\d{6}$').hasMatch(existingPin) &&
+        existingExpiry != null &&
+        existingExpiry.isAfter(now.add(const Duration(seconds: 15)))) {
+      return VoucherRedemptionSession(
+        claimId: claimId,
+        token: existingToken,
+        pin: existingPin,
+        expiresAt: existingExpiry,
+      );
+    }
+
+    if (voucherExpiry != null && voucherExpiry.isBefore(sessionExpiry)) {
+      sessionExpiry = voucherExpiry;
+    }
+    if (sessionExpiry.difference(now) < const Duration(seconds: 30)) {
+      throw Exception('This voucher expires too soon to start a session.');
+    }
+
+    final token = randomToken();
+    final pin = randomNumericCode();
+    await claimRef.update({
+      'redemptionSessionToken': token,
+      'redemptionSessionPin': pin,
+      'redemptionSessionCreatedAt': FieldValue.serverTimestamp(),
+      'redemptionSessionExpiresAt': Timestamp.fromDate(sessionExpiry),
     });
 
     return VoucherRedemptionSession(
@@ -1402,7 +1451,7 @@ class AppServices {
         .collection('claimed_vouchers')
         .where('vendorId', isEqualTo: vendorId)
         .where('redemptionSessionPin', isEqualTo: code)
-        .limit(rewardPageReadLimit)
+        .limit(redemptionPinMatchReadLimit)
         .get();
     final matchingClaims = matches.docs.where((doc) {
       final data = doc.data();
@@ -1553,13 +1602,19 @@ class AppServices {
       });
     });
 
-    await notify(
-      userId: travelerId,
-      title: 'Redemption successful',
-      message: '$voucherTitle was successfully redeemed.',
-      type: 'voucher_redeemed',
-      referenceId: claimRef.id,
-    );
+    // Redemption is complete once the transaction commits. A notification
+    // failure must not tell the vendor that the voucher is still redeemable.
+    try {
+      await notify(
+        userId: travelerId,
+        title: 'Redemption successful',
+        message: '$voucherTitle was successfully redeemed.',
+        type: 'voucher_redeemed',
+        referenceId: claimRef.id,
+      );
+    } catch (error) {
+      debugPrint('Voucher redemption notification skipped: $error');
+    }
 
     return claimRef.id;
   }
@@ -1608,6 +1663,33 @@ class AppServices {
     return <String, dynamic>{...claim, 'claimId': claimSnapshot.id};
   }
 
+  static Future<void> _scheduleVoucherExpiryRemindersForClaim({
+    required String claimId,
+    required String voucherTitle,
+    required DateTime? expiry,
+    required bool enabled,
+  }) async {
+    final threeDayId = stableNotificationId(claimId, 3);
+    final oneDayId = stableNotificationId(claimId, 1);
+    await SystemNotificationService.instance.cancelNotification(threeDayId);
+    await SystemNotificationService.instance.cancelNotification(oneDayId);
+
+    if (!enabled || expiry == null) return;
+
+    final reminderBase = DateTime(expiry.year, expiry.month, expiry.day, 9);
+    for (final days in const [3, 1]) {
+      final reminderTime = reminderBase.subtract(Duration(days: days));
+      if (!reminderTime.isAfter(DateTime.now())) continue;
+      await SystemNotificationService.instance.scheduleRewardExpiryReminder(
+        id: days == 3 ? threeDayId : oneDayId,
+        voucherTitle: voucherTitle,
+        claimId: claimId,
+        reminderTime: reminderTime,
+        daysRemaining: days,
+      );
+    }
+  }
+
   static Future<void> syncVoucherExpiryReminders() async {
     final user = auth.currentUser;
     if (user == null) return;
@@ -1624,28 +1706,14 @@ class AppServices {
         .get();
 
     for (final doc in claims.docs) {
-      final threeDayId = stableNotificationId(doc.id, 3);
-      final oneDayId = stableNotificationId(doc.id, 1);
-      await SystemNotificationService.instance.cancelNotification(threeDayId);
-      await SystemNotificationService.instance.cancelNotification(oneDayId);
-
       final claim = doc.data();
       final expiry = asDate(claim['expiresAt']);
-      if (!enabled || claim['status'] != 'claimed' || expiry == null) continue;
-
-      final reminderBase = DateTime(expiry.year, expiry.month, expiry.day, 9);
-      final title = '${claim['title'] ?? 'Voucher'}';
-      for (final days in const [3, 1]) {
-        final reminderTime = reminderBase.subtract(Duration(days: days));
-        if (!reminderTime.isAfter(DateTime.now())) continue;
-        await SystemNotificationService.instance.scheduleRewardExpiryReminder(
-          id: days == 3 ? threeDayId : oneDayId,
-          voucherTitle: title,
-          claimId: doc.id,
-          reminderTime: reminderTime,
-          daysRemaining: days,
-        );
-      }
+      await _scheduleVoucherExpiryRemindersForClaim(
+        claimId: doc.id,
+        voucherTitle: '${claim['title'] ?? 'Voucher'}',
+        expiry: expiry,
+        enabled: enabled && claim['status'] == 'claimed',
+      );
     }
   }
 
@@ -2225,7 +2293,8 @@ class AppServices {
           {
             'reviewerName': 'Tan Mei Ling',
             'rating': 5,
-            'comment': 'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
+            'comment':
+                'Authentic BM salted vegetable duck/pork soup paired with aromatic dark yam rice. The homemade chili sauce is unbeatable!',
             'daysAgo': 2,
             'aspectTags': ['Authentic Taste', 'Must Try', 'Value for Money'],
             'helpfulCount': 14,
@@ -2233,7 +2302,8 @@ class AppServices {
           {
             'reviewerName': 'Hafiz Ridzuan',
             'rating': 5,
-            'comment': 'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal broth, and fast service even during lunch peak.',
+            'comment':
+                'A legendary stop in Bukit Mertajam. Generous ingredients, piping hot herbal broth, and fast service even during lunch peak.',
             'daysAgo': 5,
             'aspectTags': ['Authentic Taste', 'Friendly Service'],
             'helpfulCount': 9,
@@ -2241,18 +2311,22 @@ class AppServices {
           {
             'reviewerName': 'Bernard Lim',
             'rating': 4,
-            'comment': 'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
+            'comment':
+                'Delicious and flavorful. Best to come before 12:30 PM to avoid queueing for seats.',
             'daysAgo': 12,
             'aspectTags': ['Must Try', 'Clean & Cozy'],
             'helpfulCount': 6,
           },
         ];
-      } else if (nameLower.contains('duck egg') || nameLower.contains('char koay teow') || nameLower.contains('siam road')) {
+      } else if (nameLower.contains('duck egg') ||
+          nameLower.contains('char koay teow') ||
+          nameLower.contains('siam road')) {
         validSamples = [
           {
             'reviewerName': 'Marcus Goh',
             'rating': 5,
-            'comment': 'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow in Penang.',
+            'comment':
+                'Incredible wok hei! The rich creaminess of the duck egg elevates the whole plate. Top tier char koay teow in Penang.',
             'daysAgo': 1,
             'aspectTags': ['Authentic Taste', 'Must Try'],
             'helpfulCount': 18,
@@ -2260,7 +2334,8 @@ class AppServices {
           {
             'reviewerName': 'Nurul Huda',
             'rating': 5,
-            'comment': 'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
+            'comment':
+                'Crispy cockles and fragrant lard aroma. One of the best street food plates in mainland Penang.',
             'daysAgo': 4,
             'aspectTags': ['Authentic Taste', 'Value for Money'],
             'helpfulCount': 11,
@@ -2268,18 +2343,22 @@ class AppServices {
           {
             'reviewerName': 'Jason Tan',
             'rating': 4,
-            'comment': 'Generous portions and wonderful smoky flavor. Definitely worth waiting a few minutes in line.',
+            'comment':
+                'Generous portions and wonderful smoky flavor. Definitely worth waiting a few minutes in line.',
             'daysAgo': 10,
             'aspectTags': ['Must Try'],
             'helpfulCount': 5,
           },
         ];
-      } else if (nameLower.contains('cheong fatt tze') || nameLower.contains('blue mansion') || nameLower.contains('peranakan')) {
+      } else if (nameLower.contains('cheong fatt tze') ||
+          nameLower.contains('blue mansion') ||
+          nameLower.contains('peranakan')) {
         validSamples = [
           {
             'reviewerName': 'Sarah Jenkins',
             'rating': 5,
-            'comment': 'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
+            'comment':
+                'The heritage guided tour is top notch. The indigo courtyard and Feng Shui architecture details are world-class.',
             'daysAgo': 2,
             'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Scenic View'],
             'helpfulCount': 16,
@@ -2287,7 +2366,8 @@ class AppServices {
           {
             'reviewerName': 'Lim Wei Sheng',
             'rating': 5,
-            'comment': 'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
+            'comment':
+                'Stunning restoration in George Town UNESCO core. Photography is wonderful in the open courtyard.',
             'daysAgo': 6,
             'aspectTags': ['Heritage Atmosphere', 'Photogenic'],
             'helpfulCount': 12,
@@ -2295,18 +2375,23 @@ class AppServices {
           {
             'reviewerName': 'Chloe Dupont',
             'rating': 5,
-            'comment': 'Overwhelmingly beautiful collection of Baba Nyonya antiques, custom tiles, and gold-leaf wood carvings.',
+            'comment':
+                'Overwhelmingly beautiful collection of Baba Nyonya antiques, custom tiles, and gold-leaf wood carvings.',
             'daysAgo': 14,
             'aspectTags': ['Heritage Atmosphere', 'Must Try'],
             'helpfulCount': 8,
           },
         ];
-      } else if (nameLower.contains('batu caves') || nameLower.contains('temple') || nameLower.contains('mosque') || nameLower.contains('basilica')) {
+      } else if (nameLower.contains('batu caves') ||
+          nameLower.contains('temple') ||
+          nameLower.contains('mosque') ||
+          nameLower.contains('basilica')) {
         validSamples = [
           {
             'reviewerName': 'Ravi Kumar',
             'rating': 5,
-            'comment': 'Serene and magnificent cultural landmark. The ornate carvings and peaceful atmosphere make it a must-visit.',
+            'comment':
+                'Serene and magnificent cultural landmark. The ornate carvings and peaceful atmosphere make it a must-visit.',
             'daysAgo': 3,
             'aspectTags': ['Heritage Atmosphere', 'Scenic View', 'Photogenic'],
             'helpfulCount': 15,
@@ -2314,7 +2399,8 @@ class AppServices {
           {
             'reviewerName': 'David Chong',
             'rating': 5,
-            'comment': 'Remarkable historical craftsmanship and peaceful surroundings. Great educational experience for visitors.',
+            'comment':
+                'Remarkable historical craftsmanship and peaceful surroundings. Great educational experience for visitors.',
             'daysAgo': 7,
             'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
             'helpfulCount': 10,
@@ -2322,18 +2408,23 @@ class AppServices {
           {
             'reviewerName': 'Elena Volkova',
             'rating': 4,
-            'comment': 'Majestic architecture and very welcoming caretakers. Don\'t forget to take photos of the exterior details.',
+            'comment':
+                'Majestic architecture and very welcoming caretakers. Don\'t forget to take photos of the exterior details.',
             'daysAgo': 15,
             'aspectTags': ['Photogenic', 'Scenic View'],
             'helpfulCount': 7,
           },
         ];
-      } else if (catLower.contains('food') || catLower.contains('restaurant') || catLower.contains('cafe') || catLower.contains('kopitiam')) {
+      } else if (catLower.contains('food') ||
+          catLower.contains('restaurant') ||
+          catLower.contains('cafe') ||
+          catLower.contains('kopitiam')) {
         validSamples = [
           {
             'reviewerName': 'Kelvin Lee',
             'rating': 5,
-            'comment': 'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their specialty dishes in $area!',
+            'comment':
+                'Generous portions, authentic local flavors, and reasonable pricing. Definitely recommend trying their specialty dishes in $area!',
             'daysAgo': 2,
             'aspectTags': ['Authentic Taste', 'Value for Money', 'Must Try'],
             'helpfulCount': 12,
@@ -2341,7 +2432,8 @@ class AppServices {
           {
             'reviewerName': 'Aishah Rahman',
             'rating': 5,
-            'comment': 'Loved the traditional atmosphere and warm hospitality. A genuine taste of $area culinary culture.',
+            'comment':
+                'Loved the traditional atmosphere and warm hospitality. A genuine taste of $area culinary culture.',
             'daysAgo': 5,
             'aspectTags': ['Authentic Taste', 'Friendly Service'],
             'helpfulCount': 9,
@@ -2349,18 +2441,22 @@ class AppServices {
           {
             'reviewerName': 'Jason Miller',
             'rating': 4,
-            'comment': 'Great stop on our itinerary. Clean venue, authentic spices, and very friendly staff.',
+            'comment':
+                'Great stop on our itinerary. Clean venue, authentic spices, and very friendly staff.',
             'daysAgo': 11,
             'aspectTags': ['Friendly Service', 'Clean & Cozy'],
             'helpfulCount': 6,
           },
         ];
-      } else if (catLower.contains('nature') || catLower.contains('park') || catLower.contains('beach')) {
+      } else if (catLower.contains('nature') ||
+          catLower.contains('park') ||
+          catLower.contains('beach')) {
         validSamples = [
           {
             'reviewerName': 'Daniel Lim',
             'rating': 5,
-            'comment': 'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing walks in $area.',
+            'comment':
+                'Breathtaking scenery and well-maintained walking paths. Perfect for nature lovers and refreshing walks in $area.',
             'daysAgo': 3,
             'aspectTags': ['Scenic View', 'Photogenic', 'Family Friendly'],
             'helpfulCount': 14,
@@ -2368,7 +2464,8 @@ class AppServices {
           {
             'reviewerName': 'Grace Tan',
             'rating': 5,
-            'comment': 'Serene green atmosphere with great photo spots. Peaceful escape with stunning panoramic views.',
+            'comment':
+                'Serene green atmosphere with great photo spots. Peaceful escape with stunning panoramic views.',
             'daysAgo': 7,
             'aspectTags': ['Scenic View', 'Photogenic'],
             'helpfulCount': 10,
@@ -2376,7 +2473,8 @@ class AppServices {
           {
             'reviewerName': 'Amirul Hakim',
             'rating': 4,
-            'comment': 'Clean environment and gentle ocean/mountain breeze. A very relaxing stop for travelers.',
+            'comment':
+                'Clean environment and gentle ocean/mountain breeze. A very relaxing stop for travelers.',
             'daysAgo': 13,
             'aspectTags': ['Scenic View', 'Family Friendly'],
             'helpfulCount': 5,
@@ -2387,7 +2485,8 @@ class AppServices {
           {
             'reviewerName': 'Wong Chee Keong',
             'rating': 5,
-            'comment': 'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
+            'comment':
+                'A must-visit cultural landmark in $area. Well preserved with rich historical background and engaging exhibits.',
             'daysAgo': 2,
             'aspectTags': ['Heritage Atmosphere', 'Photogenic', 'Must Try'],
             'helpfulCount': 13,
@@ -2395,7 +2494,8 @@ class AppServices {
           {
             'reviewerName': 'Nur Syafiqah',
             'rating': 5,
-            'comment': 'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
+            'comment':
+                'Beautiful heritage craftsmanship and architecture. Great educational spot for both solo travelers and families.',
             'daysAgo': 6,
             'aspectTags': ['Heritage Atmosphere', 'Family Friendly'],
             'helpfulCount': 8,
@@ -2403,7 +2503,8 @@ class AppServices {
           {
             'reviewerName': 'Tom Harrison',
             'rating': 4,
-            'comment': 'Engaging visit and great cultural insights into Malaysian traditions. Friendly staff and well curated.',
+            'comment':
+                'Engaging visit and great cultural insights into Malaysian traditions. Friendly staff and well curated.',
             'daysAgo': 14,
             'aspectTags': ['Friendly Service', 'Must Try'],
             'helpfulCount': 5,

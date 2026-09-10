@@ -542,6 +542,7 @@ class PushNotificationService {
           'userId',
           isEqualTo: uid,
         )
+            .limit(25)
             .snapshots()
             .listen(
               (snapshot) async {

@@ -23,6 +23,10 @@ initializeApp({
 const db = getFirestore();
 
 const processing = new Set();
+const notificationBatchLimit = 50;
+const liveNotificationCutoff = Timestamp.fromMillis(
+  Date.now() - 30 * 60 * 1000,
+);
 
 function text(
   value,
@@ -418,6 +422,7 @@ db
     '==',
     'pending',
   )
+  .limit(notificationBatchLimit)
   .onSnapshot(
     snapshot => {
       for (
@@ -459,6 +464,16 @@ let initialLiveSnapshot = true;
 
 db
   .collection('notifications')
+  .where(
+    'createdAt',
+    '>=',
+    liveNotificationCutoff,
+  )
+  .orderBy(
+    'createdAt',
+    'desc',
+  )
+  .limit(notificationBatchLimit)
   .onSnapshot(
     snapshot => {
       if (initialLiveSnapshot) {
@@ -521,6 +536,11 @@ async function catchUpRecentNotifications() {
         '>=',
         cutoff,
       )
+      .orderBy(
+        'createdAt',
+        'desc',
+      )
+      .limit(notificationBatchLimit)
       .get();
 
   for (const document

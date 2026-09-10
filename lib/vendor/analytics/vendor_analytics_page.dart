@@ -182,12 +182,21 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
     required String format,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> redemptions,
     required Map<String, Map<String, dynamic>> voucherDataById,
+    required RewardInterestMetric interestMetric,
     required num totalIssued,
     required num totalClaimed,
     required double redemptionRate,
     required String peakHourLabel,
   }) async {
     if (exporting) return;
+    if (format != 'csv' && format != 'pdf') {
+      showMessage(
+        context,
+        'Choose CSV or PDF as the report format.',
+        error: true,
+      );
+      return;
+    }
     setState(() => exporting = true);
     try {
       final scope = voucherTitle ?? 'All published vouchers';
@@ -226,6 +235,35 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
           ..writeln(
             ['Peak redemption hour', peakHourLabel].map(_csvCell).join(','),
           )
+          ..writeln()
+          ..writeln(['Audience interest distribution'].map(_csvCell).join(','))
+          ..writeln(
+            [
+              'Interest',
+              'Unique tourists',
+              'Share of recorded interests',
+            ].map(_csvCell).join(','),
+          );
+        if (interestMetric.segments.isEmpty) {
+          csv.writeln(
+            [
+              'No interest data for this period',
+              '',
+              '',
+            ].map(_csvCell).join(','),
+          );
+        } else {
+          for (final segment in interestMetric.segments) {
+            csv.writeln(
+              [
+                segment.label,
+                segment.count,
+                '${(segment.ratio * 100).toStringAsFixed(1)}%',
+              ].map(_csvCell).join(','),
+            );
+          }
+        }
+        csv
           ..writeln()
           ..writeln(
             [
@@ -302,7 +340,47 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                   ['Filtered redemptions', '${redemptions.length}'],
                   ['Redemption rate', '${redemptionRate.toStringAsFixed(1)}%'],
                   ['Peak redemption hour', _pdfSafe(peakHourLabel)],
+                  [
+                    'Tourists with interest data',
+                    '${interestMetric.uniqueAudienceCount}',
+                  ],
                 ],
+                headerDecoration: pw.BoxDecoration(color: navy),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+                cellPadding: const pw.EdgeInsets.all(7),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Audience Interest Distribution',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.TableHelper.fromTextArray(
+                headers: const [
+                  'Interest',
+                  'Unique tourists',
+                  'Share of recorded interests',
+                ],
+                data: interestMetric.segments.isEmpty
+                    ? const [
+                        ['No interest data for this period', '', ''],
+                      ]
+                    : interestMetric.segments
+                          .map(
+                            (segment) => [
+                              _pdfSafe(segment.label),
+                              '${segment.count}',
+                              '${(segment.ratio * 100).toStringAsFixed(1)}%',
+                            ],
+                          )
+                          .toList(),
                 headerDecoration: pw.BoxDecoration(color: navy),
                 headerStyle: pw.TextStyle(
                   color: PdfColors.white,
@@ -366,7 +444,11 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
       if (mounted) {
         showMessage(
           context,
-          'Unable to export report: ${error.toString().replaceFirst('Exception: ', '')}',
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'The analytics report could not be created. Please try again.',
+          ),
           error: true,
         );
       }
@@ -392,6 +474,17 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _voucherStream,
         builder: (context, voucherSnapshot) {
+          if (voucherSnapshot.hasError) {
+            return ExplorerEmptyState(
+              title: 'Voucher analytics could not be loaded',
+              subtitle: rewardModuleErrorMessage(
+                voucherSnapshot.error!,
+                fallback:
+                    'The published voucher data is unavailable. Please try again.',
+              ),
+              icon: Icons.cloud_off_outlined,
+            );
+          }
           if (!voucherSnapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -425,6 +518,17 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _redemptionStream,
             builder: (context, redemptionSnapshot) {
+              if (redemptionSnapshot.hasError) {
+                return ExplorerEmptyState(
+                  title: 'Redemption analytics could not be loaded',
+                  subtitle: rewardModuleErrorMessage(
+                    redemptionSnapshot.error!,
+                    fallback:
+                        'The redemption records are unavailable. Please try again.',
+                  ),
+                  icon: Icons.cloud_off_outlined,
+                );
+              }
               if (!redemptionSnapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
@@ -496,23 +600,14 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                   .take(8)
                   .map((entry) => entry.value.toDouble())
                   .toList();
-              final interestCounts = <String, int>{};
-              for (final doc in redemptions) {
-                final rawTags = doc.data()['interestTags'];
-                if (rawTags is! Iterable) continue;
-                for (final rawTag in rawTags) {
-                  final tag = '$rawTag'.trim();
-                  if (tag.isNotEmpty) {
-                    interestCounts[tag] = (interestCounts[tag] ?? 0) + 1;
-                  }
-                }
-              }
-              final sortedInterests = interestCounts.entries.toList()
-                ..sort((a, b) => b.value.compareTo(a.value));
-              final topInterests = sortedInterests.take(4).toList();
-              final interestTotal = topInterests.fold<int>(
-                0,
-                (total, entry) => total + entry.value,
+              final interestMetric = calculateRewardInterestMetric(
+                redemptions.map((doc) {
+                  final data = doc.data();
+                  return RewardInterestRecord(
+                    audienceId: '${data['travelerId'] ?? doc.id}',
+                    tags: data['interestTags'],
+                  );
+                }),
               );
               const interestColors = [
                 ExplorerColors.navy,
@@ -613,6 +708,7 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                               format: format,
                               redemptions: redemptions,
                               voucherDataById: voucherDataById,
+                              interestMetric: interestMetric,
                               totalIssued: totalIssued,
                               totalClaimed: totalClaimed,
                               redemptionRate: rate,
@@ -793,13 +889,17 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const ExplorerSectionTitle('Interest Tags Distribution'),
+                  const ExplorerSectionTitle(
+                    'Tourist Interest Distribution',
+                    subtitle:
+                        'Based on recorded interests from unique tourists who redeemed in this period.',
+                  ),
                   const SizedBox(height: 10),
-                  if (topInterests.isEmpty)
+                  if (interestMetric.segments.isEmpty)
                     const ExplorerEmptyState(
-                      title: 'No interest data yet',
+                      title: 'No interest data for this period',
                       subtitle:
-                          'Anonymous tourist interests are captured at redemption.',
+                          'Interest data appears after a tourist with profile interests completes a redemption.',
                       icon: Icons.pie_chart_outline,
                     )
                   else
@@ -812,11 +912,14 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                             child: CustomPaint(
                               painter: _VendorDonutPainter(
                                 segments: [
-                                  for (var i = 0; i < topInterests.length; i++)
+                                  for (
+                                    var i = 0;
+                                    i < interestMetric.segments.length;
+                                    i++
+                                  )
                                     (
                                       color: interestColors[i],
-                                      ratio:
-                                          topInterests[i].value / interestTotal,
+                                      ratio: interestMetric.segments[i].ratio,
                                     ),
                                 ],
                               ),
@@ -826,12 +929,16 @@ class _VendorAnalyticsPageState extends State<VendorAnalyticsPage> {
                           Expanded(
                             child: Column(
                               children: [
-                                for (var i = 0; i < topInterests.length; i++)
+                                for (
+                                  var i = 0;
+                                  i < interestMetric.segments.length;
+                                  i++
+                                )
                                   _LegendRow(
                                     color: interestColors[i],
-                                    label: topInterests[i].key,
+                                    label: interestMetric.segments[i].label,
                                     value:
-                                        '${(topInterests[i].value / interestTotal * 100).round()}%',
+                                        '${(interestMetric.segments[i].ratio * 100).round()}% · ${interestMetric.segments[i].count}',
                                   ),
                               ],
                             ),

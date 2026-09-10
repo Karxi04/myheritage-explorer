@@ -68,7 +68,11 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Your current location could not be detected. Check location permission and try again.',
+          ),
           error: true,
         );
       }
@@ -118,24 +122,32 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       startsAt.day,
     );
 
-    if (title.text.trim().isEmpty ||
-        description.text.trim().isEmpty ||
-        cost == null ||
-        cost <= 0 ||
-        limit == null ||
-        limit <= 0 ||
-        selectedClaimLimit == null ||
-        selectedClaimLimit < 0 ||
-        (!unlimitedClaimsPerTourist && selectedClaimLimit == 0) ||
-        !normalizedStart.isBefore(normalizedExpiry) ||
-        !normalizedExpiry.isAfter(DateTime.now())) {
-      showMessage(
-        context,
-        'Enter valid voucher details. Point cost and inventory must be greater than zero.',
-        error: true,
-      );
+    final validationMessage =
+        RewardInputValidation.voucherTitle(title.text) ??
+        RewardInputValidation.voucherDescription(description.text) ??
+        RewardInputValidation.voucherTerms(terms.text) ??
+        RewardInputValidation.pointCost(pointCost.text) ??
+        RewardInputValidation.inventory(inventory.text) ??
+        (unlimitedClaimsPerTourist
+            ? null
+            : RewardInputValidation.claimLimit(
+                claimLimit.text,
+                totalInventory: limit,
+              )) ??
+        RewardInputValidation.schedule(
+          startsAt: normalizedStart,
+          expiresAt: normalizedExpiry,
+          now: DateTime.now(),
+        );
+    if (validationMessage != null) {
+      showMessage(context, validationMessage, error: true);
       return;
     }
+
+    // The validation above guarantees these parsed values are available.
+    final validCost = cost!;
+    final validInventory = limit!;
+    final validClaimLimit = selectedClaimLimit!;
 
     setState(() => busy = true);
 
@@ -166,13 +178,15 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       }
 
       final previousLimit =
-          (widget.voucher?['inventoryLimit'] as num?)?.toInt() ?? limit;
+          (widget.voucher?['inventoryLimit'] as num?)?.toInt() ??
+          validInventory;
       final previousRemaining =
-          (widget.voucher?['inventoryRemaining'] as num?)?.toInt() ?? limit;
+          (widget.voucher?['inventoryRemaining'] as num?)?.toInt() ??
+          validInventory;
       final alreadyUsed = max(0, previousLimit - previousRemaining);
-      if (widget.voucherId != null && limit < alreadyUsed) {
+      if (widget.voucherId != null && validInventory < alreadyUsed) {
         throw Exception(
-          'Inventory cannot be lower than the $alreadyUsed vouchers already claimed.',
+          '$alreadyUsed vouchers have already been claimed. Set total inventory to at least $alreadyUsed.',
         );
       }
 
@@ -185,10 +199,10 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         'title': title.text.trim(),
         'description': description.text.trim(),
         'terms': terms.text.trim(),
-        'pointCost': cost,
-        'inventoryLimit': limit,
+        'pointCost': validCost,
+        'inventoryLimit': validInventory,
         'startsAt': Timestamp.fromDate(normalizedStart),
-        'perTouristClaimLimit': selectedClaimLimit,
+        'perTouristClaimLimit': validClaimLimit,
         'expiresAt': Timestamp.fromDate(normalizedExpiry),
         if (voucherLocation != null) 'location': voucherLocation,
         'notificationRadiusMeters': AppServices.nearbyRewardRadiusMeters,
@@ -204,7 +218,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       if (widget.voucherId == null) {
         await AppServices.db.collection('vouchers').add({
           ...data,
-          'inventoryRemaining': limit,
+          'inventoryRemaining': validInventory,
           'claimCount': 0,
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -214,7 +228,7 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
             .doc(widget.voucherId)
             .update({
               ...data,
-              'inventoryRemaining': max(0, limit - alreadyUsed),
+              'inventoryRemaining': max(0, validInventory - alreadyUsed),
             });
       }
 
@@ -230,7 +244,12 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback: widget.voucherId == null
+                ? 'The voucher could not be published. Check the details and try again.'
+                : 'The voucher changes could not be saved. Please try again.',
+          ),
           error: true,
         );
       }
@@ -293,19 +312,34 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         const SizedBox(height: 10),
         TextField(
           controller: title,
-          decoration: const InputDecoration(labelText: 'Voucher title'),
+          maxLength: RewardInputValidation.maximumVoucherTitleLength,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Voucher title',
+            hintText: 'Example: 20% off a heritage meal',
+          ),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: description,
           maxLines: 3,
-          decoration: const InputDecoration(labelText: 'Description'),
+          maxLength: RewardInputValidation.maximumVoucherDescriptionLength,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Description',
+            hintText: 'Explain exactly what the tourist will receive',
+          ),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: terms,
           maxLines: 2,
-          decoration: const InputDecoration(labelText: 'Terms and conditions'),
+          maxLength: RewardInputValidation.maximumVoucherTermsLength,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Terms and conditions (optional)',
+            hintText: 'Example: Dine-in only; not valid with other offers',
+          ),
         ),
         const SizedBox(height: 20),
         const ExplorerSectionTitle(
@@ -316,6 +350,10 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         TextField(
           controller: pointCost,
           keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(7),
+          ],
           decoration: const InputDecoration(
             labelText: 'Point cost',
             helperText:
@@ -326,6 +364,10 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
         TextField(
           controller: inventory,
           keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(6),
+          ],
           decoration: const InputDecoration(
             labelText: 'Total voucher inventory',
             helperText: 'The maximum number of claims across all tourists.',
@@ -464,6 +506,10 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           TextField(
             controller: claimLimit,
             keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(6),
+            ],
             decoration: const InputDecoration(
               labelText: 'Claims allowed per tourist',
               helperText: 'Enter any whole number greater than zero.',
@@ -487,11 +533,17 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           onTap: () async {
             final today = DateTime.now();
             final firstDate = DateTime(today.year, today.month, today.day);
+            final lastDate = firstDate.add(const Duration(days: 730));
+            final initialDate = startsAt.isBefore(firstDate)
+                ? firstDate
+                : startsAt.isAfter(lastDate)
+                ? lastDate
+                : startsAt;
             final picked = await showDatePicker(
               context: context,
               firstDate: firstDate,
-              lastDate: DateTime.now().add(const Duration(days: 730)),
-              initialDate: startsAt.isBefore(firstDate) ? firstDate : startsAt,
+              lastDate: lastDate,
+              initialDate: initialDate,
             );
             if (picked != null) setState(() => startsAt = picked);
           },
@@ -506,11 +558,19 @@ class _VoucherEditorPageState extends State<VoucherEditorPage> {
           subtitle: Text(DateFormat.yMMMd().format(expiry)),
           trailing: const Icon(Icons.calendar_month_outlined),
           onTap: () async {
+            final today = DateTime.now();
+            final firstDate = DateTime(today.year, today.month, today.day);
+            final lastDate = firstDate.add(const Duration(days: 730));
+            final initialDate = expiry.isBefore(firstDate)
+                ? firstDate
+                : expiry.isAfter(lastDate)
+                ? lastDate
+                : expiry;
             final picked = await showDatePicker(
               context: context,
-              firstDate: DateTime.now(),
-              lastDate: DateTime.now().add(const Duration(days: 730)),
-              initialDate: expiry,
+              firstDate: firstDate,
+              lastDate: lastDate,
+              initialDate: initialDate,
             );
 
             if (picked != null) {
@@ -589,7 +649,11 @@ class _VoucherLocationPickerPageState
       if (mounted) {
         showMessage(
           context,
-          error.toString().replaceFirst('Exception: ', ''),
+          rewardModuleErrorMessage(
+            error,
+            fallback:
+                'Your current location could not be detected. Move the map pin manually or try again.',
+          ),
           error: true,
         );
       }

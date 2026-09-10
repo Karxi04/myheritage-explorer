@@ -67,6 +67,9 @@ Future<void> main() async {
       _handleNotificationPayload;
   await SystemNotificationService.instance.init();
 
+  // Curated Firestore data is seeded by an explicit admin/development action.
+  // Re-syncing it on every app launch exhausts shared read and write quota.
+
   runApp(const MyHeritageApp());
 
   AppServices.auth.authStateChanges().listen((user) {
