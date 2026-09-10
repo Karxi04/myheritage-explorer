@@ -1289,6 +1289,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('travel_groups')
           .where('memberIds', arrayContains: uid)
+          .limit(10)
           .get();
 
       final groups = <Map<String, dynamic>>[];
@@ -1320,6 +1321,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('vouchers')
           .where('status', isEqualTo: 'active')
+          .limit(20)
           .get();
 
       final vouchers = <Map<String, dynamic>>[];
@@ -1356,6 +1358,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('cultural_tasks')
           .where('status', isEqualTo: 'active')
+          .limit(20)
           .get();
 
       final tasks = <Map<String, dynamic>>[];
@@ -1383,6 +1386,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('hazards')
           .where('status', isEqualTo: 'verified')
+          .limit(30)
           .get();
 
       final hazards = snapshot.docs.map((doc) {
@@ -1409,6 +1413,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('notifications')
           .where('userId', isEqualTo: uid)
+          .limit(20)
           .get();
       final unread = snapshot.docs.where((doc) => doc.data()['read'] != true).length;
       return {'total': snapshot.docs.length, 'unread': unread};
@@ -1422,6 +1427,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
       final snapshot = await AppServices.db
           .collection('itineraries')
           .where('userId', isEqualTo: uid)
+          .limit(10)
           .get();
 
       final docs = snapshot.docs.toList()
@@ -1807,6 +1813,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
     final snapshot = await AppServices.db
         .collection('itineraries')
         .where('userId', isEqualTo: user.uid)
+        .limit(10)
         .get();
 
     if (snapshot.docs.isEmpty) return null;
@@ -1977,6 +1984,7 @@ You can open the itinerary below, ask what is on a specific day, check rewards/c
     final hazardSnapshot = await AppServices.db
         .collection('hazards')
         .where('status', isEqualTo: 'verified')
+        .limit(50)
         .get();
 
     final stops = List<Map<String, dynamic>>.from(doc.data()['stops'] ?? const []);

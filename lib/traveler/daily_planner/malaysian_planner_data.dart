@@ -4387,7 +4387,16 @@ class PlaceReviewsData {
 class MalaysianPlannerSync {
   const MalaysianPlannerSync._();
 
-  static Future<int> syncAllCuratedPlacesToFirestore() async {
+  static Future<void> seedIfEmpty() async {
+    try {
+      final snap = await AppServices.db.collection('places').limit(1).get();
+      if (snap.docs.isEmpty) {
+        await syncAllCuratedPlacesToFirestore(force: false);
+      }
+    } catch (_) {}
+  }
+
+  static Future<int> syncAllCuratedPlacesToFirestore({bool force = false}) async {
     int count = 0;
     final db = AppServices.db;
 
@@ -4470,8 +4479,8 @@ class MalaysianPlannerSync {
       count++;
     }
 
-    // Seed reviews for all these vendors in Firestore
-    await AppServices.seedVendorReviews(force: true);
+    // Seed reviews for these vendors if not already present
+    await AppServices.seedVendorReviews(force: force);
 
     return count;
   }

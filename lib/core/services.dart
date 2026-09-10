@@ -1531,7 +1531,7 @@ class AppServices {
       } else {
         final reviewsSnapshot = await db.collection('reviews').limit(1).get();
         if (reviewsSnapshot.docs.isEmpty) {
-          await seedVendorReviews(force: true);
+          await seedVendorReviews(force: false);
         }
       }
     } catch (_) {
@@ -1866,13 +1866,19 @@ class AppServices {
       count++;
     }
 
-    await seedVendorReviews(force: true);
+    await seedVendorReviews(force: false);
     return count;
   }
 
   static Future<int> seedVendorReviews({bool force = false}) async {
     final reviewsCollection = db.collection('reviews');
-    final existingReviewsSnapshot = await reviewsCollection.get();
+    if (!force) {
+      final quickCheck = await reviewsCollection.limit(1).get();
+      if (quickCheck.docs.isNotEmpty) {
+        return 0;
+      }
+    }
+    final existingReviewsSnapshot = await reviewsCollection.limit(200).get();
 
     final existingPlaceIds = existingReviewsSnapshot.docs
         .map(

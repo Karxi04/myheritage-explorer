@@ -98,12 +98,10 @@ class AdminDashboardPage extends StatelessWidget {
                             crossAxisAlignment:
                                 CrossAxisAlignment.start,
                             children: [
-                              StreamBuilder<
-                                  QuerySnapshot<
-                                      Map<String, dynamic>>>(
-                                stream: item.query.snapshots(),
+                              FutureBuilder<AggregateQuerySnapshot>(
+                                future: item.query.count().get(),
                                 builder: (_, snapshot) => Text(
-                                  '${snapshot.data?.docs.length ?? 0}',
+                                  '${snapshot.data?.count ?? 0}',
                                   style: const TextStyle(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,
@@ -130,11 +128,10 @@ class AdminDashboardPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        StreamBuilder<
-            QuerySnapshot<Map<String, dynamic>>>(
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: AppServices.db
               .collection('notifications')
-              .limit(20)
+              .limit(8)
               .snapshots(),
           builder: (context, snapshot) {
             final docs = snapshot.data?.docs.toList() ?? [];

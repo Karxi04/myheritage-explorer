@@ -26,6 +26,28 @@ class _RewardsPageState extends State<RewardsPage> {
   bool loadingLocation = false;
   Position? cataloguePosition;
 
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _travelerStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _vouchersStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _claimedVouchersStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid != null) {
+      _travelerStream = AppServices.travelerRef(uid).snapshots();
+      _claimedVouchersStream = AppServices.db
+          .collection('claimed_vouchers')
+          .where('userId', isEqualTo: uid)
+          .snapshots();
+    }
+    _vouchersStream = AppServices.db
+        .collection('vouchers')
+        .where('status', isEqualTo: 'active')
+        .limit(100)
+        .snapshots();
+  }
+
   @override
   void dispose() {
     searchController.dispose();
@@ -211,7 +233,7 @@ class _RewardsPageState extends State<RewardsPage> {
 
   Widget _buildRewardsBody(String uid) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: AppServices.travelerRef(uid).snapshots(),
+      stream: _travelerStream,
       builder: (context, travelerSnapshot) {
         if (travelerSnapshot.hasError) {
           return emptyState('Unable to load your reward balance');
@@ -229,10 +251,7 @@ class _RewardsPageState extends State<RewardsPage> {
             : <String>{};
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: AppServices.db
-              .collection('vouchers')
-              .where('status', isEqualTo: 'active')
-              .snapshots(),
+          stream: _vouchersStream,
           builder: (context, voucherSnapshot) {
             if (voucherSnapshot.hasError) {
               return emptyState('Unable to load the reward catalogue');
@@ -242,10 +261,7 @@ class _RewardsPageState extends State<RewardsPage> {
             }
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: AppServices.db
-                  .collection('claimed_vouchers')
-                  .where('userId', isEqualTo: uid)
-                  .snapshots(),
+              stream: _claimedVouchersStream,
               builder: (context, claimSnapshot) {
                 final claimedCounts = <String, int>{};
                 for (final claim in claimSnapshot.data?.docs ?? const []) {

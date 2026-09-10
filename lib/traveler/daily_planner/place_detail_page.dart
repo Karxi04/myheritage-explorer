@@ -33,6 +33,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
   String? detailsError;
   late Map<String, dynamic> place;
   final GlobalKey reviewFormKey = GlobalKey();
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _reviewsStream;
 
   static const List<String> availableAspectTags = [
     'Authentic Taste',
@@ -50,6 +51,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
   void initState() {
     super.initState();
     place = Map<String, dynamic>.from(widget.place);
+    _reviewsStream = _placeReviewsStream();
     _loadPlaceInformation();
   }
 
@@ -142,36 +144,30 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
     final vendorId = _vendorReviewId();
     final reviews = AppServices.db.collection('reviews');
     if (vendorId.isNotEmpty) {
-      return reviews.where('vendorId', isEqualTo: vendorId).snapshots();
+      return reviews.where('vendorId', isEqualTo: vendorId).limit(50).snapshots();
     }
 
     final placeId = widget.placeId.trim().isNotEmpty
         ? widget.placeId.trim()
         : '${place['placeId'] ?? ''}'.trim();
     if (placeId.isNotEmpty) {
-      return reviews.where('placeId', isEqualTo: placeId).snapshots();
+      return reviews.where('placeId', isEqualTo: placeId).limit(50).snapshots();
     }
 
     return reviews
         .where('placeNameKey', isEqualTo: GeoapifyPlanner.reviewKeyFor(place))
+        .limit(50)
         .snapshots();
   }
 
   void _syncLiveReviewSummary({required double average, required int count}) {
     if (liveReviewAverage == average && liveReviewCount == count) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (liveReviewAverage == average && liveReviewCount == count) return;
-      setState(() {
-        liveReviewAverage = average;
-        liveReviewCount = count;
-        if (count > 0) {
-          place['score'] = average;
-          place['inAppReviewCount'] = count;
-        }
-      });
-    });
+    liveReviewAverage = average;
+    liveReviewCount = count;
+    if (count > 0) {
+      place['score'] = average;
+      place['inAppReviewCount'] = count;
+    }
   }
 
   String _normaliseReview(String value) {
@@ -1184,7 +1180,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 ),
                 const SizedBox(height: 10),
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _placeReviewsStream(),
+                  stream: _reviewsStream,
                   builder: (context, snapshot) {
                     final liveReviews = (snapshot.data?.docs ?? [])
                         .map((doc) => {'id': doc.id, ...doc.data()})
@@ -1843,7 +1839,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 const SizedBox(height: 18),
                 // Review Form Card (Already Reviewed / Edit Mode / Write Mode)
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _placeReviewsStream(),
+                  stream: _reviewsStream,
                   builder: (context, snapshot) {
                     final currentUid = AppServices.auth.currentUser?.uid;
                     final liveReviews = (snapshot.data?.docs ?? [])

@@ -13,10 +13,20 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
   String filter = 'All';
   final Set<String> startingSessions = <String>{};
   Timer? sessionTicker;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _travelerStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _claimedVouchersStream;
 
   @override
   void initState() {
     super.initState();
+    final uid = AppServices.auth.currentUser?.uid;
+    if (uid != null) {
+      _travelerStream = AppServices.travelerRef(uid).snapshots();
+      _claimedVouchersStream = AppServices.db
+          .collection('claimed_vouchers')
+          .where('userId', isEqualTo: uid)
+          .snapshots();
+    }
     unawaited(AppServices.syncVoucherExpiryReminders());
     sessionTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -107,7 +117,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
         body: Column(
           children: [
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: AppServices.travelerRef(uid).snapshots(),
+              stream: _travelerStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return const Padding(
@@ -208,10 +218,7 @@ class _VoucherWalletPageState extends State<VoucherWalletPage> {
 
   Widget _buildClaimedVouchers(String uid) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: AppServices.db
-          .collection('claimed_vouchers')
-          .where('userId', isEqualTo: uid)
-          .snapshots(),
+      stream: _claimedVouchersStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return emptyState('Unable to load your voucher wallet');

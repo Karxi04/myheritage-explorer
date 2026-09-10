@@ -6,12 +6,20 @@ import 'malaysia_location_service.dart';
 class PlaceRepository {
   static final Map<String, List<PlaceModel>> _statePlacesCache = {};
   static final Map<String, DateTime> _cacheTime = {};
-  static const Duration _ttl = Duration(minutes: 5);
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _cachedPlaceDocs;
+  static DateTime? _cachedPlaceDocsTime;
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _cachedVendorDocs;
+  static DateTime? _cachedVendorDocsTime;
+  static const Duration _ttl = Duration(minutes: 10);
 
   /// Clear repository cache
   static void clearCache() {
     _statePlacesCache.clear();
     _cacheTime.clear();
+    _cachedPlaceDocs = null;
+    _cachedPlaceDocsTime = null;
+    _cachedVendorDocs = null;
+    _cachedVendorDocsTime = null;
   }
 
   /// Load places from Firestore 'places' collection for a given state
@@ -32,10 +40,24 @@ class PlaceRepository {
     List<PlaceModel> results = [];
 
     try {
-      // 1. Query Firestore 'places' collection
-      final placesSnap = await AppServices.db.collection('places').get();
+      // 1. Query Firestore 'places' collection (with global doc caching)
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> placeDocs;
+      if (!forceRefresh &&
+          _cachedPlaceDocs != null &&
+          _cachedPlaceDocsTime != null &&
+          DateTime.now().difference(_cachedPlaceDocsTime!) < _ttl) {
+        placeDocs = _cachedPlaceDocs!;
+      } else {
+        final placesSnap = await AppServices.db
+            .collection('places')
+            .where('status', isEqualTo: 'active')
+            .get();
+        placeDocs = placesSnap.docs;
+        _cachedPlaceDocs = placeDocs;
+        _cachedPlaceDocsTime = DateTime.now();
+      }
 
-      for (final doc in placesSnap.docs) {
+      for (final doc in placeDocs) {
         final place = PlaceModel.fromFirestore(doc);
         if (!place.isActive) continue;
 
@@ -53,8 +75,23 @@ class PlaceRepository {
 
       // 2. Query Firestore 'vendors' collection for active registered vendors in same state
       try {
-        final vendorsSnap = await AppServices.db.collection('vendors').get();
-        for (final doc in vendorsSnap.docs) {
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> vendorDocs;
+        if (!forceRefresh &&
+            _cachedVendorDocs != null &&
+            _cachedVendorDocsTime != null &&
+            DateTime.now().difference(_cachedVendorDocsTime!) < _ttl) {
+          vendorDocs = _cachedVendorDocs!;
+        } else {
+          final vendorsSnap = await AppServices.db
+              .collection('vendors')
+              .where('status', isEqualTo: 'active')
+              .get();
+          vendorDocs = vendorsSnap.docs;
+          _cachedVendorDocs = vendorDocs;
+          _cachedVendorDocsTime = DateTime.now();
+        }
+
+        for (final doc in vendorDocs) {
           final data = doc.data();
           if (data['status'] != null && data['status'] != 'active') continue;
 
