@@ -8,11 +8,13 @@ class VendorSearchPage extends StatefulWidget {
 }
 
 class _VendorSearchPageState extends State<VendorSearchPage> {
+  static const int _pageSize = 25;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _allVendors = [];
   String? _errorMessage;
+  int _currentPage = 1;
 
   @override
   void initState() {
@@ -54,6 +56,7 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
         setState(() {
           _allVendors = vendors;
           _isLoading = false;
+          _currentPage = 1;
         });
       }
     } catch (e) {
@@ -86,9 +89,77 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
     }).toList();
   }
 
+  int get _totalPages {
+    final count = _filteredVendors.length;
+    if (count == 0) return 1;
+    return (count / _pageSize).ceil();
+  }
+
+  List<Map<String, dynamic>> get _pagedVendors {
+    final filtered = _filteredVendors;
+    if (filtered.isEmpty) return [];
+    final start = (_currentPage - 1) * _pageSize;
+    if (start >= filtered.length) return [];
+    final end = (start + _pageSize < filtered.length) ? start + _pageSize : filtered.length;
+    return filtered.sublist(start, end);
+  }
+
+  Widget _buildPaginationControls(int totalCount) {
+    if (totalCount <= _pageSize) return const SizedBox.shrink();
+
+    final startItem = (_currentPage - 1) * _pageSize + 1;
+    final endItem = (_currentPage * _pageSize < totalCount)
+        ? _currentPage * _pageSize
+        : totalCount;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: ExplorerColors.border)),
+      ),
+      child: Row(
+        children: [
+          OutlinedButton.icon(
+            onPressed: _currentPage > 1
+                ? () => setState(() => _currentPage--)
+                : null,
+            icon: const Icon(Icons.arrow_back, size: 16),
+            label: const Text('Previous'),
+          ),
+          Expanded(
+            child: Text(
+              'Showing $startItem–$endItem of $totalCount\n(Page $_currentPage of $_totalPages)',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                color: ExplorerColors.muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          OutlinedButton(
+            onPressed: _currentPage < _totalPages
+                ? () => setState(() => _currentPage++)
+                : null,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Next'),
+                SizedBox(width: 4),
+                Icon(Icons.arrow_forward, size: 16),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final results = _filteredVendors;
+    final filtered = _filteredVendors;
+    final pagedResults = _pagedVendors;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -118,7 +189,10 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
-                          setState(() => _searchQuery = '');
+                          setState(() {
+                            _searchQuery = '';
+                            _currentPage = 1;
+                          });
                         },
                       )
                     : null,
@@ -131,7 +205,10 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
                   borderSide: BorderSide.none,
                 ),
               ),
-              onChanged: (val) => setState(() => _searchQuery = val),
+              onChanged: (val) => setState(() {
+                _searchQuery = val;
+                _currentPage = 1;
+              }),
             ),
           ),
           const Divider(height: 1),
@@ -163,7 +240,7 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
                           ),
                         ),
                       )
-                    : results.isEmpty
+                    : filtered.isEmpty
                         ? Center(
                             child: Padding(
                               padding: const EdgeInsets.all(24),
@@ -194,110 +271,117 @@ class _VendorSearchPageState extends State<VendorSearchPage> {
                               ),
                             ),
                           )
-                        : RefreshIndicator(
-                            onRefresh: _fetchVendors,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: results.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final vendor = results[index];
-                                final name =
-                                    '${vendor['businessName'] ?? 'Vendor Shop'}';
-                                final category =
-                                    '${vendor['category'] ?? 'General'}';
-                                final location =
-                                    '${vendor['shopLocation'] ?? 'Location unavailable'}';
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: RefreshIndicator(
+                                  onRefresh: _fetchVendors,
+                                  child: ListView.separated(
+                                    padding: const EdgeInsets.all(16),
+                                    itemCount: pagedResults.length,
+                                    separatorBuilder: (context, index) =>
+                                        const SizedBox(height: 12),
+                                    itemBuilder: (context, index) {
+                                      final vendor = pagedResults[index];
+                                      final name =
+                                          '${vendor['businessName'] ?? 'Vendor Shop'}';
+                                      final category =
+                                          '${vendor['category'] ?? 'General'}';
+                                      final location =
+                                          '${vendor['shopLocation'] ?? 'Location unavailable'}';
 
-                                return ExplorerCard(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            _VendorDetailPage(vendor: vendor),
-                                      ),
-                                    );
-                                  },
-                                  child: Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 26,
-                                        backgroundColor: ExplorerColors.goldDark
-                                            .withOpacity(0.15),
-                                        foregroundColor: ExplorerColors.goldDark,
-                                        child: const Icon(Icons.storefront,
-                                            size: 26),
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    name,
-                                                    style: const TextStyle(
-                                                      color: ExplorerColors.navy,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 15,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: ExplorerColors
-                                                        .navySoft,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            12),
-                                                  ),
-                                                  child: Text(
-                                                    category,
-                                                    style: const TextStyle(
-                                                      color:
-                                                          ExplorerColors.navy,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 10,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
+                                      return ExplorerCard(
+                                        onTap: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  _VendorDetailPage(vendor: vendor),
                                             ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              location,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: ExplorerColors.muted,
-                                                fontSize: 12,
+                                          );
+                                        },
+                                        child: Row(
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 26,
+                                              backgroundColor: ExplorerColors.goldDark
+                                                  .withOpacity(0.15),
+                                              foregroundColor: ExplorerColors.goldDark,
+                                              child: const Icon(Icons.storefront,
+                                                  size: 26),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          name,
+                                                          style: const TextStyle(
+                                                            color: ExplorerColors.navy,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            fontSize: 15,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      Container(
+                                                        padding: const EdgeInsets
+                                                            .symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: ExplorerColors
+                                                              .navySoft,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                  12),
+                                                        ),
+                                                        child: Text(
+                                                          category,
+                                                          style: const TextStyle(
+                                                            color:
+                                                                ExplorerColors.navy,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            fontSize: 10,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    location,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      color: ExplorerColors.muted,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            const Icon(
+                                              Icons.chevron_right,
+                                              color: ExplorerColors.muted,
+                                              size: 20,
                                             ),
                                           ],
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Icon(
-                                        Icons.chevron_right,
-                                        color: ExplorerColors.muted,
-                                        size: 20,
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
-                                );
-                              },
-                            ),
+                                ),
+                              ),
+                              _buildPaginationControls(filtered.length),
+                            ],
                           ),
           ),
         ],

@@ -1,10 +1,31 @@
 part of '../auth_gate.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _splashComplete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        setState(() => _splashComplete = true);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_splashComplete) {
+      return const AppSplashScreen();
+    }
+
     return StreamBuilder<User?>(
       stream: AppServices.auth.userChanges(),
       builder: (context, authSnapshot) {
@@ -17,11 +38,114 @@ class AuthGate extends StatelessWidget {
         final user = authSnapshot.data;
         if (user == null) {
           MobileNotificationService.instance.clearPendingPayload();
-          return const RoleSelectPage();
+          return const LoginPage();
         }
 
         return _ResolvedRoleGate(key: ValueKey(user.uid), user: user);
       },
+    );
+  }
+}
+
+class AppSplashScreen extends StatefulWidget {
+  const AppSplashScreen({super.key});
+
+  @override
+  State<AppSplashScreen> createState() => _AppSplashScreenState();
+}
+
+class _AppSplashScreenState extends State<AppSplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ExplorerColors.navy,
+      body: Center(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 24,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.account_balance_outlined,
+                      size: 52,
+                      color: ExplorerColors.navy,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  const Text(
+                    'MyHeritage Explorer',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -.6,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Smart Cultural Tourism Platform',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: .3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

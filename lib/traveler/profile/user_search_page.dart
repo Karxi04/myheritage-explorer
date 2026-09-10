@@ -8,11 +8,13 @@ class UserSearchPage extends StatefulWidget {
 }
 
 class _UserSearchPageState extends State<UserSearchPage> {
+  static const int _pageSize = 25;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _allUsers = [];
   String? _errorMessage;
+  int _currentPage = 1;
 
   @override
   void initState() {
@@ -61,6 +63,7 @@ class _UserSearchPageState extends State<UserSearchPage> {
         setState(() {
           _allUsers = users;
           _isLoading = false;
+          _currentPage = 1;
         });
       }
     } catch (e) {
@@ -103,6 +106,73 @@ class _UserSearchPageState extends State<UserSearchPage> {
           email.contains(query) ||
           interests.contains(query);
     }).toList();
+  }
+
+  int get _totalPages {
+    final count = _filteredUsers.length;
+    if (count == 0) return 1;
+    return (count / _pageSize).ceil();
+  }
+
+  List<Map<String, dynamic>> get _pagedUsers {
+    final filtered = _filteredUsers;
+    if (filtered.isEmpty) return [];
+    final start = (_currentPage - 1) * _pageSize;
+    if (start >= filtered.length) return [];
+    final end = (start + _pageSize < filtered.length) ? start + _pageSize : filtered.length;
+    return filtered.sublist(start, end);
+  }
+
+  Widget _buildPaginationControls(int totalCount) {
+    if (totalCount <= _pageSize) return const SizedBox.shrink();
+
+    final startItem = (_currentPage - 1) * _pageSize + 1;
+    final endItem = (_currentPage * _pageSize < totalCount)
+        ? _currentPage * _pageSize
+        : totalCount;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: ExplorerColors.border)),
+      ),
+      child: Row(
+        children: [
+          OutlinedButton.icon(
+            onPressed: _currentPage > 1
+                ? () => setState(() => _currentPage--)
+                : null,
+            icon: const Icon(Icons.arrow_back, size: 16),
+            label: const Text('Previous'),
+          ),
+          Expanded(
+            child: Text(
+              'Showing $startItem–$endItem of $totalCount\n(Page $_currentPage of $_totalPages)',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                color: ExplorerColors.muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          OutlinedButton(
+            onPressed: _currentPage < _totalPages
+                ? () => setState(() => _currentPage++)
+                : null,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Next'),
+                SizedBox(width: 4),
+                Icon(Icons.arrow_forward, size: 16),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showHiddenProfileNotice(
@@ -162,7 +232,8 @@ class _UserSearchPageState extends State<UserSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final results = _filteredUsers;
+    final filtered = _filteredUsers;
+    final pagedResults = _pagedUsers;
 
     return Scaffold(
       backgroundColor: ExplorerColors.background,
@@ -192,7 +263,10 @@ class _UserSearchPageState extends State<UserSearchPage> {
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
-                          setState(() => _searchQuery = '');
+                          setState(() {
+                            _searchQuery = '';
+                            _currentPage = 1;
+                          });
                         },
                       )
                     : null,
@@ -205,7 +279,10 @@ class _UserSearchPageState extends State<UserSearchPage> {
                   borderSide: BorderSide.none,
                 ),
               ),
-              onChanged: (val) => setState(() => _searchQuery = val),
+              onChanged: (val) => setState(() {
+                _searchQuery = val;
+                _currentPage = 1;
+              }),
             ),
           ),
           const Divider(height: 1),
@@ -237,7 +314,7 @@ class _UserSearchPageState extends State<UserSearchPage> {
                           ),
                         ),
                       )
-                    : results.isEmpty
+                    : filtered.isEmpty
                         ? Center(
                             child: Padding(
                               padding: const EdgeInsets.all(24),
@@ -268,176 +345,183 @@ class _UserSearchPageState extends State<UserSearchPage> {
                               ),
                             ),
                           )
-                        : RefreshIndicator(
-                            onRefresh: _fetchUsers,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: results.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final user = results[index];
-                                final isHidden =
-                                    user['isProfileHidden'] == true;
-                                final name =
-                                    '${user['displayName'] ?? 'Traveler'}';
-                                final rank = '${user['rank'] ?? 'Bronze'}';
-                                final email = '${user['email'] ?? ''}';
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: RefreshIndicator(
+                                  onRefresh: _fetchUsers,
+                                  child: ListView.separated(
+                                    padding: const EdgeInsets.all(16),
+                                    itemCount: pagedResults.length,
+                                    separatorBuilder: (context, index) =>
+                                        const SizedBox(height: 12),
+                                    itemBuilder: (context, index) {
+                                      final user = pagedResults[index];
+                                      final isHidden =
+                                          user['isProfileHidden'] == true;
+                                      final name =
+                                          '${user['displayName'] ?? 'Traveler'}';
+                                      final rank = '${user['rank'] ?? 'Bronze'}';
+                                      final email = '${user['email'] ?? ''}';
 
-                                return ExplorerCard(
-                                  onTap: () {
-                                    if (isHidden) {
-                                      _showHiddenProfileNotice(context, user);
-                                    } else {
-                                      _openPublicUserProfile(context, user);
-                                    }
-                                  },
-                                  child: Row(
-                                    children: [
-                                      Stack(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 26,
-                                            backgroundColor: isHidden
-                                                ? ExplorerColors.dangerSoft
-                                                : ExplorerColors.navySoft,
-                                            foregroundColor: isHidden
-                                                ? ExplorerColors.danger
-                                                : ExplorerColors.navy,
-                                            child: isHidden
-                                                ? const Icon(
-                                                    Icons.lock_outline,
-                                                    size: 24)
-                                                : Text(
-                                                    name.trim().isEmpty
-                                                        ? 'T'
-                                                        : name
-                                                            .trim()[0]
-                                                            .toUpperCase(),
-                                                    style: const TextStyle(
-                                                      fontSize: 18,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                    ),
-                                                  ),
-                                          ),
-                                          if (isHidden)
-                                            Positioned(
-                                              right: 0,
-                                              bottom: 0,
-                                              child: Container(
-                                                padding:
-                                                    const EdgeInsets.all(2),
-                                                decoration: const BoxDecoration(
-                                                  color: ExplorerColors.danger,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.visibility_off,
-                                                  size: 10,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                      return ExplorerCard(
+                                        onTap: () {
+                                          if (isHidden) {
+                                            _showHiddenProfileNotice(context, user);
+                                          } else {
+                                            _openPublicUserProfile(context, user);
+                                          }
+                                        },
+                                        child: Row(
                                           children: [
-                                            Row(
+                                            Stack(
                                               children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    name,
-                                                    style: TextStyle(
-                                                      color: isHidden
-                                                          ? ExplorerColors.muted
-                                                          : ExplorerColors.navy,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 15,
-                                                    ),
-                                                  ),
+                                                CircleAvatar(
+                                                  radius: 26,
+                                                  backgroundColor: isHidden
+                                                      ? ExplorerColors.dangerSoft
+                                                      : ExplorerColors.navySoft,
+                                                  foregroundColor: isHidden
+                                                      ? ExplorerColors.danger
+                                                      : ExplorerColors.navy,
+                                                  child: isHidden
+                                                      ? const Icon(
+                                                          Icons.lock_outline,
+                                                          size: 24)
+                                                      : Text(
+                                                          name.trim().isEmpty
+                                                              ? 'T'
+                                                              : name
+                                                                  .trim()[0]
+                                                                  .toUpperCase(),
+                                                          style: const TextStyle(
+                                                            fontSize: 18,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                        ),
                                                 ),
-                                                if (!isHidden)
-                                                  Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: ExplorerColors
-                                                          .goldDark
-                                                          .withOpacity(0.15),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                    ),
-                                                    child: Text(
-                                                      rank,
-                                                      style: const TextStyle(
-                                                        color: ExplorerColors
-                                                            .goldDark,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        fontSize: 10,
+                                                if (isHidden)
+                                                  Positioned(
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.all(2),
+                                                      decoration: const BoxDecoration(
+                                                        color: ExplorerColors.danger,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.visibility_off,
+                                                        size: 10,
+                                                        color: Colors.white,
                                                       ),
                                                     ),
                                                   ),
                                               ],
                                             ),
-                                            const SizedBox(height: 3),
-                                            if (isHidden)
-                                              const Row(
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
-                                                  Icon(
-                                                    Icons.privacy_tip_outlined,
-                                                    size: 13,
-                                                    color:
-                                                        ExplorerColors.danger,
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          name,
+                                                          style: TextStyle(
+                                                            color: isHidden
+                                                                ? ExplorerColors.muted
+                                                                : ExplorerColors.navy,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            fontSize: 15,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      if (!isHidden)
+                                                        Container(
+                                                          padding: const EdgeInsets
+                                                              .symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: ExplorerColors
+                                                                .goldDark
+                                                                .withOpacity(0.15),
+                                                            borderRadius:
+                                                                BorderRadius.circular(
+                                                                    12),
+                                                          ),
+                                                          child: Text(
+                                                            rank,
+                                                            style: const TextStyle(
+                                                              color: ExplorerColors
+                                                                  .goldDark,
+                                                              fontWeight:
+                                                                  FontWeight.w800,
+                                                              fontSize: 10,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                    ],
                                                   ),
-                                                  SizedBox(width: 4),
-                                                  Text(
-                                                    'User set their privacy to hidden',
-                                                    style: TextStyle(
-                                                      color:
-                                                          ExplorerColors.danger,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      fontSize: 12,
+                                                  const SizedBox(height: 3),
+                                                  if (isHidden)
+                                                    const Row(
+                                                      children: [
+                                                        Icon(
+                                                          Icons.privacy_tip_outlined,
+                                                          size: 13,
+                                                          color:
+                                                              ExplorerColors.danger,
+                                                        ),
+                                                        SizedBox(width: 4),
+                                                        Text(
+                                                          'User set their privacy to hidden',
+                                                          style: TextStyle(
+                                                            color:
+                                                                ExplorerColors.danger,
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                            fontSize: 12,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    )
+                                                  else
+                                                    Text(
+                                                      email,
+                                                      style: const TextStyle(
+                                                        color: ExplorerColors.muted,
+                                                        fontSize: 12,
+                                                      ),
                                                     ),
-                                                  ),
                                                 ],
-                                              )
-                                            else
-                                              Text(
-                                                email,
-                                                style: const TextStyle(
-                                                  color: ExplorerColors.muted,
-                                                  fontSize: 12,
-                                                ),
                                               ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Icon(
+                                              isHidden
+                                                  ? Icons.lock
+                                                  : Icons.chevron_right,
+                                              color: isHidden
+                                                  ? ExplorerColors.danger
+                                                  : ExplorerColors.muted,
+                                              size: 20,
+                                            ),
                                           ],
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Icon(
-                                        isHidden
-                                            ? Icons.lock
-                                            : Icons.chevron_right,
-                                        color: isHidden
-                                            ? ExplorerColors.danger
-                                            : ExplorerColors.muted,
-                                        size: 20,
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
-                                );
-                              },
-                            ),
+                                ),
+                              ),
+                              _buildPaginationControls(filtered.length),
+                            ],
                           ),
           ),
         ],
